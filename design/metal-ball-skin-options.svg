@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
+  <title id="title">Three metal ball skin concepts</title>
+  <desc id="desc">Three equally sized spherical metal ball concepts: polished chrome, brushed steel, and machined gunmetal.</desc>
+  <defs>
+    <radialGradient id="chrome" cx="31%" cy="24%" r="78%">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset=".13" stop-color="#e9f5fb"/>
+      <stop offset=".24" stop-color="#8fa4b2"/>
+      <stop offset=".38" stop-color="#f8fcff"/>
+      <stop offset=".53" stop-color="#536979"/>
+      <stop offset=".69" stop-color="#d8e2e8"/>
+      <stop offset=".83" stop-color="#657784"/>
+      <stop offset="1" stop-color="#26343f"/>
+    </radialGradient>
+    <radialGradient id="steel" cx="34%" cy="25%" r="82%">
+      <stop offset="0" stop-color="#edf4f7"/>
+      <stop offset=".23" stop-color="#c4d0d7"/>
+      <stop offset=".52" stop-color="#8799a5"/>
+      <stop offset=".78" stop-color="#647681"/>
+      <stop offset="1" stop-color="#34434e"/>
+    </radialGradient>
+    <radialGradient id="gunmetal" cx="30%" cy="22%" r="82%">
+      <stop offset="0" stop-color="#d0d9de"/>
+      <stop offset=".11" stop-color="#71818b"/>
+      <stop offset=".31" stop-color="#3e4a54"/>
+      <stop offset=".68" stop-color="#252f38"/>
+      <stop offset=".9" stop-color="#111a22"/>
+      <stop offset="1" stop-color="#080e14"/>
+    </radialGradient>
+    <linearGradient id="glint" x1="0" y1="0" x2=".9" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".95"/>
+      <stop offset="1" stop-color="#d7efff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="brush" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4fbff" stop-opacity=".62"/>
+      <stop offset=".45" stop-color="#6a7c87" stop-opacity=".04"/>
+      <stop offset="1" stop-color="#16232c" stop-opacity=".34"/>
+    </linearGradient>
+    <clipPath id="clipChrome"><circle cx="200" cy="220" r="125"/></clipPath>
+    <clipPath id="clipSteel"><circle cx="600" cy="220" r="125"/></clipPath>
+    <clipPath id="clipGun"><circle cx="1000" cy="220" r="125"/></clipPath>
+    <filter id="shadow" x="-.4" y="-.4" width="1.8" height="2">
+      <feGaussianBlur stdDeviation="16"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="520" rx="28" fill="#07111b"/>
+  <text x="600" y="52" fill="#eaf2f7" font-family="Arial, sans-serif" font-size="22" font-weight="700" text-anchor="middle" letter-spacing="3">METAL BALL SKIN OPTIONS</text>
+  <g fill="#000" opacity=".55" filter="url(#shadow)">
+    <ellipse cx="205" cy="372" rx="112" ry="17"/>
+    <ellipse cx="605" cy="372" rx="112" ry="17"/>
+    <ellipse cx="1005" cy="372" rx="112" ry="17"/>
+  </g>
+  <!-- A: high-contrast mirror chrome -->
+  <circle cx="200" cy="220" r="125" fill="url(#chrome)" stroke="#dce8ef" stroke-width="3"/>
+  <g clip-path="url(#clipChrome)" fill="none">
+    <path d="M74 245 C105 196 157 184 220 192 C269 198 301 221 326 251" stroke="#f9fdff" stroke-opacity=".85" stroke-width="10"/>
+    <path d="M75 278 C130 250 236 254 319 294" stroke="#182630" stroke-opacity=".7" stroke-width="18"/>
+    <path d="M88 151 C123 119 175 104 224 111" stroke="url(#glint)" stroke-width="18" stroke-linecap="round"/>
+    <ellipse cx="150" cy="142" rx="35" ry="13" fill="#fff" fill-opacity=".78" transform="rotate(-34 150 142)"/>
+  </g>
+  <!-- B: satin brushed steel with fine lathe marks -->
+  <circle cx="600" cy="220" r="125" fill="url(#steel)" stroke="#b8c7d0" stroke-width="3"/>
+  <g clip-path="url(#clipSteel)">
+    <circle cx="600" cy="220" r="114" fill="none" stroke="#eef5f8" stroke-opacity=".22" stroke-width="1"/>
+    <circle cx="600" cy="220" r="99" fill="none" stroke="#182630" stroke-opacity=".23" stroke-width="1"/>
+    <circle cx="600" cy="220" r="82" fill="none" stroke="#e6eef2" stroke-opacity=".2" stroke-width="1"/>
+    <circle cx="600" cy="220" r="65" fill="none" stroke="#25343e" stroke-opacity=".2" stroke-width="1"/>
+    <path d="M475 214 H725 V345 H475 Z" fill="url(#brush)"/>
+    <path d="M493 184 C530 139 591 126 640 140" fill="none" stroke="#fff" stroke-opacity=".58" stroke-width="8" stroke-linecap="round"/>
+    <ellipse cx="550" cy="147" rx="27" ry="9" fill="#fff" fill-opacity=".63" transform="rotate(-32 550 147)"/>
+  </g>
+  <!-- C: dark machined gunmetal with a beveled rim and inset face -->
+  <circle cx="1000" cy="220" r="125" fill="url(#gunmetal)" stroke="#9baab3" stroke-width="3"/>
+  <circle cx="1000" cy="220" r="105" fill="none" stroke="#d2dde3" stroke-opacity=".57" stroke-width="3"/>
+  <circle cx="1000" cy="220" r="93" fill="none" stroke="#0b1218" stroke-opacity=".9" stroke-width="7"/>
+  <circle cx="1000" cy="220" r="77" fill="none" stroke="#7c8e99" stroke-opacity=".5" stroke-width="2" stroke-dasharray="3 8"/>
+  <path d="M912 177 C930 132 971 107 1017 105" fill="none" stroke="#eef8fc" stroke-opacity=".7" stroke-width="8" stroke-linecap="round"/>
+  <ellipse cx="944" cy="139" rx="23" ry="8" fill="#fff" fill-opacity=".66" transform="rotate(-34 944 139)"/>
+  <circle cx="1000" cy="220" r="43" fill="none" stroke="#c0cbd1" stroke-opacity=".32" stroke-width="2"/>
+  <text x="200" y="430" fill="#f0f6fa" font-family="Arial, sans-serif" font-size="20" font-weight="700" text-anchor="middle">1 · POLISHED CHROME</text>
+  <text x="200" y="462" fill="#8fa4b3" font-family="Arial, sans-serif" font-size="14" text-anchor="middle">Mirror-bright, bold reflections</text>
+  <text x="600" y="430" fill="#f0f6fa" font-family="Arial, sans-serif" font-size="20" font-weight="700" text-anchor="middle">2 · BRUSHED STEEL</text>
+  <text x="600" y="462" fill="#8fa4b3" font-family="Arial, sans-serif" font-size="14" text-anchor="middle">Satin finish, fine lathe grain</text>
+  <text x="1000" y="430" fill="#f0f6fa" font-family="Arial, sans-serif" font-size="20" font-weight="700" text-anchor="middle">3 · MACHINED GUNMETAL</text>
+  <text x="1000" y="462" fill="#8fa4b3" font-family="Arial, sans-serif" font-size="14" text-anchor="middle">Dark alloy, beveled inset rings</text>
+</svg>
+
