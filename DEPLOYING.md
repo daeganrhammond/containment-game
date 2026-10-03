@@ -20,4 +20,3 @@ The included `.github/workflows/deploy-pages.yml` builds and republishes the gam
 To turn it on, create or connect a GitHub repository for this project, push the project files to its `main` branch, then select **Settings → Pages → Source → GitHub Actions**. GitHub will show the public game URL in the Pages settings and in the workflow run. Future patches published to `main` update that URL automatically.
 
 The source repository and the hosted game have separate visibility settings. Choose the repository visibility deliberately; the built game can be public while the source stays private when the GitHub plan allows Pages for private repositories.
-

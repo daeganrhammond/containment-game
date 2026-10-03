@@ -3,7 +3,7 @@ export type MechanicsSettings = {
   startLives: number; startingBalls: number; ballsAddedPerLevel: number; hardMode: boolean; easyMode: boolean;
   normalCaptureBallCount: number; normalCaptureBallChance: number; hardCaptureBallCount: number; hardCaptureBallChance: number;
   clearPercentOfOriginalBoard: number; maximumActiveWalls: number;
-  ballRadius: number; powerupRadiusMultiplier: number; powerupRadius: number; lifePowerupRadius: number; bubbleSizeMultiplier: number; comboBubbleCountVariance: number; bubbleCreditsPerPop: number; ballSpeedMin: number; ballSpeedMax: number; ballRecoveryThreshold: number; ballRecoverySpeed: number; ballRecoveryModifierChance: number; wallGrowthSpeed: number;
+  ballRadius: number; powerupRadiusMultiplier: number; powerupSizeMultipliers: Record<PowerKind, number>; powerupRadius: number; lifePowerupRadius: number; bubbleSizeMultiplier: number; comboBubbleCountVariance: number; bubbleCreditsPerPop: number; ballSpeedMin: number; ballSpeedMax: number; ballRecoveryThreshold: number; ballRecoverySpeed: number; ballRecoveryModifierChance: number; wallGrowthSpeed: number;
   ballModifiers: Record<BallModifier, BallModifierSettings>;
   powerupSpawnEverySecondsMin: number; powerupSpawnEverySecondsMax: number;
   creditPickupBaseAmount: number; creditPickupBounceDespawnChance: number;
@@ -25,7 +25,7 @@ export type MechanicsSettings = {
   waldoPetPaintingCredits: number; waldoPetPaintingIntervalMs: number;
   speedBoostMultiplier: number;
   treasureLevelEligibilityChance: number; treasureHuntDurationMs: number; treasureRewardMin: number; treasureRewardMax: number;
-  ramDisplayIconLimit: number; missExplosionRadius: number; missExplosionStrength: number; pictureEventChance: number; leaderboardSize: number; wallBreakStyle: string;
+  ramDisplayIconLimit: number; missExplosionRadius: number; missExplosionStrength: number; pictureEventChance: number; pictureLibrarySelectionChance: number; waldoLibrarySelectionChance: number; leaderboardSize: number; wallBreakStyle: string;
   territoryPopupPlacement: 'wall' | 'captured-area';
   backgroundColors: string[]; backgroundColorIndex: number; autoBackground: boolean; showGrid: boolean; gridOpacity: number; gridColor: string; claimedFillOpacity: number; claimedColor: string;
 };
@@ -55,6 +55,7 @@ export const DEFAULT_MECHANICS: MechanicsSettings = {
   maximumActiveWalls: 4,
   ballRadius: 12.5,
   powerupRadiusMultiplier: 1.4,
+  powerupSizeMultipliers: { life: 1.4, speed: 1.4, ram: 1.4, treasure: 1.4, merchant: 1.4, bubble: 1.68, waldo: 1.4, credit: 1.4, 'engi-egg': 1.4, exit: 1.4 },
   powerupRadius: 17.5,
   lifePowerupRadius: 17.5,
   bubbleSizeMultiplier: 1.2,
@@ -99,10 +100,12 @@ export const DEFAULT_MECHANICS: MechanicsSettings = {
   missExplosionRadius: 145,
   missExplosionStrength: 280,
   pictureEventChance: 0.5,
+  pictureLibrarySelectionChance: 0.5,
+  waldoLibrarySelectionChance: 0.5,
   leaderboardSize: 10,
   wallBreakStyle: 'glass-shards',
   territoryPopupPlacement: 'wall',
-  backgroundColors: ['#0b1728', '#17112b', '#102321', '#251623', '#17202a'],
+  backgroundColors: ['#0b1728', '#17112b', '#102321', '#251623', '#17202a', '#080f22', '#061a1d', '#080d19'],
   backgroundColorIndex: 0,
   autoBackground: true,
   showGrid: true,
@@ -116,7 +119,7 @@ export let MECHANICS: MechanicsSettings = { ...DEFAULT_MECHANICS, ballModifiers:
 export function getMechanicsSettings(): MechanicsSettings { return { ...MECHANICS, ballModifiers: Object.fromEntries(Object.entries(MECHANICS.ballModifiers).map(([key, value]) => [key, { ...value }])) as MechanicsSettings['ballModifiers'], powerupSpawnWeights: { ...MECHANICS.powerupSpawnWeights }, powerupDespawnEnabled: { ...MECHANICS.powerupDespawnEnabled }, powerupDespawnSeconds: { ...MECHANICS.powerupDespawnSeconds }, overflowCreditValues: { ...MECHANICS.overflowCreditValues }, merchantRewardsEnabled: { ...MECHANICS.merchantRewardsEnabled }, merchantUpgradePerBar: { ...MECHANICS.merchantUpgradePerBar }, merchantSkinTierMultipliers: { ...MECHANICS.merchantSkinTierMultipliers }, backgroundColors: [...MECHANICS.backgroundColors] }; }
 export function setMechanicsSettings(settings: MechanicsSettings) { MECHANICS = { ...settings, ballModifiers: Object.fromEntries(Object.entries(settings.ballModifiers).map(([key, value]) => [key, { ...value }])) as MechanicsSettings['ballModifiers'], powerupSpawnWeights: { ...settings.powerupSpawnWeights }, powerupDespawnEnabled: { ...settings.powerupDespawnEnabled }, powerupDespawnSeconds: { ...settings.powerupDespawnSeconds }, overflowCreditValues: { ...settings.overflowCreditValues }, merchantRewardsEnabled: { ...settings.merchantRewardsEnabled }, merchantUpgradePerBar: { ...settings.merchantUpgradePerBar }, merchantSkinTierMultipliers: { ...settings.merchantSkinTierMultipliers }, backgroundColors: [...settings.backgroundColors] }; }
 
-export type Ball = { id: number; x: number; y: number; vx: number; vy: number; r: number; rammed?: boolean; modifier?: BallModifier; modifierExpiresAtMs?: number; phaseEndsAtMs?: number; skimmerWallId?: number; skimmerRemainingMs?: number; skimmerResumeVx?: number; skimmerResumeVy?: number; drifting?: boolean };
+export type Ball = { id: number; x: number; y: number; vx: number; vy: number; r: number; rammed?: boolean; modifier?: BallModifier; modifierExpiresAtMs?: number; phaseEndsAtMs?: number; skimmerWallId?: number; skimmerRemainingMs?: number; skimmerResumeVx?: number; skimmerResumeVy?: number; skimmerStartAlong?: number; drifting?: boolean };
 export type Wall = {
   id: number;
   axis: 'vertical' | 'horizontal';
@@ -140,13 +143,14 @@ export type PetTask = EngiTask | 'clean' | 'paint' | 'wander';
 export type WaldoPainting = { id: number; wallId: number; axis: Wall['axis']; at: number; along: number; style: number };
 export type CompanionPet = { id: number; species: 'engi' | 'waldo'; name: string; skinId: string; health: number; maxHealth: number; level: number; deployed: boolean; x: number; y: number; vx: number; vy: number; task: PetTask; taskUntilMs: number; climbUntilMs?: number; repairedThisLevel: boolean; nextPaintingAtMs?: number; paintings?: WaldoPainting[] };
 export type PetIncubation = { id: number; species: 'engi'; progressMs: number; durationMs: number; nameSeed: number; skinId: string };
-export type PowerUp = { id: number; x: number; y: number; vx: number; vy: number; kind: PowerKind; phaseChest?: boolean; bounceCredits?: number; despawnAtMs?: number; despawnOpacity?: number };
+export type PowerUp = { id: number; x: number; y: number; vx: number; vy: number; kind: PowerKind; skinId?: string; phaseChest?: boolean; bounceCredits?: number; despawnAtMs?: number; despawnOpacity?: number };
 export type SkeweredWall = Pick<Wall, 'axis' | 'at' | 'low' | 'high'>;
 export type CaptureEvent = { id: number; x: number; y: number; kind: PowerKind | 'explosion' | 'phaseRupture' | 'phaseChestBreak' | 'ramBlast' | 'jackpot' | 'merchantBreak' | 'anchorBreak' | 'combo' | 'bubbleLost' | 'creditLost' | 'overflowFailed' | 'waldoFound' | 'petRepair' | 'petLost' | 'petHatched' | 'engiEggBreak'; skinId?: string; skewered?: boolean; skeweredAxis?: Wall['axis']; skeweredWall?: SkeweredWall; amount?: number; comboCount?: number };
 export type WallBreakEvent = { id: number; x: number; y: number; style: string; axis?: Wall['axis']; at?: number; low?: number; high?: number };
 export type TerritoryGainEvent = { id: number; x: number; y: number; percent: number; wallX?: number; wallY?: number; areaX?: number; areaY?: number };
 export type CreditGainEvent = { id: number; x: number; y: number; amount: number };
 export type OverflowJob = { id: number; kind: PowerKind; credits: number; remainingMs: number; sourceX: number; sourceY: number };
+export type OverflowResult = { kind: PowerKind; success: boolean; credits: number; untilMs: number };
 export type PictureLibraryEntry = { id: string; name: string; seed: number; uri?: string };
 export type WaldoLibraryEntry = { id: string; name: string; seed: number; waldoX: number; waldoY: number };
 export type PictureEvent = { seed: number; pictureId?: string; isWaldo?: boolean; waldoX?: number; waldoY?: number; waldoLibraryId?: string; waldoFound?: boolean };
@@ -157,14 +161,14 @@ export function setWaldoLibrary(entries: WaldoLibraryEntry[]) { waldoLibrary = [
 function nextPictureEvent(waldoRequested = false): PictureEvent | null {
   if (Math.random() >= MECHANICS.pictureEventChance) return null;
   if (waldoRequested) {
-    if (waldoLibrary.length && Math.random() < 0.5) {
+    if (waldoLibrary.length && Math.random() < MECHANICS.waldoLibrarySelectionChance) {
       const saved = waldoLibrary[Math.floor(Math.random() * waldoLibrary.length)];
       return { seed: saved.seed, isWaldo: true, waldoX: saved.waldoX, waldoY: saved.waldoY, waldoLibraryId: saved.id, waldoFound: false };
     }
     const seed = Math.floor(Math.random() * 2_147_483_647);
     return { seed, isWaldo: true, ...generatedWaldoLocation(seed), waldoFound: false };
   }
-  const chooseSavedBackground = Math.random() >= 0.5;
+  const chooseSavedBackground = Math.random() < MECHANICS.pictureLibrarySelectionChance;
   const favorite = chooseSavedBackground && pictureLibrary.length ? pictureLibrary[Math.floor(Math.random() * pictureLibrary.length)] : undefined;
   return favorite ? { seed: favorite.seed, pictureId: favorite.id } : { seed: Math.floor(Math.random() * 2_147_483_647) };
 }
@@ -186,7 +190,7 @@ export type Run = {
   ramCapacityBonus: number; ramCapacityPurchases: number;
   merchantTokens: number; credits: number; powerBars: number;
   lifeCapacity: number; lifeCapacityPurchases: number;
-  overflowJobs: OverflowJob[]; overflowSuccessChance: number; overflowUpgradePurchases: number;
+  overflowJobs: OverflowJob[]; overflowSuccessChance: number; overflowUpgradePurchases: number; overflowResult?: OverflowResult;
   powerBarsPurchased: number;
   merchantUpgrades: Record<'life' | 'speed' | 'ram' | 'treasure' | 'waldo', number>;
   petEggs: number; petEggVisitProgress: number; pets: CompanionPet[]; petIncubations: PetIncubation[];
@@ -262,7 +266,8 @@ export function powerupDespawnAt(kind: PowerKind, elapsedMs: number, settings: M
 }
 
 export function powerupCollisionRadius(kind: PowerKind, settings: MechanicsSettings = MECHANICS) {
-  return settings.ballRadius * settings.powerupRadiusMultiplier * (kind === 'bubble' ? settings.bubbleSizeMultiplier : 1);
+  const ratio = settings.powerupSizeMultipliers?.[kind] ?? settings.powerupRadiusMultiplier * (kind === 'bubble' ? settings.bubbleSizeMultiplier : 1);
+  return settings.ballRadius * ratio;
 }
 
 function powerupRadius(kind: PowerKind = 'life', settings: MechanicsSettings = MECHANICS) {
@@ -281,6 +286,9 @@ function randomPowerKind(treasureEligible: boolean, merchantAllowed = true, sett
   const value = Math.random() * total;
   return value < weights.life ? 'life' : value < weights.life + weights.speed ? 'speed' : value < weights.life + weights.speed + weights.ram ? 'ram' : value < weights.life + weights.speed + weights.ram + treasure ? 'treasure' : value < weights.life + weights.speed + weights.ram + treasure + merchant ? 'merchant' : value < weights.life + weights.speed + weights.ram + treasure + merchant + bubble ? 'bubble' : value < weights.life + weights.speed + weights.ram + treasure + merchant + bubble + credit ? 'credit' : 'engi-egg';
 }
+
+const ENGI_COCOON_SKINS = ['engi-cocoon', 'engi-seed-pod', 'engi-scarab-capsule'] as const;
+export function randomEngiCocoonSkin() { return ENGI_COCOON_SKINS[Math.floor(Math.random() * ENGI_COCOON_SKINS.length)]; }
 
 function ballModifierRuleAllows(run: Pick<Run, 'balls' | 'walls'>, modifier: BallModifier) {
   // Phase is event-triggered when a wall starts, so it does not use spawn or
@@ -784,7 +792,7 @@ function applyPickupCaptures(run: Run, captured: PowerUp[], skeweredIds = new Se
   const capturedIds = new Set(captured.map(p => p.id));
   const creditsPerBubble = run.mechanics.bubbleCreditsPerPop;
   const creditPayout = (power: PowerUp) => power.kind === 'credit' ? Math.max(0, run.mechanics.creditPickupBaseAmount) + Math.max(0, power.bounceCredits ?? 0) : 0;
-  const captureEvents: CaptureEvent[] = captured.map((p, index) => ({ id: run.nextId + index, x: p.x, y: p.y, kind: p.kind, amount: p.kind === 'bubble' ? creditsPerBubble : p.kind === 'credit' ? creditPayout(p) : undefined, skewered: skeweredIds.has(p.id), skeweredAxis: skeweredWalls.get(p.id)?.axis, skeweredWall: skeweredWalls.get(p.id) }));
+  const captureEvents: CaptureEvent[] = captured.map((p, index) => ({ id: run.nextId + index, x: p.x, y: p.y, kind: p.kind, skinId: p.skinId, amount: p.kind === 'bubble' ? creditsPerBubble : p.kind === 'credit' ? creditPayout(p) : undefined, skewered: skeweredIds.has(p.id), skeweredAxis: skeweredWalls.get(p.id)?.axis, skeweredWall: skeweredWalls.get(p.id) }));
   const regularCombo = captured.filter(p => p.kind !== 'bubble');
   const combo = regularCombo.length > 1;
   let nextId = run.nextId + captureEvents.length;
@@ -834,14 +842,17 @@ function awardCredits(run: Run, amount: number, x: number, y: number): Run {
 }
 
 function advanceOverflowProcessor(run: Run, dt: number): Run {
-  const jobs = run.overflowJobs ?? [];
-  if (!jobs.length) return run;
+  const current = run.overflowResult && run.overflowResult.untilMs <= run.elapsedMs ? { ...run, overflowResult: undefined } : run;
+  const jobs = current.overflowJobs ?? [];
+  if (!jobs.length) return current;
   const [active, ...queued] = jobs;
   active.remainingMs -= dt;
-  if (active.remainingMs > 0) return { ...run, overflowJobs: [active, ...queued] };
-  const completed = { ...run, overflowJobs: queued };
-  if (Math.random() * 100 < run.overflowSuccessChance) return awardCredits(completed, active.credits, active.sourceX, active.sourceY);
-  return { ...completed, captureEvents: [...completed.captureEvents, { id: completed.nextId, x: active.sourceX, y: active.sourceY, kind: 'overflowFailed' }], nextId: completed.nextId + 1 };
+  if (active.remainingMs > 0) return { ...current, overflowJobs: [active, ...queued] };
+  const completed = { ...current, overflowJobs: queued };
+  const success = Math.random() * 100 < current.overflowSuccessChance;
+  const result = { kind: active.kind, success, credits: active.credits, untilMs: current.elapsedMs + 2800 };
+  if (success) return { ...awardCredits(completed, active.credits, active.sourceX, active.sourceY), overflowResult: result };
+  return { ...completed, overflowResult: result, captureEvents: [...completed.captureEvents, { id: completed.nextId, x: active.sourceX, y: active.sourceY, kind: 'overflowFailed' }], nextId: completed.nextId + 1 };
 }
 
 export function tapPickupAt(run: Run, x: number, y: number): Run {
@@ -938,7 +949,7 @@ export function ramAt(run: Run, x: number, y: number): Run {
     if (run.ramCharges >= 3) {
       const count = Math.floor(randomBetween(run.mechanics.treasureRewardMin, run.mechanics.treasureRewardMax + 1));
       const rewards = Array.from({ length: count }, () => randomPowerKind(true, run.merchantTokens === 0, run.mechanics));
-      const rewardEvents: CaptureEvent[] = rewards.map((kind, index) => ({ id: run.nextId + index + 2, x: randomBetween(40, run.boardWidth - 40), y: randomBetween(40, run.boardHeight - 40), kind }));
+      const rewardEvents: CaptureEvent[] = rewards.map((kind, index) => ({ id: run.nextId + index + 2, x: randomBetween(40, run.boardWidth - 40), y: randomBetween(40, run.boardHeight - 40), kind, skinId: kind === 'engi-egg' ? randomEngiCocoonSkin() : undefined }));
       const rewardCreditPayouts = rewards.map((kind, index) => ({ kind, event: rewardEvents[index], amount: kind === 'bubble' ? run.mechanics.bubbleCreditsPerPop : kind === 'credit' ? run.mechanics.creditPickupBaseAmount : 0 })).filter(reward => reward.amount > 0);
       const creditGainEvents = [...(run.creditGainEvents ?? []), ...rewardCreditPayouts.map((reward, index) => ({ id: run.nextId + count + 2 + index, x: reward.event.x, y: reward.event.y, amount: reward.amount }))];
       const rewardResources = rewards.flatMap((kind, index) => kind === 'life' || kind === 'speed' || kind === 'ram' ? [{ kind, x: rewardEvents[index].x, y: rewardEvents[index].y }] : []);
@@ -1003,7 +1014,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
   run.balls = run.balls.map(ball => {
     if (ball.modifierExpiresAtMs === undefined || ball.modifierExpiresAtMs > run.elapsedMs) return ball;
     const { modifierExpiresAtMs: _expiry, ...rest } = ball;
-    return { ...rest, modifier: undefined, vx: ball.skimmerResumeVx ?? ball.vx, vy: ball.skimmerResumeVy ?? ball.vy, skimmerWallId: undefined, skimmerRemainingMs: undefined, skimmerResumeVx: undefined, skimmerResumeVy: undefined };
+    return { ...rest, modifier: undefined, vx: ball.skimmerResumeVx ?? ball.vx, vy: ball.skimmerResumeVy ?? ball.vy, skimmerWallId: undefined, skimmerRemainingMs: undefined, skimmerResumeVx: undefined, skimmerResumeVy: undefined, skimmerStartAlong: undefined };
   });
   if (run.treasureHunt && run.treasureHunt.remainingMs <= 0) run.treasureHunt = null;
   for (const ball of run.balls) {
@@ -1130,23 +1141,57 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
     if (!skimmingWall || (b.skimmerRemainingMs ?? 0) <= dt) {
       if (b.skimmerWallId !== undefined) {
         b.vx = b.skimmerResumeVx ?? b.vx; b.vy = b.skimmerResumeVy ?? b.vy;
-        b.skimmerWallId = undefined; b.skimmerRemainingMs = undefined; b.skimmerResumeVx = undefined; b.skimmerResumeVy = undefined;
+        b.skimmerWallId = undefined; b.skimmerRemainingMs = undefined; b.skimmerResumeVx = undefined; b.skimmerResumeVy = undefined; b.skimmerStartAlong = undefined;
       }
       skimmingWall = undefined;
     } else b.skimmerRemainingMs = (b.skimmerRemainingMs ?? 0) - dt;
     const oldX = b.x, oldY = b.y;
     let nextX = b.x + b.vx * dt / 1000, nextY = b.y + b.vy * dt / 1000;
-    if (skimmingWall?.axis === 'vertical') nextX = skimmingWall.at + (oldX < skimmingWall.at ? -b.r - 2 : b.r + 2);
-    if (skimmingWall?.axis === 'horizontal') nextY = skimmingWall.at + (oldY < skimmingWall.at ? -b.r - 2 : b.r + 2);
+    let skimmerFinished = false;
+    if (skimmingWall?.axis === 'vertical') {
+      nextX = skimmingWall.at + (oldX < skimmingWall.at ? -b.r - 2 : b.r + 2);
+      const along = oldY + b.vy * dt / 1000;
+      const endpoint = b.vy >= 0 ? skimmingWall.high : skimmingWall.low;
+      if ((b.vy >= 0 && along >= endpoint) || (b.vy < 0 && along <= endpoint)) {
+        nextY = endpoint; skimmerFinished = true;
+        const start = b.skimmerStartAlong ?? oldY;
+        const low = Math.max(skimmingWall.low, Math.min(start, endpoint)), high = Math.min(skimmingWall.high, Math.max(start, endpoint));
+        if (high - low > Math.max(3, b.r * 0.35)) {
+          anchorCuts.set(skimmingWall.id, { wall: skimmingWall, low, high });
+          breakPoints.push({ x: nextX, y: nextY, axis: skimmingWall.axis, at: skimmingWall.at, low, high });
+        }
+      } else nextY = along;
+    }
+    if (skimmingWall?.axis === 'horizontal') {
+      nextY = skimmingWall.at + (oldY < skimmingWall.at ? -b.r - 2 : b.r + 2);
+      const along = oldX + b.vx * dt / 1000;
+      const endpoint = b.vx >= 0 ? skimmingWall.high : skimmingWall.low;
+      if ((b.vx >= 0 && along >= endpoint) || (b.vx < 0 && along <= endpoint)) {
+        nextX = endpoint; skimmerFinished = true;
+        const start = b.skimmerStartAlong ?? oldX;
+        const low = Math.max(skimmingWall.low, Math.min(start, endpoint)), high = Math.min(skimmingWall.high, Math.max(start, endpoint));
+        if (high - low > Math.max(3, b.r * 0.35)) {
+          anchorCuts.set(skimmingWall.id, { wall: skimmingWall, low, high });
+          breakPoints.push({ x: nextX, y: nextY, axis: skimmingWall.axis, at: skimmingWall.at, low, high });
+        }
+      } else nextX = along;
+    }
     if (nextX < b.r || nextX > width - b.r) { b.vx *= -1; nextX = Math.max(b.r, Math.min(width - b.r, nextX)); }
     if (nextY < b.r || nextY > height - b.r) { b.vy *= -1; nextY = Math.max(b.r, Math.min(height - b.r, nextY)); }
     // Captured cells are solid: reflect the ball at their boundary and keep it in open territory.
     if (b.modifier !== 'phase' && overlapsClaimed(run, nextX, oldY, b.r, width, height)) { nextX = oldX; b.vx *= -1; }
     if (b.modifier !== 'phase' && overlapsClaimed(run, nextX, nextY, b.r, width, height)) { nextY = oldY; b.vy *= -1; }
     b.x = nextX; b.y = nextY;
+    if (skimmerFinished) {
+      b.skimmerWallId = undefined; b.skimmerRemainingMs = undefined; b.skimmerStartAlong = undefined;
+      b.vx = b.skimmerResumeVx ?? b.vx; b.vy = b.skimmerResumeVy ?? b.vy;
+      b.skimmerResumeVx = undefined; b.skimmerResumeVy = undefined;
+      continue;
+    }
     if (b.modifier === 'phase') continue;
     for (const w of run.walls) {
       if (anchorUsed.has(b.id)) break;
+      if (skimmingWall?.id === w.id) continue;
       if (!pointOnWall(w, b.x, b.y, b.r)) continue;
       if (b.rammed) {
         if (w.active) breakPoints.push({ x: b.x, y: b.y, axis: w.axis, at: w.at, low: w.low, high: w.high });
@@ -1192,7 +1237,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
       }
       else if (b.modifier === 'skimmer' && !w.active && b.skimmerWallId === undefined) {
         const speed = Math.max(run.mechanics.ballSpeedMin, Math.hypot(b.vx, b.vy));
-        b.skimmerWallId = w.id; b.skimmerRemainingMs = run.mechanics.ballModifiers.skimmer.glideDurationMs ?? 900;
+        b.skimmerWallId = w.id; b.skimmerRemainingMs = run.mechanics.ballModifiers.skimmer.glideDurationMs ?? 900; b.skimmerStartAlong = w.axis === 'vertical' ? b.y : b.x;
         b.skimmerResumeVx = w.axis === 'vertical' ? (oldX < w.at ? -1 : 1) * Math.abs(b.vx || speed) : b.vx;
         b.skimmerResumeVy = w.axis === 'horizontal' ? (oldY < w.at ? -1 : 1) * Math.abs(b.vy || speed) : b.vy;
         if (w.axis === 'vertical') { b.vx = 0; b.vy = b.vy === 0 ? speed : Math.sign(b.vy) * speed; }
@@ -1413,7 +1458,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
       const candidateX = randomBetween(70, width - 70), candidateY = randomBetween(70, height - 70);
       if (!overlapsClaimed(run, candidateX, candidateY, radius, width, height)) { x = candidateX; y = candidateY; break; }
     }
-    if (x > 0) run.powerups.push({ id: run.nextId++, x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, kind, despawnAtMs: powerupDespawnAt(kind, run.elapsedMs, run.mechanics) });
+    if (x > 0) run.powerups.push({ id: run.nextId++, x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, kind, skinId: kind === 'engi-egg' ? randomEngiCocoonSkin() : undefined, despawnAtMs: powerupDespawnAt(kind, run.elapsedMs, run.mechanics) });
     run.spawnInMs = Math.floor(randomBetween(run.mechanics.powerupSpawnEverySecondsMin, run.mechanics.powerupSpawnEverySecondsMax + 1)) * 1000;
   }
   const movingPowerups = run.powerups.filter(p => p.despawnAtMs === undefined || p.despawnAtMs > run.elapsedMs).map(p => {
@@ -1478,7 +1523,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
       run.captureEvents.push({ id: run.nextId++, x: power.x, y: power.y, kind: 'creditLost' });
     } else if (power.kind === 'engi-egg') {
       engiEggBroken.add(power.id);
-      run.captureEvents.push({ id: run.nextId++, x: power.x, y: power.y, kind: 'engiEggBreak' });
+      run.captureEvents.push({ id: run.nextId++, x: power.x, y: power.y, kind: 'engiEggBreak', skinId: power.skinId });
     } else if (power.phaseChest) {
       chestBroken.add(power.id);
       run.captureEvents.push({ id: run.nextId++, x: power.x, y: power.y, kind: 'phaseChestBreak' });
@@ -1505,7 +1550,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
       run.balls = run.balls.map(candidate => candidate.id === ball.id ? { ...candidate, vx: Math.cos(angle) * maxSpeed, vy: Math.sin(angle) * maxSpeed } : candidate);
       run.captureEvents.push({ id: run.nextId++, x: power.x, y: power.y, kind: 'speed' });
       if (ball.modifier === 'anchor') run.captureEvents.push({ id: run.nextId++, x: (ball.x + power.x) / 2, y: (ball.y + power.y) / 2, kind: 'anchorBreak' });
-    } else if (ball.modifier === 'anchor') {
+    } else if (ball.modifier === 'anchor' && power.kind !== 'ram') {
       anchorBroken.add(power.id);
       run.captureEvents.push({ id: run.nextId++, x: (ball.x + power.x) / 2, y: (ball.y + power.y) / 2, kind: 'anchorBreak' });
     }
@@ -1513,6 +1558,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
   // Ram pickups detonate on contact with any moving projectile instead of
   // reflecting away. The impulse and effect use the normal Ram blast tuning.
   const impactEvents: { x: number; y: number }[] = [];
+  const anchorRamBoosts: { id: number; direction: number; speed: number }[] = [];
   const explodedRams = new Set<number>();
   for (const ram of movingPowerups.filter(p => p.kind === 'ram' && !anchorBroken.has(p.id) && !chestBroken.has(p.id))) {
     if (explodedRams.has(ram.id)) continue;
@@ -1522,6 +1568,11 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
     const target = ball ?? other;
     if (!target) continue;
     explodedRams.add(ram.id);
+    if (ball?.modifier === 'anchor') {
+      const speed = Math.hypot(ball.vx, ball.vy);
+      const direction = speed > 0.001 ? Math.atan2(ball.vy, ball.vx) : Math.atan2(ball.y - ram.y, ball.x - ram.x);
+      anchorRamBoosts.push({ id: ball.id, direction, speed: (run.mechanics.ballModifiers.anchor.breakSpeedThreshold ?? 190) + 1 });
+    }
     if ('kind' in target && target.kind === 'ram') explodedRams.add(target.id);
     const dx = target.x - ram.x, dy = target.y - ram.y, distance = Math.hypot(dx, dy);
     const targetRadius = 'r' in target ? target.r : powerupRadius(target.kind, run.mechanics);
@@ -1540,6 +1591,10 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
   run.powerups = [...movingPowerups.filter(p => !explodedRams.has(p.id) && !lostBubbles.has(p.id) && !anchorBroken.has(p.id) && !speedBroken.has(p.id) && !chestBroken.has(p.id) && !creditBroken.has(p.id) && !engiEggBroken.has(p.id)), ...chestRewards];
   for (const point of bubbleLossPoints) run.captureEvents.push({ id: run.nextId++, ...point, kind: 'bubbleLost' });
   for (const impact of impactEvents) run = applyRamBlast(run, impact.x, impact.y);
+  if (anchorRamBoosts.length) run.balls = run.balls.map(ball => {
+    const boost = anchorRamBoosts.find(item => item.id === ball.id);
+    return boost ? { ...ball, vx: Math.cos(boost.direction) * boost.speed, vy: Math.sin(boost.direction) * boost.speed } : ball;
+  });
   const brokenMerchants = new Set<number>();
   for (const merchant of movingPowerups.filter(p => p.kind === 'merchant' && !anchorBroken.has(p.id) && !chestBroken.has(p.id))) {
     const ball = run.balls.find(b => b.modifier !== 'phase' && Math.hypot(b.x - merchant.x, b.y - merchant.y) <= b.r + powerupRadius(merchant.kind, run.mechanics));
@@ -1557,5 +1612,4 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
   advancePetBodies(run, dt, width, height);
   return run;
 }
-
 

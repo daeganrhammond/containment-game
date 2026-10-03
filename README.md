@@ -2,6 +2,12 @@
 
 An early desktop-first prototype for the swipe-to-draw arena game in the parent project brief. Built with Expo and React Native, with browser preview support.
 
+## Playtest release 0.2.0
+
+This is the second distinct public playtest version, following the preserved [`v0.1.0-playtest`](https://github.com/daeganrhammond/containment-game/tree/v0.1.0-playtest) baseline. The `v0.2.0-playtest` Git tag is the rollback point for this release. The `main` branch is the current build and publishes to GitHub Pages after pushes.
+
+Version 0.2.0 expands pickup and metal-ball modifiers, pets, merchant progression, level events, art variations, and mobile touch input. Developer settings now include named tuning profiles, individually adjustable pickup sizes, grouped pickup settings, and event-frequency/source controls. See [`RELEASE_NOTES.md`](RELEASE_NOTES.md) for this playtest's full summary.
+
 ## Run it
 
 ```sh
@@ -48,4 +54,3 @@ The default in-game ball skin is **Polished Chrome**; switch among Polished Chro
 ## Scope
 
 This is a first playable systems prototype, not a release-ready game. Art, audio, onboarding, accessibility, and polished collision behavior remain future work.
-
