@@ -5,12 +5,24 @@ export type MechanicsSettings = {
   clearPercentOfOriginalBoard: number; maximumActiveWalls: number;
   ballRadius: number; powerupRadiusMultiplier: number; powerupSizeMultipliers: Record<PowerKind, number>; powerupRadius: number; lifePowerupRadius: number; bubbleSizeMultiplier: number; comboBubbleCountVariance: number; bubbleCreditsPerPop: number; ballSpeedMin: number; ballSpeedMax: number; ballRecoveryThreshold: number; ballRecoverySpeed: number; ballRecoveryModifierChance: number; wallGrowthSpeed: number;
   ballModifiers: Record<BallModifier, BallModifierSettings>;
+  modifierMutationRates: Record<'easy' | 'normal' | 'hard', number>;
+  modifierInfectionRates: Record<'easy' | 'normal' | 'hard', number>;
+  modifierCompatibility: Record<BallModifier, Partial<Record<BallModifier, boolean>>>;
+  pictureAssetBackdropChance: number;
   powerupSpawnEverySecondsMin: number; powerupSpawnEverySecondsMax: number;
   creditPickupBaseAmount: number; creditPickupBounceDespawnChance: number;
   petEggIncubationInstallment: number; petEggIncubationVisits: number; petEggIncubationDurationMs: number; engiHireCost: number; engiUpgradeBaseCost: number;
   lifeStorageBaseCapacity: number; lifeStorageUpgradeBaseCost: number; lifeStorageCostIncreasePercent: number;
   resourceStorageUpgradeBaseCost: number; resourceStorageCostIncreasePercent: number;
-  overflowCreditValues: Record<PowerKind, number>; overflowProcessingMs: number; overflowBaseSuccessChance: number; overflowUpgradeBaseCost: number; overflowUpgradeChanceIncrease: number; overflowUpgradeCostIncreasePercent: number;
+  overflowCreditValues: Record<PowerKind, number>; overflowProcessingMs: number; overflowBaseSuccessChance: number; overflowUpgradeBaseCost: number; overflowUpgradeChanceIncrease: number; overflowUpgradeCostIncreasePercent: number; overflowProcessingUpgradeBaseCost: number; overflowProcessingUpgradeCostIncreasePercent: number; overflowProcessingReductionPercent: number; overflowProcessingMinimumMs: number;
+  levelClearBubbleRatePerSecond: number; levelClearBubbleDurationMs: number;
+  levelClearAnimationDurationMs: number;
+  containmentMutationChance: number; containmentMutationDelayMinSeconds: number; containmentMutationDelayMaxSeconds: number;
+  containmentMutationDecayChance: number; containmentMutationBaseSpawnChance: number;
+  containmentMutationPickupEnabled: Record<ContainmentPickupKind, boolean>;
+  eliminationEventChance: number; driftSwarmEventChance: number; driftSwarmBannerDurationMs: number;
+  eliminationChargeSpawnChance: number;
+  driftSwarmVariationMin: number; driftSwarmVariationMax: number;
   powerupSpawnWeights: Record<PowerKind, number>;
   powerupDespawnEnabled: Record<PowerKind, boolean>;
   powerupDespawnSeconds: Record<PowerKind, number>;
@@ -20,7 +32,7 @@ export type MechanicsSettings = {
   merchantPowerBarCostIncreasePercent: number; merchantSkinUnlockBaseCost: number;
   merchantSkinTierMultipliers: { tier1: number; tier2: number; tier3: number };
   merchantRewardsEnabled: Record<'life' | 'speed' | 'ram' | 'treasure' | 'waldo', boolean>;
-  merchantUpgradePerBar: { lifeSpawnWeight: number; lifeLifetimeSeconds: number; speedPercent: number; ramPercent: number; treasureRewards: number; waldoPaintingCredits: number };
+  merchantUpgradePerBar: { lifeSpawnWeight: number; lifeLifetimeSeconds: number; speedPercent: number; ramPercent: number; treasureRewards: number; waldoPaintingCredits: number; mutationAffinityPercent: number; mutationAttractionPercent: number };
   waldoSpawnChance: number; waldoIneligibleChance: number; waldoRewardCredits: number;
   waldoPetPaintingCredits: number; waldoPetPaintingIntervalMs: number;
   speedBoostMultiplier: number;
@@ -31,14 +43,18 @@ export type MechanicsSettings = {
 };
 
 export type BallModifier = 'splitter' | 'skimmer' | 'drifter' | 'anchor' | 'phase';
+export type ContainmentPickupKind = 'life' | 'speed' | 'ram' | 'charge' | 'treasure' | 'merchant' | 'credit' | 'engi-egg';
+export type ContainmentMutation = { key: string; wallIds: number[]; bounds: { left: number; right: number; top: number; bottom: number }; rollAtMs: number; rolled: boolean; active: boolean; kind?: ContainmentPickupKind; style?: 'chromatic' | 'vines'; color?: string; startedAtMs?: number; decayQueued?: boolean };
 /** Reusable shorthand for modifiers periodically applied for a random duration. Chance is per second and dt-adjusted in the sim tick. */
 export type PeriodicModifierRule = { chancePerSecond: number; durationMinSeconds: number; durationMaxSeconds: number };
 export type BallModifierSettings = {
   enabled: boolean; spawnChance: number; spawnRuleEnabled: boolean;
+  mutationEnabled: boolean; infectiousEnabled: boolean;
   periodic?: PeriodicModifierRule;
   sizeMultiplier?: number; splitSizeMultiplier?: number; glideDurationMs?: number;
   attractionStrength?: number; attractionRange?: number;
   phaseDurationMs?: number; phaseUnclaimRadius?: number; chestRewardMin?: number; chestRewardMax?: number; breakSpeedThreshold?: number;
+  splitMinimumRadius?: number; phaseBlastShape?: 'circle' | 'ellipse'; phaseBlastScaleMin?: number; phaseBlastScaleMax?: number;
 };
 
 export const DEFAULT_MECHANICS: MechanicsSettings = {
@@ -55,7 +71,7 @@ export const DEFAULT_MECHANICS: MechanicsSettings = {
   maximumActiveWalls: 4,
   ballRadius: 12.5,
   powerupRadiusMultiplier: 1.4,
-  powerupSizeMultipliers: { life: 1.4, speed: 1.4, ram: 1.4, treasure: 1.4, merchant: 1.4, bubble: 1.68, waldo: 1.4, credit: 1.4, 'engi-egg': 1.4, exit: 1.4 },
+  powerupSizeMultipliers: { life: 1.4, speed: 1.4, ram: 1.4, charge: 1.4, treasure: 1.4, merchant: 1.4, bubble: 1.68, waldo: 1.4, credit: 1.4, 'engi-egg': 1.4, exit: 1.4 },
   powerupRadius: 17.5,
   lifePowerupRadius: 17.5,
   bubbleSizeMultiplier: 1.2,
@@ -67,12 +83,15 @@ export const DEFAULT_MECHANICS: MechanicsSettings = {
   ballRecoverySpeed: 90,
   ballRecoveryModifierChance: 0.2,
   ballModifiers: {
-    splitter: { enabled: true, spawnChance: 0.04, spawnRuleEnabled: true, splitSizeMultiplier: 0.65 },
-    skimmer: { enabled: true, spawnChance: 0, spawnRuleEnabled: true, glideDurationMs: 900, periodic: { chancePerSecond: 0.01, durationMinSeconds: 8, durationMaxSeconds: 15 } },
-    drifter: { enabled: true, spawnChance: 0.08, spawnRuleEnabled: true, attractionStrength: 240, attractionRange: 360 },
-    anchor: { enabled: true, spawnChance: 0.06, spawnRuleEnabled: true, sizeMultiplier: 1.6, breakSpeedThreshold: 190 },
-    phase: { enabled: true, spawnChance: 0.05, spawnRuleEnabled: true, phaseDurationMs: 8000, phaseUnclaimRadius: 65, chestRewardMin: 3, chestRewardMax: 6 },
+    splitter: { enabled: true, spawnChance: 0.04, spawnRuleEnabled: true, mutationEnabled: true, infectiousEnabled: false, splitSizeMultiplier: 0.65, splitMinimumRadius: 5 },
+    skimmer: { enabled: true, spawnChance: 0, spawnRuleEnabled: true, mutationEnabled: true, infectiousEnabled: true, glideDurationMs: 900, periodic: { chancePerSecond: 0.01, durationMinSeconds: 8, durationMaxSeconds: 15 } },
+    drifter: { enabled: true, spawnChance: 0.08, spawnRuleEnabled: true, mutationEnabled: true, infectiousEnabled: true, attractionStrength: 240, attractionRange: 360 },
+    anchor: { enabled: true, spawnChance: 0.06, spawnRuleEnabled: true, mutationEnabled: true, infectiousEnabled: false, sizeMultiplier: 1.6, breakSpeedThreshold: 190 },
+    phase: { enabled: true, spawnChance: 0.05, spawnRuleEnabled: true, mutationEnabled: false, infectiousEnabled: false, phaseDurationMs: 8000, phaseUnclaimRadius: 65, chestRewardMin: 3, chestRewardMax: 6, phaseBlastShape: 'ellipse', phaseBlastScaleMin: 0.75, phaseBlastScaleMax: 1.25 },
   },
+  modifierMutationRates: { easy: 0.02, normal: 0.05, hard: 0.1 },
+  modifierInfectionRates: { easy: 0.05, normal: 0.1, hard: 0.2 },
+  modifierCompatibility: { splitter: {}, skimmer: {}, drifter: {}, anchor: {}, phase: {} },
   wallGrowthSpeed: 250,
   powerupSpawnEverySecondsMin: 16,
   powerupSpawnEverySecondsMax: 28,
@@ -81,14 +100,17 @@ export const DEFAULT_MECHANICS: MechanicsSettings = {
   petEggIncubationInstallment: 20, petEggIncubationVisits: 2, petEggIncubationDurationMs: 120_000, engiHireCost: 120, engiUpgradeBaseCost: 80,
   lifeStorageBaseCapacity: 5, lifeStorageUpgradeBaseCost: 35, lifeStorageCostIncreasePercent: 35,
   resourceStorageUpgradeBaseCost: 25, resourceStorageCostIncreasePercent: 35,
-  overflowCreditValues: { life: 5, speed: 5, ram: 5, treasure: 0, merchant: 0, bubble: 0, waldo: 0, credit: 0, 'engi-egg': 0, exit: 0 }, overflowProcessingMs: 6000, overflowBaseSuccessChance: 50, overflowUpgradeBaseCost: 25, overflowUpgradeChanceIncrease: 5, overflowUpgradeCostIncreasePercent: 35,
-  powerupSpawnWeights: { life: 49.5, speed: 34.65, ram: 14.85, treasure: 1, merchant: 1, bubble: 0, waldo: 0, credit: 5, 'engi-egg': 1, exit: 0 },
-  powerupDespawnEnabled: { life: false, speed: true, ram: true, treasure: true, merchant: true, bubble: false, waldo: true, credit: true, 'engi-egg': true, exit: false },
-  powerupDespawnSeconds: { life: 0, speed: 20, ram: 10, treasure: 10, merchant: 30, bubble: 0, waldo: 30, credit: 5, 'engi-egg': 30, exit: 0 },
+  overflowCreditValues: { life: 5, speed: 5, ram: 5, charge: 5, treasure: 0, merchant: 0, bubble: 0, waldo: 0, credit: 0, 'engi-egg': 0, exit: 0 }, overflowProcessingMs: 6000, overflowBaseSuccessChance: 50, overflowUpgradeBaseCost: 25, overflowUpgradeChanceIncrease: 5, overflowUpgradeCostIncreasePercent: 35, overflowProcessingUpgradeBaseCost: 25, overflowProcessingUpgradeCostIncreasePercent: 35, overflowProcessingReductionPercent: 5, overflowProcessingMinimumMs: 1000, levelClearBubbleRatePerSecond: 3, levelClearBubbleDurationMs: 3000, levelClearAnimationDurationMs: 3400,
+  containmentMutationChance: 0.05, containmentMutationDelayMinSeconds: 10, containmentMutationDelayMaxSeconds: 30, containmentMutationDecayChance: 0.1, containmentMutationBaseSpawnChance: 0.15,
+  containmentMutationPickupEnabled: { life: true, speed: true, ram: true, charge: true, treasure: true, merchant: true, credit: true, 'engi-egg': true },
+  eliminationEventChance: 0.05, driftSwarmEventChance: 0.05, driftSwarmBannerDurationMs: 3000, eliminationChargeSpawnChance: 0.4, driftSwarmVariationMin: 0.65, driftSwarmVariationMax: 1.5,
+  powerupSpawnWeights: { life: 49.5, speed: 34.65, ram: 14.85, charge: 5, treasure: 1, merchant: 1, bubble: 0, waldo: 0, credit: 5, 'engi-egg': 1, exit: 0 },
+  powerupDespawnEnabled: { life: false, speed: true, ram: true, charge: true, treasure: true, merchant: true, bubble: false, waldo: true, credit: true, 'engi-egg': true, exit: false },
+  powerupDespawnSeconds: { life: 0, speed: 20, ram: 10, charge: 20, treasure: 10, merchant: 30, bubble: 0, waldo: 30, credit: 5, 'engi-egg': 30, exit: 0 },
   merchantCreditsPerTenPercent: 2, merchantPowerBarCost: 10, merchantPowerBarCostIncreasePercent: 15, creditGainStyle: 'orbiting', levelClearStyle: 'nova',
   merchantSkinUnlockBaseCost: 100, merchantSkinTierMultipliers: { tier1: 1, tier2: 2.5, tier3: 5 },
   merchantRewardsEnabled: { life: true, speed: true, ram: true, treasure: true, waldo: true },
-  merchantUpgradePerBar: { lifeSpawnWeight: 1, lifeLifetimeSeconds: 2, speedPercent: 10, ramPercent: 10, treasureRewards: 1, waldoPaintingCredits: 2 },
+  merchantUpgradePerBar: { lifeSpawnWeight: 1, lifeLifetimeSeconds: 2, speedPercent: 10, ramPercent: 10, treasureRewards: 1, waldoPaintingCredits: 2, mutationAffinityPercent: 10, mutationAttractionPercent: 10 },
   waldoSpawnChance: 0.05, waldoIneligibleChance: 0.5, waldoRewardCredits: 25,
   waldoPetPaintingCredits: 5, waldoPetPaintingIntervalMs: 45_000,
   speedBoostMultiplier: 1.4,
@@ -100,6 +122,7 @@ export const DEFAULT_MECHANICS: MechanicsSettings = {
   missExplosionRadius: 145,
   missExplosionStrength: 280,
   pictureEventChance: 0.5,
+  pictureAssetBackdropChance: 0.5,
   pictureLibrarySelectionChance: 0.5,
   waldoLibrarySelectionChance: 0.5,
   leaderboardSize: 10,
@@ -115,11 +138,13 @@ export const DEFAULT_MECHANICS: MechanicsSettings = {
   claimedColor: '#071019',
 };
 
-export let MECHANICS: MechanicsSettings = { ...DEFAULT_MECHANICS, ballModifiers: Object.fromEntries(Object.entries(DEFAULT_MECHANICS.ballModifiers).map(([key, value]) => [key, { ...value }])) as MechanicsSettings['ballModifiers'], powerupSpawnWeights: { ...DEFAULT_MECHANICS.powerupSpawnWeights }, backgroundColors: [...DEFAULT_MECHANICS.backgroundColors] };
-export function getMechanicsSettings(): MechanicsSettings { return { ...MECHANICS, ballModifiers: Object.fromEntries(Object.entries(MECHANICS.ballModifiers).map(([key, value]) => [key, { ...value }])) as MechanicsSettings['ballModifiers'], powerupSpawnWeights: { ...MECHANICS.powerupSpawnWeights }, powerupDespawnEnabled: { ...MECHANICS.powerupDespawnEnabled }, powerupDespawnSeconds: { ...MECHANICS.powerupDespawnSeconds }, overflowCreditValues: { ...MECHANICS.overflowCreditValues }, merchantRewardsEnabled: { ...MECHANICS.merchantRewardsEnabled }, merchantUpgradePerBar: { ...MECHANICS.merchantUpgradePerBar }, merchantSkinTierMultipliers: { ...MECHANICS.merchantSkinTierMultipliers }, backgroundColors: [...MECHANICS.backgroundColors] }; }
-export function setMechanicsSettings(settings: MechanicsSettings) { MECHANICS = { ...settings, ballModifiers: Object.fromEntries(Object.entries(settings.ballModifiers).map(([key, value]) => [key, { ...value }])) as MechanicsSettings['ballModifiers'], powerupSpawnWeights: { ...settings.powerupSpawnWeights }, powerupDespawnEnabled: { ...settings.powerupDespawnEnabled }, powerupDespawnSeconds: { ...settings.powerupDespawnSeconds }, overflowCreditValues: { ...settings.overflowCreditValues }, merchantRewardsEnabled: { ...settings.merchantRewardsEnabled }, merchantUpgradePerBar: { ...settings.merchantUpgradePerBar }, merchantSkinTierMultipliers: { ...settings.merchantSkinTierMultipliers }, backgroundColors: [...settings.backgroundColors] }; }
+const copyBallModifierSettings = (settings: MechanicsSettings['ballModifiers']) => Object.fromEntries(Object.entries(settings).map(([key, value]) => [key, { ...value, periodic: value.periodic ? { ...value.periodic } : undefined }])) as MechanicsSettings['ballModifiers'];
+const copyModifierCompatibility = (value: MechanicsSettings['modifierCompatibility']) => Object.fromEntries(Object.entries(value).map(([key, pairs]) => [key, { ...pairs }])) as MechanicsSettings['modifierCompatibility'];
+export let MECHANICS: MechanicsSettings = { ...DEFAULT_MECHANICS, ballModifiers: copyBallModifierSettings(DEFAULT_MECHANICS.ballModifiers), modifierMutationRates: { ...DEFAULT_MECHANICS.modifierMutationRates }, modifierInfectionRates: { ...DEFAULT_MECHANICS.modifierInfectionRates }, modifierCompatibility: copyModifierCompatibility(DEFAULT_MECHANICS.modifierCompatibility), powerupSpawnWeights: { ...DEFAULT_MECHANICS.powerupSpawnWeights }, containmentMutationPickupEnabled: { ...DEFAULT_MECHANICS.containmentMutationPickupEnabled }, backgroundColors: [...DEFAULT_MECHANICS.backgroundColors] };
+export function getMechanicsSettings(): MechanicsSettings { return { ...MECHANICS, ballModifiers: copyBallModifierSettings(MECHANICS.ballModifiers), modifierMutationRates: { ...MECHANICS.modifierMutationRates }, modifierInfectionRates: { ...MECHANICS.modifierInfectionRates }, modifierCompatibility: copyModifierCompatibility(MECHANICS.modifierCompatibility), powerupSpawnWeights: { ...MECHANICS.powerupSpawnWeights }, containmentMutationPickupEnabled: { ...MECHANICS.containmentMutationPickupEnabled }, powerupDespawnEnabled: { ...MECHANICS.powerupDespawnEnabled }, powerupDespawnSeconds: { ...MECHANICS.powerupDespawnSeconds }, overflowCreditValues: { ...MECHANICS.overflowCreditValues }, merchantRewardsEnabled: { ...MECHANICS.merchantRewardsEnabled }, merchantUpgradePerBar: { ...MECHANICS.merchantUpgradePerBar }, merchantSkinTierMultipliers: { ...MECHANICS.merchantSkinTierMultipliers }, backgroundColors: [...MECHANICS.backgroundColors] }; }
+export function setMechanicsSettings(settings: MechanicsSettings) { MECHANICS = { ...settings, ballModifiers: copyBallModifierSettings(settings.ballModifiers), modifierMutationRates: { ...settings.modifierMutationRates }, modifierInfectionRates: { ...settings.modifierInfectionRates }, modifierCompatibility: copyModifierCompatibility(settings.modifierCompatibility), powerupSpawnWeights: { ...settings.powerupSpawnWeights }, containmentMutationPickupEnabled: { ...settings.containmentMutationPickupEnabled }, powerupDespawnEnabled: { ...settings.powerupDespawnEnabled }, powerupDespawnSeconds: { ...settings.powerupDespawnSeconds }, overflowCreditValues: { ...settings.overflowCreditValues }, merchantRewardsEnabled: { ...settings.merchantRewardsEnabled }, merchantUpgradePerBar: { ...settings.merchantUpgradePerBar }, merchantSkinTierMultipliers: { ...settings.merchantSkinTierMultipliers }, backgroundColors: [...settings.backgroundColors] }; }
 
-export type Ball = { id: number; x: number; y: number; vx: number; vy: number; r: number; rammed?: boolean; modifier?: BallModifier; modifierExpiresAtMs?: number; phaseEndsAtMs?: number; skimmerWallId?: number; skimmerRemainingMs?: number; skimmerResumeVx?: number; skimmerResumeVy?: number; skimmerStartAlong?: number; drifting?: boolean };
+export type Ball = { id: number; x: number; y: number; vx: number; vy: number; r: number; rammed?: boolean; modifier?: BallModifier; modifiers?: BallModifier[]; modifierExpiresAtMs?: number; modifierExpiries?: Partial<Record<BallModifier, number>>; anchorBaseRadius?: number; phaseEndsAtMs?: number; skimmerWallId?: number; skimmerRemainingMs?: number; skimmerResumeVx?: number; skimmerResumeVy?: number; skimmerStartAlong?: number; drifting?: boolean; driftStrengthOverride?: number; driftRangeOverride?: number };
 export type Wall = {
   id: number;
   axis: 'vertical' | 'horizontal';
@@ -136,24 +161,26 @@ export type Wall = {
   speedMultiplier: number;
   /** This wall becomes solid normally, but its completion does not claim territory. */
   noCapture?: boolean;
+  chargeWall?: boolean;
+  chargeSkinId?: string;
 };
-export type PowerKind = 'life' | 'speed' | 'ram' | 'treasure' | 'merchant' | 'bubble' | 'waldo' | 'credit' | 'engi-egg' | 'exit';
+export type PowerKind = 'life' | 'speed' | 'ram' | 'charge' | 'treasure' | 'merchant' | 'bubble' | 'waldo' | 'credit' | 'engi-egg' | 'exit';
 export type EngiTask = 'inspect' | 'weld' | 'scan' | 'tinker' | 'rest';
 export type PetTask = EngiTask | 'clean' | 'paint' | 'wander';
 export type WaldoPainting = { id: number; wallId: number; axis: Wall['axis']; at: number; along: number; style: number };
 export type CompanionPet = { id: number; species: 'engi' | 'waldo'; name: string; skinId: string; health: number; maxHealth: number; level: number; deployed: boolean; x: number; y: number; vx: number; vy: number; task: PetTask; taskUntilMs: number; climbUntilMs?: number; repairedThisLevel: boolean; nextPaintingAtMs?: number; paintings?: WaldoPainting[] };
 export type PetIncubation = { id: number; species: 'engi'; progressMs: number; durationMs: number; nameSeed: number; skinId: string };
-export type PowerUp = { id: number; x: number; y: number; vx: number; vy: number; kind: PowerKind; skinId?: string; phaseChest?: boolean; bounceCredits?: number; despawnAtMs?: number; despawnOpacity?: number };
+export type PowerUp = { id: number; x: number; y: number; vx: number; vy: number; kind: PowerKind; skinId?: string; phaseChest?: boolean; levelClearBubble?: boolean; bounceCredits?: number; despawnAtMs?: number; despawnOpacity?: number };
 export type SkeweredWall = Pick<Wall, 'axis' | 'at' | 'low' | 'high'>;
-export type CaptureEvent = { id: number; x: number; y: number; kind: PowerKind | 'explosion' | 'phaseRupture' | 'phaseChestBreak' | 'ramBlast' | 'jackpot' | 'merchantBreak' | 'anchorBreak' | 'combo' | 'bubbleLost' | 'creditLost' | 'overflowFailed' | 'waldoFound' | 'petRepair' | 'petLost' | 'petHatched' | 'engiEggBreak'; skinId?: string; skewered?: boolean; skeweredAxis?: Wall['axis']; skeweredWall?: SkeweredWall; amount?: number; comboCount?: number };
+export type CaptureEvent = { id: number; x: number; y: number; kind: PowerKind | 'explosion' | 'chargeBallBreak' | 'phaseRupture' | 'phaseChestBreak' | 'ramBlast' | 'jackpot' | 'merchantBreak' | 'anchorBreak' | 'combo' | 'bubbleLost' | 'creditLost' | 'overflowFailed' | 'waldoFound' | 'petRepair' | 'petLost' | 'petHatched' | 'engiEggBreak'; skinId?: string; skewered?: boolean; skeweredAxis?: Wall['axis']; skeweredWall?: SkeweredWall; amount?: number; amountY?: number; comboCount?: number };
 export type WallBreakEvent = { id: number; x: number; y: number; style: string; axis?: Wall['axis']; at?: number; low?: number; high?: number };
 export type TerritoryGainEvent = { id: number; x: number; y: number; percent: number; wallX?: number; wallY?: number; areaX?: number; areaY?: number };
 export type CreditGainEvent = { id: number; x: number; y: number; amount: number };
 export type OverflowJob = { id: number; kind: PowerKind; credits: number; remainingMs: number; sourceX: number; sourceY: number };
 export type OverflowResult = { kind: PowerKind; success: boolean; credits: number; untilMs: number };
-export type PictureLibraryEntry = { id: string; name: string; seed: number; uri?: string };
+export type PictureLibraryEntry = { id: string; name: string; seed: number; uri?: string; generatedBackdropId?: number };
 export type WaldoLibraryEntry = { id: string; name: string; seed: number; waldoX: number; waldoY: number };
-export type PictureEvent = { seed: number; pictureId?: string; isWaldo?: boolean; waldoX?: number; waldoY?: number; waldoLibraryId?: string; waldoFound?: boolean };
+export type PictureEvent = { seed: number; pictureId?: string; generatedBackdropId?: number; isWaldo?: boolean; waldoX?: number; waldoY?: number; waldoLibraryId?: string; waldoFound?: boolean };
 let pictureLibrary: PictureLibraryEntry[] = [];
 let waldoLibrary: WaldoLibraryEntry[] = [];
 export function setPictureLibrary(entries: PictureLibraryEntry[]) { pictureLibrary = [...entries]; }
@@ -170,7 +197,10 @@ function nextPictureEvent(waldoRequested = false): PictureEvent | null {
   }
   const chooseSavedBackground = Math.random() < MECHANICS.pictureLibrarySelectionChance;
   const favorite = chooseSavedBackground && pictureLibrary.length ? pictureLibrary[Math.floor(Math.random() * pictureLibrary.length)] : undefined;
-  return favorite ? { seed: favorite.seed, pictureId: favorite.id } : { seed: Math.floor(Math.random() * 2_147_483_647) };
+  if (favorite) return { seed: favorite.seed, pictureId: favorite.id, generatedBackdropId: favorite.generatedBackdropId };
+  const seed = Math.floor(Math.random() * 2_147_483_647);
+  const generatedBackdropId = Math.random() < MECHANICS.pictureAssetBackdropChance ? Math.floor(Math.random() * 9) : undefined;
+  return { seed, generatedBackdropId };
 }
 function generatedWaldoLocation(seed: number) {
   const value = (index: number) => { const raw = Math.sin((seed + 13) * 0.000001 + (index + 1) * 78.233) * 43758.5453; return raw - Math.floor(raw); };
@@ -186,17 +216,29 @@ export type Run = {
   powerups: PowerUp[];
   speedCharges: number;
   ramCharges: number;
+  chargeCharges: number;
   speedCapacityBonus: number; speedCapacityPurchases: number;
   ramCapacityBonus: number; ramCapacityPurchases: number;
+  chargeCapacityBonus: number; chargeCapacityPurchases: number;
   merchantTokens: number; credits: number; powerBars: number;
   lifeCapacity: number; lifeCapacityPurchases: number;
   overflowJobs: OverflowJob[]; overflowSuccessChance: number; overflowUpgradePurchases: number; overflowResult?: OverflowResult;
+  overflowProcessingUpgradePurchases: number;
   powerBarsPurchased: number;
-  merchantUpgrades: Record<'life' | 'speed' | 'ram' | 'treasure' | 'waldo', number>;
+  merchantUpgrades: Record<string, number>;
   petEggs: number; petEggVisitProgress: number; pets: CompanionPet[]; petIncubations: PetIncubation[];
   isotypesContained: boolean; isotypesNoticeUntilMs: number; petNotice: string | null; petNoticeUntilMs: number;
   levelClearPending: boolean;
+  levelClearAnimationRemainingMs: number;
+  levelClearBubbleTimerMs: number;
+  levelClearBubbleAccumulatorMs: number;
+  levelEvent: 'none' | 'elimination' | 'drift-swarm';
+  levelEventBannerUntilMs: number;
+  containmentMutations: ContainmentMutation[];
+  containmentMutationScanRemainingMs: number;
   speedReadyUntil: number | null;
+  chargeReadyUntil: number | null;
+  chargeReadySkinId?: string;
   captureEvents: CaptureEvent[];
   wallBreakEvents: WallBreakEvent[];
   territoryGainEvents: TerritoryGainEvent[];
@@ -205,6 +247,9 @@ export type Run = {
   treasureHuntPending: boolean;
   treasureHunt: { x: number; y: number; remainingMs: number; revealed: boolean } | null;
   pictureEvent: PictureEvent | null;
+  phaseChestPending?: boolean;
+  phaseChestOriginBallId?: number; phaseChestRetryAtMs?: number;
+  modifierCollisionLocks?: Record<string, number>;
   waldoEventPending: boolean; waldoEligible: boolean;
   mechanics: MechanicsSettings;
   boardWidth: number;
@@ -231,24 +276,31 @@ export function lifeStorageUpgradeCost(run: Pick<Run, 'lifeCapacityPurchases' | 
   return Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, Math.ceil(scaled)));
 }
 
-export type ChargeKind = 'speed' | 'ram';
-export function chargeCapacity(run: Pick<Run, 'level' | 'speedCapacityBonus' | 'ramCapacityBonus'>, kind: ChargeKind) {
-  return Math.max(0, Math.floor(run.level)) + 2 + Math.max(0, Math.floor(kind === 'speed' ? run.speedCapacityBonus ?? 0 : run.ramCapacityBonus ?? 0));
+export type ChargeKind = 'speed' | 'ram' | 'charge';
+export function chargeCapacity(run: Pick<Run, 'level' | 'speedCapacityBonus' | 'ramCapacityBonus'> & Partial<Pick<Run, 'chargeCapacityBonus'>>, kind: ChargeKind) {
+  const bonus = kind === 'speed' ? run.speedCapacityBonus : kind === 'ram' ? run.ramCapacityBonus : run.chargeCapacityBonus;
+  return Math.max(0, Math.floor(run.level)) + 2 + Math.max(0, Math.floor(bonus ?? 0));
 }
-export function chargeStorageUpgradeCost(run: Pick<Run, 'speedCapacityPurchases' | 'ramCapacityPurchases' | 'mechanics'>, kind: ChargeKind) {
-  const purchases = kind === 'speed' ? run.speedCapacityPurchases ?? 0 : run.ramCapacityPurchases ?? 0;
+export function chargeStorageUpgradeCost(run: Pick<Run, 'speedCapacityPurchases' | 'ramCapacityPurchases' | 'mechanics'> & Partial<Pick<Run, 'chargeCapacityPurchases'>>, kind: ChargeKind) {
+  const purchases = kind === 'speed' ? run.speedCapacityPurchases ?? 0 : kind === 'ram' ? run.ramCapacityPurchases ?? 0 : run.chargeCapacityPurchases ?? 0;
   const scaled = run.mechanics.resourceStorageUpgradeBaseCost * Math.pow(1 + run.mechanics.resourceStorageCostIncreasePercent / 100, purchases);
   return Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, Math.ceil(scaled)));
 }
 
 /** Enforce level-scaled Speed/Ram storage for old saves as well as new reward paths. */
 export function enforceChargeCapacities(run: Run): Run {
-  const speedCapacity = chargeCapacity(run, 'speed'), ramCapacity = chargeCapacity(run, 'ram');
+  const speedCapacity = chargeCapacity(run, 'speed'), ramCapacity = chargeCapacity(run, 'ram'), chargeCap = chargeCapacity(run, 'charge');
   const overflow: { kind: PowerKind; x: number; y: number }[] = [];
   for (let i = speedCapacity; i < run.speedCharges; i++) overflow.push({ kind: 'speed', x: run.boardWidth / 2, y: run.boardHeight / 2 });
   for (let i = ramCapacity; i < run.ramCharges; i++) overflow.push({ kind: 'ram', x: run.boardWidth / 2, y: run.boardHeight / 2 });
+  for (let i = chargeCap; i < (run.chargeCharges ?? 0); i++) overflow.push({ kind: 'charge', x: run.boardWidth / 2, y: run.boardHeight / 2 });
   const queued = queueOverflowJobs(run, overflow, run.nextId);
-  return { ...run, speedCharges: Math.min(run.speedCharges, speedCapacity), ramCharges: Math.min(run.ramCharges, ramCapacity), overflowJobs: [...(run.overflowJobs ?? []), ...queued.jobs], nextId: queued.nextId };
+  return { ...run, speedCharges: Math.min(run.speedCharges, speedCapacity), ramCharges: Math.min(run.ramCharges, ramCapacity), chargeCharges: Math.min(run.chargeCharges ?? 0, chargeCap), overflowJobs: [...(run.overflowJobs ?? []), ...queued.jobs], nextId: queued.nextId };
+}
+
+export function overflowProcessingUpgradeCost(run: Pick<Run, 'overflowProcessingUpgradePurchases' | 'mechanics'>) {
+  const scaled = run.mechanics.overflowProcessingUpgradeBaseCost * Math.pow(1 + run.mechanics.overflowProcessingUpgradeCostIncreasePercent / 100, run.overflowProcessingUpgradePurchases ?? 0);
+  return Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, Math.ceil(scaled)));
 }
 
 export function overflowRefineryUpgradeCost(run: Pick<Run, 'overflowUpgradePurchases' | 'mechanics'>) {
@@ -281,38 +333,82 @@ function randomPowerKind(treasureEligible: boolean, merchantAllowed = true, sett
   const bubble = weights.bubble ?? 0;
   const credit = weights.credit ?? 0;
   const engiEgg = weights['engi-egg'] ?? 0;
-  const total = weights.life + weights.speed + weights.ram + treasure + merchant + bubble + credit + engiEgg;
+  const charge = weights.charge ?? 0;
+  const total = weights.life + weights.speed + weights.ram + charge + treasure + merchant + bubble + credit + engiEgg;
   if (total <= 0) return 'ram';
   const value = Math.random() * total;
-  return value < weights.life ? 'life' : value < weights.life + weights.speed ? 'speed' : value < weights.life + weights.speed + weights.ram ? 'ram' : value < weights.life + weights.speed + weights.ram + treasure ? 'treasure' : value < weights.life + weights.speed + weights.ram + treasure + merchant ? 'merchant' : value < weights.life + weights.speed + weights.ram + treasure + merchant + bubble ? 'bubble' : value < weights.life + weights.speed + weights.ram + treasure + merchant + bubble + credit ? 'credit' : 'engi-egg';
+  return value < weights.life ? 'life' : value < weights.life + weights.speed ? 'speed' : value < weights.life + weights.speed + weights.ram ? 'ram' : value < weights.life + weights.speed + weights.ram + charge ? 'charge' : value < weights.life + weights.speed + weights.ram + charge + treasure ? 'treasure' : value < weights.life + weights.speed + weights.ram + charge + treasure + merchant ? 'merchant' : value < weights.life + weights.speed + weights.ram + charge + treasure + merchant + bubble ? 'bubble' : value < weights.life + weights.speed + weights.ram + charge + treasure + merchant + bubble + credit ? 'credit' : 'engi-egg';
+}
+
+function randomEventPowerKind(run: Pick<Run, 'levelEvent' | 'treasureEligible' | 'merchantTokens' | 'mechanics'>): PowerKind {
+  if (run.levelEvent === 'elimination' && Math.random() < run.mechanics.eliminationChargeSpawnChance && run.mechanics.powerupSpawnWeights.charge > 0) return 'charge';
+  if (run.levelEvent !== 'elimination') return randomPowerKind(run.treasureEligible, run.merchantTokens === 0, run.mechanics);
+  const weights = { ...run.mechanics.powerupSpawnWeights, charge: 0 };
+  const total = weights.life + weights.speed + weights.ram + (run.treasureEligible ? weights.treasure : 0) + (run.merchantTokens === 0 ? weights.merchant : 0) + (weights.bubble ?? 0) + (weights.credit ?? 0) + (weights['engi-egg'] ?? 0);
+  if (total <= 0) return run.mechanics.powerupSpawnWeights.charge > 0 ? 'charge' : 'ram';
+  let value = Math.random() * total;
+  const choices: [PowerKind, number][] = [['life', weights.life], ['speed', weights.speed], ['ram', weights.ram], ['treasure', run.treasureEligible ? weights.treasure : 0], ['merchant', run.merchantTokens === 0 ? weights.merchant : 0], ['bubble', weights.bubble ?? 0], ['credit', weights.credit ?? 0], ['engi-egg', weights['engi-egg'] ?? 0]];
+  for (const [kind, weight] of choices) { value -= weight; if (value <= 0) return kind; }
+  return choices[choices.length - 1][0];
 }
 
 const ENGI_COCOON_SKINS = ['engi-cocoon', 'engi-seed-pod', 'engi-scarab-capsule'] as const;
 export function randomEngiCocoonSkin() { return ENGI_COCOON_SKINS[Math.floor(Math.random() * ENGI_COCOON_SKINS.length)]; }
 
+export function ballHasModifier(ball: Ball, modifier: BallModifier): boolean {
+  return ball.modifier === modifier || !!ball.modifiers?.includes(modifier);
+}
+export function ballModifierList(ball: Ball): BallModifier[] {
+  return [...new Set([...(ball.modifiers ?? []), ...(ball.modifier ? [ball.modifier] : [])])];
+}
+function setBallModifiers(ball: Ball, modifiers: BallModifier[]): Ball {
+  const unique = [...new Set(modifiers)];
+  const { modifiers: _oldModifiers, modifier: _oldModifier, ...rest } = ball;
+  return { ...rest, modifier: unique[0], modifiers: unique.length > 1 ? unique.slice(1) : undefined };
+}
+function modifiersCompatible(settings: MechanicsSettings, a: BallModifier, b: BallModifier) {
+  return !!(settings.modifierCompatibility[a]?.[b] || settings.modifierCompatibility[b]?.[a]);
+}
+function addBallModifier(ball: Ball, modifier: BallModifier, run: Pick<Run, 'mechanics' | 'elapsedMs'>, durationMs?: number): Ball {
+  const current = ballModifierList(ball);
+  if (current.includes(modifier) || current.some(existing => !modifiersCompatible(run.mechanics, existing, modifier))) return ball;
+  let updated = setBallModifiers(ball, [...current, modifier]);
+  if (modifier === 'anchor') { updated.anchorBaseRadius = ball.r; updated.r *= run.mechanics.ballModifiers.anchor.sizeMultiplier ?? 1.6; }
+  if (durationMs !== undefined) updated.modifierExpiries = { ...updated.modifierExpiries, [modifier]: run.elapsedMs + durationMs };
+  return updated;
+}
+function removeBallModifier(ball: Ball, modifier: BallModifier): Ball {
+  const remaining = ballModifierList(ball).filter(active => active !== modifier);
+  const updated = setBallModifiers(ball, remaining);
+  if (modifier === 'anchor') { updated.r = ball.anchorBaseRadius ?? ball.r / (MECHANICS.ballModifiers.anchor.sizeMultiplier ?? 1.6); updated.anchorBaseRadius = undefined; }
+  const expiries = { ...ball.modifierExpiries };
+  delete expiries[modifier];
+  updated.modifierExpiries = Object.keys(expiries).length ? expiries : undefined;
+  return updated;
+}
+
 function ballModifierRuleAllows(run: Pick<Run, 'balls' | 'walls'>, modifier: BallModifier) {
   // Phase is event-triggered when a wall starts, so it does not use spawn or
   // slow-ball recovery eligibility checks here.
   if (modifier === 'phase') return false;
-  if (modifier === 'anchor' || modifier === 'splitter') return !run.balls.some(ball => ball.modifier === modifier);
+  if (modifier === 'anchor' || modifier === 'splitter') return !run.balls.some(ball => ballHasModifier(ball, modifier));
   if (modifier === 'skimmer') return run.walls.some(wall => !wall.active);
   if (modifier === 'drifter') return run.walls.some(wall => wall.active);
   return false;
 }
 
-function applyBallModifier(run: Pick<Run, 'balls' | 'walls' | 'mechanics'>, ball: Ball): Ball {
+function applyBallModifier(run: Pick<Run, 'balls' | 'walls' | 'mechanics'> & Partial<Pick<Run, 'elapsedMs'>>, ball: Ball): Ball {
   const choices: BallModifier[] = [];
   for (const modifier of ['splitter', 'drifter', 'anchor'] as const) {
     const settings = run.mechanics.ballModifiers?.[modifier];
     if (!settings?.enabled || Math.random() >= settings.spawnChance) continue;
+    if (modifier === 'splitter' && ball.r * (settings.splitSizeMultiplier ?? 0.65) < (settings.splitMinimumRadius ?? run.mechanics.ballRadius * 0.4)) continue;
     if (settings.spawnRuleEnabled && !ballModifierRuleAllows(run, modifier)) continue;
     choices.push(modifier);
   }
   if (!choices.length) return ball;
   const modifier = choices[Math.floor(Math.random() * choices.length)];
-  const modified = { ...ball, modifier };
-  if (modifier === 'anchor') modified.r *= run.mechanics.ballModifiers.anchor.sizeMultiplier ?? 1.6;
-  return modified;
+  return addBallModifier(ball, modifier, { mechanics: run.mechanics, elapsedMs: run.elapsedMs ?? 0 });
 }
 
 /** Restore a ball that has nearly stalled, with a modest heading wobble and an optional eligible modifier. */
@@ -322,29 +418,91 @@ function recoverSlowBall(run: Run, ball: Ball): Ball {
   const targetSpeed = Math.max(0, Math.min(run.mechanics.ballSpeedMax, run.mechanics.ballRecoverySpeed));
   const angle = (speed > 0.001 ? Math.atan2(ball.vy, ball.vx) : Math.random() * Math.PI * 2) + randomBetween(-Math.PI / 15, Math.PI / 15);
   let recovered: Ball = { ...ball, vx: Math.cos(angle) * targetSpeed, vy: Math.sin(angle) * targetSpeed };
-  if (ball.modifier || Math.random() >= run.mechanics.ballRecoveryModifierChance) return recovered;
+  if (ballModifierList(ball).length || Math.random() >= run.mechanics.ballRecoveryModifierChance) return recovered;
   const candidates: BallModifier[] = ['splitter', 'drifter', 'anchor'];
   const eligible = candidates.filter(modifier => {
     const settings = run.mechanics.ballModifiers[modifier];
-    return settings.enabled && (!settings.spawnRuleEnabled || ballModifierRuleAllows(run, modifier));
+    return settings.enabled && (!settings.spawnRuleEnabled || ballModifierRuleAllows(run, modifier)) && (modifier !== 'splitter' || ball.r * (settings.splitSizeMultiplier ?? 0.65) >= (settings.splitMinimumRadius ?? run.mechanics.ballRadius * 0.4));
   });
   if (!eligible.length) return recovered;
   const modifier = eligible[Math.floor(Math.random() * eligible.length)];
-  recovered = { ...recovered, modifier };
-  if (modifier === 'anchor') recovered.r *= run.mechanics.ballModifiers.anchor.sizeMultiplier ?? 1.6;
+  recovered = addBallModifier(recovered, modifier, run);
   return recovered;
 }
 
 /** Periodic modifier rule shorthand: chance is normalized per second so it behaves consistently across sim tick sizes. */
-function rollPeriodicModifier(balls: Ball[], modifier: BallModifier, rule: PeriodicModifierRule, nowMs: number, dtMs: number, requireUnmodified: boolean): Ball[] {
-  const eligible = requireUnmodified ? balls.filter(ball => !ball.modifier) : balls;
+function rollPeriodicModifier(balls: Ball[], modifier: BallModifier, rule: PeriodicModifierRule, mechanics: MechanicsSettings, nowMs: number, dtMs: number, requireUnmodified: boolean): Ball[] {
+  const eligible = requireUnmodified ? balls.filter(ball => ballModifierList(ball).length === 0) : balls;
   if (!eligible.length) return balls;
   const chancePerSecond = Math.max(0, Math.min(1, rule.chancePerSecond));
   const tickChance = 1 - Math.pow(1 - chancePerSecond, dtMs / 1000);
   if (Math.random() >= tickChance) return balls;
   const targetId = eligible[Math.floor(Math.random() * eligible.length)].id;
   const durationSeconds = randomBetween(Math.min(rule.durationMinSeconds, rule.durationMaxSeconds), Math.max(rule.durationMinSeconds, rule.durationMaxSeconds));
-  return balls.map(ball => ball.id === targetId ? { ...ball, modifier, modifierExpiresAtMs: nowMs + durationSeconds * 1000 } : ball);
+  return balls.map(ball => ball.id === targetId ? addBallModifier(ball, modifier, { mechanics, elapsedMs: nowMs }, durationSeconds * 1000) : ball);
+}
+
+function modifierRate(mechanics: MechanicsSettings, infection = false) {
+  const mode = mechanics.easyMode ? 'easy' : mechanics.hardMode ? 'hard' : 'normal';
+  return (infection ? mechanics.modifierInfectionRates : mechanics.modifierMutationRates)[mode];
+}
+function canGainModifier(run: Run, ball: Ball, modifier: BallModifier) {
+  const config = run.mechanics.ballModifiers[modifier];
+  if (!config.enabled || !config.mutationEnabled || ballHasModifier(ball, modifier)) return false;
+  if (modifier === 'phase') return false; // Phase remains exclusive to its isolated-ball wall-start trigger.
+  if (config.spawnRuleEnabled && !ballModifierRuleAllows(run, modifier)) return false;
+  if (ballModifierList(ball).some(current => !modifiersCompatible(run.mechanics, current, modifier))) return false;
+  if (modifier === 'splitter' && ball.r * (config.splitSizeMultiplier ?? 0.65) < (config.splitMinimumRadius ?? run.mechanics.ballRadius * 0.4)) return false;
+  return true;
+}
+function applyCollisionMutation(run: Run, first: Ball, second: Ball): [Ball, Ball] {
+  const collisionKey = `${Math.min(first.id, second.id)}:${Math.max(first.id, second.id)}`;
+  if ((run.modifierCollisionLocks?.[collisionKey] ?? 0) > run.elapsedMs) return [first, second];
+  run.modifierCollisionLocks = { ...run.modifierCollisionLocks, [collisionKey]: run.elapsedMs + 350 };
+  const firstMods = ballModifierList(first), secondMods = ballModifierList(second);
+  const firstBare = firstMods.length === 0, secondBare = secondMods.length === 0;
+  if (firstBare && secondBare) {
+    if (Math.random() >= modifierRate(run.mechanics)) return [first, second];
+    const targetFirst = Math.random() < 0.5;
+    const target = targetFirst ? first : second;
+    const eligible = (Object.keys(run.mechanics.ballModifiers) as BallModifier[]).filter(modifier => {
+      const config = run.mechanics.ballModifiers[modifier];
+      return config.mutationEnabled && canGainModifier(run, target, modifier);
+    });
+    if (!eligible.length) return [first, second];
+    const modifier = eligible[Math.floor(Math.random() * eligible.length)];
+    const gained = addBallModifier(target, modifier, run);
+    return targetFirst ? [gained, second] : [first, gained];
+  }
+
+  // A modified ball can infect an unmodified partner, or pass a compatible
+  // mutation into an already-modified partner when the developer enables that pair.
+  const directions: { donor: Ball; recipient: Ball }[] = [];
+  if (!firstBare) directions.push({ donor: first, recipient: second });
+  if (!secondBare) directions.push({ donor: second, recipient: first });
+  const infectionChoices: { donor: Ball; recipient: Ball; modifier: BallModifier }[] = [];
+  for (const { donor, recipient } of directions) {
+    const sourceModifiers = ballModifierList(donor).filter(modifier => run.mechanics.ballModifiers[modifier].infectiousEnabled && modifier !== 'phase');
+    if (!sourceModifiers.length) continue;
+    const eligible = sourceModifiers.filter(modifier => {
+      const config = run.mechanics.ballModifiers[modifier];
+      if (!config.enabled || ballHasModifier(recipient, modifier)) return false;
+      if (recipient.modifier && !modifiersCompatible(run.mechanics, recipient.modifier, modifier)) return false;
+      if (recipient.modifiers?.some(existing => !modifiersCompatible(run.mechanics, existing, modifier))) return false;
+      // Explicitly enabling Anchor/Splitter infection is a balance-test
+      // override to their normal one-at-a-time spawn cap; their ordinary
+      // pickup/recovery spawn paths still enforce that existing rule.
+      if (config.spawnRuleEnabled && modifier !== 'anchor' && modifier !== 'splitter' && !ballModifierRuleAllows(run, modifier)) return false;
+      return true;
+    });
+    for (const modifier of eligible) infectionChoices.push({ donor, recipient, modifier });
+  }
+  if (!infectionChoices.length || Math.random() >= modifierRate(run.mechanics, true)) return [first, second];
+  const { donor, recipient, modifier } = infectionChoices[Math.floor(Math.random() * infectionChoices.length)];
+  const expiry = donor.modifierExpiries?.[modifier] ?? (donor.modifier === modifier ? donor.modifierExpiresAtMs : undefined);
+  const duration = expiry === undefined ? undefined : Math.max(0, expiry - run.elapsedMs);
+  const infected = addBallModifier(recipient, modifier, run, duration);
+  return recipient.id === first.id ? [infected, second] : [first, infected];
 }
 
 const ENGI_NAME_PREFIXES = ['Ari', 'Bo', 'Cobalt', 'Dax', 'Eko', 'Fenn', 'Glim', 'Hux', 'Iri', 'Juno', 'Kip', 'Lumen', 'Mica', 'Nix', 'Orbi', 'Pip', 'Quin', 'Rho', 'Sprocket', 'Tavi', 'Uma', 'Vex', 'Weld', 'Xeno', 'Yori', 'Zed'];
@@ -514,14 +672,26 @@ export function newRun(level = 1, boardWidth = 900, boardHeight = 1100, waldoReq
   const gridCols = Math.max(48, Math.round(48 * boardWidth / 900));
   const gridRows = Math.max(72, Math.round(72 * boardHeight / 1100));
   const pictureEvent = nextPictureEvent(waldoRequested);
+  const eventRoll = Math.random(), eventTotal = MECHANICS.eliminationEventChance + MECHANICS.driftSwarmEventChance;
+  const eventScale = Math.max(1, eventTotal);
+  const levelEvent = eventRoll < MECHANICS.eliminationEventChance / eventScale ? 'elimination' : eventRoll < eventTotal / eventScale ? 'drift-swarm' : 'none';
   const balls: Ball[] = [];
   for (let i = 0; i < count; i++) {
     const speed = randomBetween(MECHANICS.ballSpeedMin, MECHANICS.ballSpeedMax);
     const angle = Math.random() * Math.PI * 2;
-    balls.push(applyBallModifier({ balls, walls: [], mechanics: MECHANICS }, { id: i + 1, x: randomBetween(boardWidth * 0.1, boardWidth * 0.9), y: randomBetween(boardHeight * 0.1, boardHeight * 0.9), vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, r: MECHANICS.ballRadius }));
+    let ball = { id: i + 1, x: randomBetween(boardWidth * 0.1, boardWidth * 0.9), y: randomBetween(boardHeight * 0.1, boardHeight * 0.9), vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, r: MECHANICS.ballRadius } as Ball;
+    if (levelEvent === 'drift-swarm') {
+      const modifier = addBallModifier(ball, 'drifter', { mechanics: MECHANICS, elapsedMs: 0 });
+      ball = setBallModifiers(modifier, ['drifter']);
+      const min = Math.max(0.1, Math.min(MECHANICS.driftSwarmVariationMin, MECHANICS.driftSwarmVariationMax));
+      const max = Math.max(min, MECHANICS.driftSwarmVariationMax);
+      ball.driftRangeOverride = (MECHANICS.ballModifiers.drifter.attractionRange ?? 360) * randomBetween(min, max);
+      ball.driftStrengthOverride = (MECHANICS.ballModifiers.drifter.attractionStrength ?? 240) * randomBetween(min, max);
+    } else ball = applyBallModifier({ balls, walls: [], mechanics: MECHANICS }, ball);
+    balls.push(ball);
   }
   return {
-    level, lives: MECHANICS.startLives, lifeCapacity: Math.max(MECHANICS.startLives, MECHANICS.lifeStorageBaseCapacity), lifeCapacityPurchases: 0, speedCapacityBonus: 0, speedCapacityPurchases: 0, ramCapacityBonus: 0, ramCapacityPurchases: 0, overflowJobs: [], overflowSuccessChance: MECHANICS.overflowBaseSuccessChance, overflowUpgradePurchases: 0, claimed: 0, claimMask: Array(gridCols * gridRows).fill(0), walls: [], powerups: [], speedCharges: 0, ramCharges: 0, merchantTokens: 0, credits: 0, powerBars: 0, powerBarsPurchased: 0, merchantUpgrades: { life: 0, speed: 0, ram: 0, treasure: 0, waldo: 0 }, petEggs: 0, petEggVisitProgress: 0, pets: [], petIncubations: [], isotypesContained: false, isotypesNoticeUntilMs: 0, petNotice: null, petNoticeUntilMs: 0, levelClearPending: false, speedReadyUntil: null, captureEvents: [], wallBreakEvents: [], territoryGainEvents: [], creditGainEvents: [], treasureEligible: Math.random() < MECHANICS.treasureLevelEligibilityChance, treasureHuntPending: false, treasureHunt: null, pictureEvent, waldoEventPending: waldoRequested && !pictureEvent?.isWaldo, waldoEligible: Math.random() >= MECHANICS.waldoIneligibleChance, mechanics: getMechanicsSettings(), boardWidth, boardHeight, gridCols, gridRows, nextId: count + 1,
+    level, lives: MECHANICS.startLives, lifeCapacity: Math.max(MECHANICS.startLives, MECHANICS.lifeStorageBaseCapacity), lifeCapacityPurchases: 0, speedCapacityBonus: 0, speedCapacityPurchases: 0, ramCapacityBonus: 0, ramCapacityPurchases: 0, chargeCapacityBonus: 0, chargeCapacityPurchases: 0, chargeCharges: 0, overflowJobs: [], overflowSuccessChance: MECHANICS.overflowBaseSuccessChance, overflowUpgradePurchases: 0, overflowProcessingUpgradePurchases: 0, claimed: 0, claimMask: Array(gridCols * gridRows).fill(0), walls: [], powerups: [], speedCharges: 0, ramCharges: 0, merchantTokens: 0, credits: 0, powerBars: 0, powerBarsPurchased: 0, merchantUpgrades: Object.fromEntries(['life','speed','ram','treasure','waldo', ...Object.keys(MECHANICS.containmentMutationPickupEnabled).flatMap(kind => [`mutationAffinity:${kind}`, `mutationAttraction:${kind}`])].map(key => [key, 0])), petEggs: 0, petEggVisitProgress: 0, pets: [], petIncubations: [], isotypesContained: false, isotypesNoticeUntilMs: 0, petNotice: null, petNoticeUntilMs: 0, levelClearPending: false, levelClearAnimationRemainingMs: 0, levelClearBubbleTimerMs: 0, levelClearBubbleAccumulatorMs: 0, levelEvent, levelEventBannerUntilMs: levelEvent === 'drift-swarm' ? MECHANICS.driftSwarmBannerDurationMs : 0, containmentMutations: [], containmentMutationScanRemainingMs: 0, speedReadyUntil: null, chargeReadyUntil: null, captureEvents: [], wallBreakEvents: [], territoryGainEvents: [], creditGainEvents: [], treasureEligible: Math.random() < MECHANICS.treasureLevelEligibilityChance, treasureHuntPending: false, treasureHunt: null, pictureEvent, waldoEventPending: waldoRequested && !pictureEvent?.isWaldo, waldoEligible: Math.random() >= MECHANICS.waldoIneligibleChance, mechanics: getMechanicsSettings(), boardWidth, boardHeight, gridCols, gridRows, nextId: count + 1,
     balls,
     elapsedMs: 0,
     spawnInMs: Math.floor(randomBetween(MECHANICS.powerupSpawnEverySecondsMin, MECHANICS.powerupSpawnEverySecondsMax + 1)) * 1000,
@@ -612,6 +782,106 @@ export function everyBallHasItsOwnRegion(run: Run, width: number, height: number
   return occupied.every(label => label > 0) && new Set(occupied).size === occupied.length;
 }
 
+/** Finds open rectangular enclosures made by exactly four solid player walls. */
+function findContainmentBoxes(run: Run, width: number, height: number) {
+  if (run.balls.length < 2) return [] as { key: string; wallIds: number[]; bounds: ContainmentMutation['bounds'] }[];
+  const cols = run.gridCols || 48, rows = run.gridRows || 72, stepX = width / cols, stepY = height / rows;
+  const barriers = buildWallBarrierGrid(run.walls.filter(wall => !wall.active), width, height, cols, rows, 'edge-tolerance');
+  const solidWalls = run.walls.filter(wall => !wall.active), labels = new Int32Array(cols * rows), queue = new Int32Array(cols * rows);
+  let nextLabel = 0;
+  const blocked = (x: number, y: number, nx: number, ny: number) => nx < 0 || ny < 0 || nx >= cols || ny >= rows || (x !== nx
+    ? !!barriers.vertical[y * (cols - 1) + Math.min(x, nx)]
+    : !!barriers.horizontal[Math.min(y, ny) * cols + x]);
+  const wallAtBoundary = (x: number, y: number, nx: number, ny: number) => {
+    const vertical = x !== nx, edge = vertical ? Math.max(x, nx) * stepX : Math.max(y, ny) * stepY;
+    const along = vertical ? (y + 0.5) * stepY : (x + 0.5) * stepX;
+    return solidWalls.find(wall => vertical
+      ? wall.axis === 'vertical' && Math.abs(wall.at - edge) < stepX * 0.7 && along >= wall.low - stepY * 0.5 && along <= wall.high + stepY * 0.5
+      : wall.axis === 'horizontal' && Math.abs(wall.at - edge) < stepY * 0.7 && along >= wall.low - stepX * 0.5 && along <= wall.high + stepX * 0.5);
+  };
+  const regions: { label: number; wallIds: Set<number>; touchesEdge: boolean; left: number; right: number; top: number; bottom: number }[] = [];
+  for (let start = 0; start < labels.length; start++) {
+    if (labels[start] || run.claimMask[start]) continue;
+    const label = ++nextLabel; let head = 0, tail = 0, touchesEdge = false;
+    let left = cols, right = 0, top = rows, bottom = 0;
+    const wallIds = new Set<number>(); labels[start] = label; queue[tail++] = start;
+    while (head < tail) {
+      const index = queue[head++], x = index % cols, y = Math.floor(index / cols);
+      left = Math.min(left, x); right = Math.max(right, x); top = Math.min(top, y); bottom = Math.max(bottom, y);
+      for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]] as const) {
+        if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) { touchesEdge = true; continue; }
+        const next = ny * cols + nx;
+        if (run.claimMask[next]) continue;
+        if (blocked(x, y, nx, ny)) { const wall = wallAtBoundary(x, y, nx, ny); if (wall) wallIds.add(wall.id); continue; }
+        if (!labels[next]) { labels[next] = label; queue[tail++] = next; }
+      }
+    }
+    regions.push({ label, wallIds, touchesEdge, left, right, top, bottom });
+  }
+  const occupiedLabels = run.balls.map(ball => {
+    const col = Math.max(0, Math.min(cols - 1, Math.floor(ball.x / width * cols)));
+    const row = Math.max(0, Math.min(rows - 1, Math.floor(ball.y / height * rows)));
+    return labels[row * cols + col];
+  });
+  if (occupiedLabels.every(label => label > 0) && new Set(occupiedLabels).size === occupiedLabels.length) return [];
+  const countByLabel = new Map<number, number>();
+  for (const label of occupiedLabels) countByLabel.set(label, (countByLabel.get(label) ?? 0) + 1);
+  return regions.filter(region => !region.touchesEdge && region.wallIds.size === 4 && countByLabel.get(region.label) === 1).map(region => {
+    const wallIds = [...region.wallIds].sort((a, b) => a - b);
+    return { key: wallIds.join(':'), wallIds, bounds: { left: region.left / cols, right: (region.right + 1) / cols, top: region.top / rows, bottom: (region.bottom + 1) / rows } };
+  });
+}
+
+function containmentMutationUpgrade(run: Run, kind: ContainmentPickupKind, branch: 'mutationAffinity' | 'mutationAttraction') {
+  const count = run.merchantUpgrades[`${branch}:${kind}`] ?? 0;
+  const perBar = branch === 'mutationAffinity' ? run.mechanics.merchantUpgradePerBar.mutationAffinityPercent : run.mechanics.merchantUpgradePerBar.mutationAttractionPercent;
+  return 1 + Math.min(60, Math.max(0, count * perBar)) / 100;
+}
+
+function containmentKindAvailable(run: Run, kind: ContainmentPickupKind) {
+  return (kind !== 'merchant' || run.merchantTokens === 0) && (kind !== 'treasure' || run.treasureEligible);
+}
+
+function rollContainmentMutationKind(run: Run): ContainmentPickupKind | undefined {
+  const kinds = (Object.keys(run.mechanics.containmentMutationPickupEnabled) as ContainmentPickupKind[]).filter(kind => run.mechanics.containmentMutationPickupEnabled[kind]
+    && (run.mechanics.powerupSpawnWeights[kind] ?? 0) > 0 && containmentKindAvailable(run, kind));
+  if (!kinds.length) return undefined;
+  const weights = kinds.map(kind => (run.mechanics.powerupSpawnWeights[kind] ?? 1) * containmentMutationUpgrade(run, kind, 'mutationAffinity'));
+  const total = weights.reduce((sum, weight) => sum + weight, 0); let roll = Math.random() * total;
+  for (let index = 0; index < kinds.length; index++) { roll -= weights[index]; if (roll <= 0) return kinds[index]; }
+  return kinds[kinds.length - 1];
+}
+
+function refreshContainmentMutations(run: Run, width: number, height: number, dt: number) {
+  if (run.mechanics.containmentMutationChance <= 0) return;
+  run.containmentMutationScanRemainingMs = Math.max(0, (run.containmentMutationScanRemainingMs ?? 0) - dt);
+  if (run.containmentMutationScanRemainingMs > 0) return;
+  run.containmentMutationScanRemainingMs = 250;
+  const regions = findContainmentBoxes(run, width, height);
+  const current = new Map(regions.map(region => [region.key, region]));
+  const boxes = (run.containmentMutations ?? []).map(box => {
+    const region = current.get(box.key);
+    if (box.active && !region) return { ...box, active: false };
+    return region ? { ...box, bounds: region.bounds } : box;
+  });
+  for (const region of regions) {
+    if (boxes.some(box => box.key === region.key)) continue;
+    const min = Math.max(0, Math.min(run.mechanics.containmentMutationDelayMinSeconds, run.mechanics.containmentMutationDelayMaxSeconds));
+    const max = Math.max(min, run.mechanics.containmentMutationDelayMaxSeconds);
+    boxes.push({ ...region, rollAtMs: run.elapsedMs + randomBetween(min, max) * 1000, rolled: false, active: false });
+  }
+  for (let index = 0; index < boxes.length; index++) {
+    const box = boxes[index];
+    if (box.rolled || run.elapsedMs < box.rollAtMs) continue;
+    // A box gets one roll only, and the enclosure must still meet the rule when the timer ends.
+    if (!current.has(box.key) || Math.random() >= run.mechanics.containmentMutationChance) { boxes[index] = { ...box, rolled: true }; continue; }
+    const kind = rollContainmentMutationKind(run);
+    const colors = ['#ff62a6', '#ffb347', '#9d8cff', '#69cfff', '#86ef8d', '#f5e85c'];
+    boxes[index] = kind ? { ...box, rolled: true, active: true, kind, style: Math.random() < 0.5 ? 'chromatic' : 'vines', color: colors[Math.floor(Math.random() * colors.length)], startedAtMs: run.elapsedMs } : { ...box, rolled: true };
+  }
+  run.containmentMutations = boxes;
+}
+
 function overlapsClaimed(run: Run, x: number, y: number, radius: number, width: number, height: number) {
   const offset = radius * 0.72;
   return [[0, 0], [radius, 0], [-radius, 0], [0, radius], [0, -radius], [offset, offset], [offset, -offset], [-offset, offset], [-offset, -offset]]
@@ -624,6 +894,31 @@ function randomUnclaimedPoint(run: Run, width: number, height: number) {
   if (!openCells.length) return { x: width * 0.5, y: height * 0.5 };
   const cell = openCells[Math.floor(Math.random() * openCells.length)];
   return { x: ((cell % run.gridCols) + 0.5) * width / run.gridCols, y: (Math.floor(cell / run.gridCols) + 0.5) * height / run.gridRows };
+}
+
+function mutationBoxAt(boxes: ContainmentMutation[], x: number, y: number, width: number, height: number) {
+  const nx = x / width, ny = y / height;
+  return boxes.find(box => box.active && box.kind && nx >= box.bounds.left && nx <= box.bounds.right && ny >= box.bounds.top && ny <= box.bounds.bottom);
+}
+
+function tryPointInMutationBox(run: Run, box: ContainmentMutation, width: number, height: number, radius: number) {
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const x = randomBetween(box.bounds.left * width + radius, box.bounds.right * width - radius);
+    const y = randomBetween(box.bounds.top * height + radius, box.bounds.bottom * height - radius);
+    if (x < radius || x > width - radius || y < radius || y > height - radius || overlapsClaimed(run, x, y, radius, width, height)) continue;
+    if (run.balls.some(ball => Math.hypot(ball.x - x, ball.y - y) < ball.r + radius + 3)) continue;
+    if (run.walls.some(wall => !wall.active && pointOnWall(wall, x, y, radius))) continue;
+    return { x, y };
+  }
+  return null;
+}
+
+function startLevelClearIfReady(run: Run, width: number, height: number) {
+  if (run.levelClearPending || run.claimed < run.mechanics.clearPercentOfOriginalBoard) return run;
+  if (run.levelEvent === 'elimination' && run.balls.length > 0) return run;
+  const point = randomUnclaimedPoint(run, width, height), angle = Math.random() * Math.PI * 2, speed = 70;
+  const exit: PowerUp = { id: run.nextId++, kind: 'exit', ...point, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed };
+  return { ...run, levelClearPending: true, levelClearAnimationRemainingMs: run.mechanics.levelClearAnimationDurationMs, levelClearBubbleTimerMs: 0, levelClearBubbleAccumulatorMs: 0, powerups: [...run.powerups.filter(power => power.kind !== 'exit'), exit] };
 }
 
 /** Precomputes which adjacent grid cells are separated by solid walls. This keeps
@@ -705,7 +1000,14 @@ function spawnCaptureBall(run: Run, width: number, height: number): Run {
     if (run.powerups.some(power => Math.hypot(power.x - x, power.y - y) < powerupCollisionRadius(power.kind, run.mechanics) + radius + 2)) continue;
     const speed = randomBetween(run.mechanics.ballSpeedMin, run.mechanics.ballSpeedMax);
     const angle = Math.random() * Math.PI * 2;
-    const ball = applyBallModifier(run, { id: run.nextId, x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, r: radius });
+    let ball = { id: run.nextId, x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, r: radius } as Ball;
+    if (run.levelEvent === 'drift-swarm') {
+      ball = setBallModifiers(ball, ['drifter']);
+      const min = Math.max(0.1, Math.min(run.mechanics.driftSwarmVariationMin, run.mechanics.driftSwarmVariationMax));
+      const max = Math.max(min, run.mechanics.driftSwarmVariationMax);
+      ball.driftRangeOverride = (run.mechanics.ballModifiers.drifter.attractionRange ?? 360) * randomBetween(min, max);
+      ball.driftStrengthOverride = (run.mechanics.ballModifiers.drifter.attractionStrength ?? 240) * randomBetween(min, max);
+    } else ball = applyBallModifier(run, ball);
     return { ...run, balls: [...run.balls, ball], nextId: run.nextId + 1 };
   }
   return run;
@@ -813,10 +1115,12 @@ function applyPickupCaptures(run: Run, captured: PowerUp[], skeweredIds = new Se
   const lifePowerups = captured.filter(power => power.kind === 'life');
   const speedPowerups = captured.filter(power => power.kind === 'speed');
   const ramPowerups = captured.filter(power => power.kind === 'ram');
+  const chargePowerups = captured.filter(power => power.kind === 'charge');
   const overflowResources = [
     ...lifePowerups.slice(Math.max(0, run.lifeCapacity - run.lives)),
     ...speedPowerups.slice(Math.max(0, chargeCapacity(run, 'speed') - run.speedCharges)),
     ...ramPowerups.slice(Math.max(0, chargeCapacity(run, 'ram') - run.ramCharges)),
+    ...chargePowerups.slice(Math.max(0, chargeCapacity(run, 'charge') - run.chargeCharges)),
   ];
   const queuedOverflow = queueOverflowJobs(run, overflowResources.map(power => ({ kind: power.kind, x: power.x, y: power.y })), nextId);
   const overflowJobs = [...(run.overflowJobs ?? []), ...queuedOverflow.jobs];
@@ -825,6 +1129,7 @@ function applyPickupCaptures(run: Run, captured: PowerUp[], skeweredIds = new Se
     lives: Math.min(run.lifeCapacity, run.lives + lifePowerups.length),
     speedCharges: Math.min(chargeCapacity(run, 'speed'), run.speedCharges + speedPowerups.length),
     ramCharges: Math.min(chargeCapacity(run, 'ram'), run.ramCharges + ramPowerups.length),
+    chargeCharges: Math.min(chargeCapacity(run, 'charge'), run.chargeCharges + chargePowerups.length),
     waldoEventPending: run.waldoEventPending || captured.some(p => p.kind === 'waldo'),
     merchantTokens: Math.min(1, run.merchantTokens + captured.filter(p => p.kind === 'merchant').length),
     treasureHuntPending: run.treasureHuntPending || captured.some(p => p.kind === 'treasure'),
@@ -903,21 +1208,23 @@ export function startWall(run: Run, x: number, y: number, axis: Wall['axis']): R
   const low = Math.abs(start) < 3 ? 0 : nearestAnchor(run, axis, at, start, -1, extent);
   const high = Math.abs(extent - start) < 3 ? extent : nearestAnchor(run, axis, at, start, 1, extent);
   const noCapture = run.speedReadyUntil !== null && run.speedReadyUntil > run.elapsedMs;
+  const chargeWall = run.chargeReadyUntil !== null && run.chargeReadyUntil > run.elapsedMs;
   const walls = [...run.walls, {
     id: run.nextId, axis, at, center: start, low: start, high: start, lowTarget: low, highTarget: high,
     lowState: Math.abs(low - start) < 0.1 ? 'grounded' as const : 'growing' as const,
     highState: Math.abs(high - start) < 0.1 ? 'grounded' as const : 'growing' as const,
-    connections: [], active: true, speedMultiplier: 1, noCapture,
+    connections: [], active: true, speedMultiplier: 1, noCapture, chargeWall, chargeSkinId: chargeWall ? run.chargeReadySkinId : undefined,
   }];
   const phaseSettings = run.mechanics.ballModifiers.phase;
   let balls = run.balls;
   const phaseRulePasses = !phaseSettings.spawnRuleEnabled || everyBallHasItsOwnRegion(run, width, height);
-  const phaseAlreadyActive = balls.some(ball => ball.modifier === 'phase');
-  if (phaseSettings.enabled && phaseRulePasses && !phaseAlreadyActive && balls.length && Math.random() < phaseSettings.spawnChance) {
-    const target = Math.floor(Math.random() * balls.length);
-    balls = balls.map((ball, index) => index === target ? { ...ball, modifier: 'phase', phaseEndsAtMs: run.elapsedMs + (phaseSettings.phaseDurationMs ?? 8000), skimmerWallId: undefined, skimmerRemainingMs: undefined, skimmerResumeVx: undefined, skimmerResumeVy: undefined, rammed: false } : ball);
+  const phaseAlreadyActive = balls.some(ball => ballHasModifier(ball, 'phase'));
+  const phaseTargets = balls.filter(ball => ballModifierList(ball).length === 0);
+  if (run.levelEvent !== 'drift-swarm' && phaseSettings.enabled && phaseRulePasses && !phaseAlreadyActive && !run.phaseChestPending && phaseTargets.length && Math.random() < phaseSettings.spawnChance) {
+    const targetId = phaseTargets[Math.floor(Math.random() * phaseTargets.length)].id;
+    balls = balls.map(ball => ball.id === targetId ? { ...addBallModifier(ball, 'phase', run), phaseEndsAtMs: run.elapsedMs + (phaseSettings.phaseDurationMs ?? 8000), skimmerWallId: undefined, skimmerRemainingMs: undefined, skimmerResumeVx: undefined, skimmerResumeVy: undefined, rammed: false } : ball);
   }
-  return { ...run, nextId: run.nextId + 1, walls, balls, speedReadyUntil: noCapture ? null : run.speedReadyUntil };
+  return { ...run, nextId: run.nextId + 1, walls, balls, speedReadyUntil: noCapture ? null : run.speedReadyUntil, chargeReadyUntil: chargeWall ? null : run.chargeReadyUntil, chargeReadySkinId: chargeWall ? undefined : run.chargeReadySkinId };
 }
 
 export function activateSpeed(run: Run): Run {
@@ -926,6 +1233,13 @@ export function activateSpeed(run: Run): Run {
   const multiplier = run.mechanics.speedBoostMultiplier ?? 1.4;
   if (active) return { ...run, speedCharges: run.speedCharges - 1, walls: run.walls.map(w => w.id === active.id ? { ...w, speedMultiplier: w.speedMultiplier * multiplier } : w) };
   return { ...run, speedCharges: run.speedCharges - 1, speedReadyUntil: run.elapsedMs + 6000 };
+}
+
+export function activateCharge(run: Run, skinId: string): Run {
+  if (run.chargeCharges <= 0 || (run.chargeReadyUntil !== null && run.chargeReadyUntil > run.elapsedMs)) return run;
+  const active = run.walls.filter(wall => wall.active).sort((a, b) => b.id - a.id)[0];
+  if (active) return { ...run, chargeCharges: run.chargeCharges - 1, walls: run.walls.map(wall => wall.id === active.id ? { ...wall, chargeWall: true, chargeSkinId: skinId } : wall) };
+  return { ...run, chargeCharges: run.chargeCharges - 1, chargeReadyUntil: run.elapsedMs + 6000, chargeReadySkinId: skinId };
 }
 
 export function ramAt(run: Run, x: number, y: number): Run {
@@ -948,23 +1262,25 @@ export function ramAt(run: Run, x: number, y: number): Run {
   if (run.treasureHunt?.revealed && Math.hypot(run.treasureHunt.x - x, run.treasureHunt.y - y) <= powerupRadius('treasure', run.mechanics)) {
     if (run.ramCharges >= 3) {
       const count = Math.floor(randomBetween(run.mechanics.treasureRewardMin, run.mechanics.treasureRewardMax + 1));
-      const rewards = Array.from({ length: count }, () => randomPowerKind(true, run.merchantTokens === 0, run.mechanics));
+      const rewards = Array.from({ length: count }, () => randomEventPowerKind(run));
       const rewardEvents: CaptureEvent[] = rewards.map((kind, index) => ({ id: run.nextId + index + 2, x: randomBetween(40, run.boardWidth - 40), y: randomBetween(40, run.boardHeight - 40), kind, skinId: kind === 'engi-egg' ? randomEngiCocoonSkin() : undefined }));
       const rewardCreditPayouts = rewards.map((kind, index) => ({ kind, event: rewardEvents[index], amount: kind === 'bubble' ? run.mechanics.bubbleCreditsPerPop : kind === 'credit' ? run.mechanics.creditPickupBaseAmount : 0 })).filter(reward => reward.amount > 0);
       const creditGainEvents = [...(run.creditGainEvents ?? []), ...rewardCreditPayouts.map((reward, index) => ({ id: run.nextId + count + 2 + index, x: reward.event.x, y: reward.event.y, amount: reward.amount }))];
-      const rewardResources = rewards.flatMap((kind, index) => kind === 'life' || kind === 'speed' || kind === 'ram' ? [{ kind, x: rewardEvents[index].x, y: rewardEvents[index].y }] : []);
+      const rewardResources = rewards.flatMap((kind, index) => kind === 'life' || kind === 'speed' || kind === 'ram' || kind === 'charge' ? [{ kind, x: rewardEvents[index].x, y: rewardEvents[index].y }] : []);
       const overflowStartId = run.nextId + count + 2 + rewardCreditPayouts.length;
       const afterRamSpend = { ...run, ramCharges: run.ramCharges - 3 };
       const overflowResources = [
         ...rewardResources.filter(reward => reward.kind === 'life').slice(Math.max(0, run.lifeCapacity - run.lives)),
         ...rewardResources.filter(reward => reward.kind === 'speed').slice(Math.max(0, chargeCapacity(run, 'speed') - run.speedCharges)),
         ...rewardResources.filter(reward => reward.kind === 'ram').slice(Math.max(0, chargeCapacity(run, 'ram') - afterRamSpend.ramCharges)),
+        ...rewardResources.filter(reward => reward.kind === 'charge').slice(Math.max(0, chargeCapacity(run, 'charge') - run.chargeCharges)),
       ];
       const queuedOverflow = queueOverflowJobs(run, overflowResources, overflowStartId);
       return { ...run, treasureHunt: null,
         lives: Math.min(run.lifeCapacity, run.lives + rewards.filter(kind => kind === 'life').length),
         speedCharges: Math.min(chargeCapacity(run, 'speed'), run.speedCharges + rewards.filter(kind => kind === 'speed').length),
         ramCharges: Math.min(chargeCapacity(run, 'ram'), afterRamSpend.ramCharges + rewards.filter(kind => kind === 'ram').length),
+        chargeCharges: Math.min(chargeCapacity(run, 'charge'), run.chargeCharges + rewards.filter(kind => kind === 'charge').length),
         merchantTokens: Math.min(1, run.merchantTokens + rewards.filter(kind => kind === 'merchant').length),
         treasureHuntPending: run.treasureHuntPending || rewards.includes('treasure'),
         credits: run.credits + rewardCreditPayouts.reduce((sum, reward) => sum + reward.amount, 0), creditGainEvents,
@@ -1000,45 +1316,135 @@ function applyRamBlast(run: Run, x: number, y: number): Run {
     captureEvents: [...run.captureEvents, { id: run.nextId, x, y, kind: 'explosion' }], nextId: run.nextId + 1 };
 }
 
+function findOtherPhaseChestContainer(run: Run, sourceBallId: number, width: number, height: number) {
+  const cols = run.gridCols || 48, rows = run.gridRows || 72;
+  const cw = width / cols, ch = height / rows;
+  const source = run.balls.find(ball => ball.id === sourceBallId);
+  if (!source) return null;
+  const sourceCol = Math.max(0, Math.min(cols - 1, Math.floor(source.x / cw)));
+  const sourceRow = Math.max(0, Math.min(rows - 1, Math.floor(source.y / ch)));
+  const sourceIndex = sourceRow * cols + sourceCol;
+  const components = new Int32Array(cols * rows).fill(-1);
+  const crossesWall = (a: number, b: number) => {
+    const ax = (a % cols + 0.5) * cw, ay = (Math.floor(a / cols) + 0.5) * ch;
+    const bx = (b % cols + 0.5) * cw, by = (Math.floor(b / cols) + 0.5) * ch;
+    return run.walls.some(wall => {
+      if (wall.active) return false;
+      if (ax !== bx && wall.axis === 'vertical') return Math.abs(wall.at - (ax + bx) / 2) <= cw * 0.55 && (ay + by) / 2 >= wall.low && (ay + by) / 2 <= wall.high;
+      if (ay !== by && wall.axis === 'horizontal') return Math.abs(wall.at - (ay + by) / 2) <= ch * 0.55 && (ax + bx) / 2 >= wall.low && (ax + bx) / 2 <= wall.high;
+      return false;
+    });
+  };
+  let componentId = 0;
+  const freeCell = (index: number) => run.claimMask[index] !== 1;
+  for (let index = 0; index < components.length; index++) {
+    if (components[index] >= 0 || !freeCell(index)) continue;
+    const queue = [index]; components[index] = componentId;
+    for (let q = 0; q < queue.length; q++) {
+      const cell = queue[q], col = cell % cols, row = Math.floor(cell / cols);
+      const neighbors = [col > 0 ? cell - 1 : -1, col + 1 < cols ? cell + 1 : -1, row > 0 ? cell - cols : -1, row + 1 < rows ? cell + cols : -1];
+      for (const next of neighbors) if (next >= 0 && components[next] < 0 && freeCell(next) && !crossesWall(cell, next)) { components[next] = componentId; queue.push(next); }
+    }
+    componentId++;
+  }
+  const sourceComponent = components[sourceIndex];
+  const targetComponents = new Set<number>();
+  for (const ball of run.balls) {
+    if (ball.id === sourceBallId) continue;
+    const col = Math.max(0, Math.min(cols - 1, Math.floor(ball.x / cw))), row = Math.max(0, Math.min(rows - 1, Math.floor(ball.y / ch)));
+    const id = components[row * cols + col];
+    if (id >= 0 && id !== sourceComponent) targetComponents.add(id);
+  }
+  const candidates: { x: number; y: number }[] = [];
+  for (let index = 0; index < components.length; index++) {
+    if (!targetComponents.has(components[index])) continue;
+    const x = (index % cols + 0.5) * cw, y = (Math.floor(index / cols) + 0.5) * ch;
+    const chestRadius = powerupRadius('treasure', run.mechanics);
+    if (run.walls.some(wall => !wall.active && (wall.axis === 'vertical' ? Math.abs(wall.at - x) < chestRadius + 3 && y >= wall.low - chestRadius && y <= wall.high + chestRadius : Math.abs(wall.at - y) < chestRadius + 3 && x >= wall.low - chestRadius && x <= wall.high + chestRadius))) continue;
+    if (run.balls.some(ball => ball.id !== sourceBallId && Math.hypot(ball.x - x, ball.y - y) < ball.r + powerupRadius('treasure', run.mechanics) + 8)) continue;
+    candidates.push({ x, y });
+  }
+  return candidates.length ? candidates[Math.floor(Math.random() * candidates.length)] : null;
+}
+
+function trySpawnDeferredPhaseChest(run: Run, width: number, height: number) {
+  if (!run.phaseChestPending || (run.phaseChestRetryAtMs ?? 0) > run.elapsedMs) return;
+  run.phaseChestRetryAtMs = run.elapsedMs + 1000;
+  const point = findOtherPhaseChestContainer(run, run.phaseChestOriginBallId ?? -1, width, height);
+  if (!point) return;
+  const angle = Math.random() * Math.PI * 2, speed = 70;
+  run.powerups.push({ id: run.nextId++, kind: 'treasure', phaseChest: true, ...point, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
+  run.phaseChestPending = false; run.phaseChestOriginBallId = undefined; run.phaseChestRetryAtMs = undefined;
+}
+
 export function stepRun(previous: Run, dt: number, width: number, height: number): Run {
   if (previous.ended || width <= 0 || height <= 0) return previous;
-  let run: Run = { ...previous, elapsedMs: previous.elapsedMs + dt, balls: previous.balls.map(b => ({ ...b })), walls: previous.walls.map(w => ({ ...w })), powerups: previous.powerups.map(p => ({ ...p })), overflowJobs: (previous.overflowJobs ?? []).map(job => ({ ...job })), pets: (previous.pets ?? []).map(pet => ({ ...pet })), petIncubations: (previous.petIncubations ?? []).map(incubation => ({ ...incubation })), captureEvents: [], wallBreakEvents: [], territoryGainEvents: [], creditGainEvents: [], speedReadyUntil: previous.speedReadyUntil !== null && previous.speedReadyUntil <= previous.elapsedMs + dt ? null : previous.speedReadyUntil,
-    treasureHunt: previous.treasureHunt ? { ...previous.treasureHunt, remainingMs: previous.treasureHunt.remainingMs - dt } : null };
+  let run: Run = { ...previous, levelEvent: previous.levelEvent ?? 'none', levelEventBannerUntilMs: previous.levelEventBannerUntilMs ?? 0, levelClearAnimationRemainingMs: previous.levelClearAnimationRemainingMs ?? 0, containmentMutations: (previous.containmentMutations ?? []).map(box => ({ ...box, wallIds: [...box.wallIds], bounds: { ...box.bounds } })), containmentMutationScanRemainingMs: previous.containmentMutationScanRemainingMs ?? 0, elapsedMs: previous.elapsedMs + dt, modifierCollisionLocks: Object.fromEntries(Object.entries(previous.modifierCollisionLocks ?? {}).filter(([, expiresAt]) => expiresAt > previous.elapsedMs + dt)), balls: previous.balls.map(b => ({ ...b })), walls: previous.walls.map(w => ({ ...w })), powerups: previous.powerups.map(p => ({ ...p })), overflowJobs: (previous.overflowJobs ?? []).map(job => ({ ...job })), pets: (previous.pets ?? []).map(pet => ({ ...pet })), petIncubations: (previous.petIncubations ?? []).map(incubation => ({ ...incubation })), captureEvents: [], wallBreakEvents: [], territoryGainEvents: [], creditGainEvents: [], speedReadyUntil: previous.speedReadyUntil !== null && previous.speedReadyUntil <= previous.elapsedMs + dt ? null : previous.speedReadyUntil,
+    treasureHunt: previous.treasureHunt ? { ...previous.treasureHunt, remainingMs: previous.treasureHunt.remainingMs - dt } : null,
+    chargeReadyUntil: previous.chargeReadyUntil !== null && previous.chargeReadyUntil <= previous.elapsedMs + dt ? null : previous.chargeReadyUntil };
+  if (run.levelClearPending) {
+    let activeMs = 0;
+    if ((run.levelClearAnimationRemainingMs ?? 0) > 0) {
+      const before = run.levelClearAnimationRemainingMs;
+      run.levelClearAnimationRemainingMs = Math.max(0, before - dt);
+      if (run.levelClearAnimationRemainingMs === 0) run.levelClearBubbleTimerMs = run.mechanics.levelClearBubbleDurationMs;
+      activeMs = Math.max(0, dt - before);
+    } else activeMs = dt;
+    activeMs = Math.min(activeMs, run.levelClearBubbleTimerMs);
+    run.levelClearBubbleTimerMs = Math.max(0, run.levelClearBubbleTimerMs - activeMs);
+    run.levelClearBubbleAccumulatorMs += activeMs;
+    const bubbleInterval = 1000 / Math.max(0.1, run.mechanics.levelClearBubbleRatePerSecond);
+    while (run.levelClearBubbleAccumulatorMs >= bubbleInterval) {
+      run.levelClearBubbleAccumulatorMs -= bubbleInterval;
+      const angle = Math.random() * Math.PI * 2, radius = powerupRadius('bubble', run.mechanics);
+      const x = randomBetween(radius + 4, width - radius - 4), y = randomBetween(radius + 4, height - radius - 4), speed = randomBetween(48, 86);
+      run.powerups.push({ id: run.nextId++, kind: 'bubble', levelClearBubble: true, x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
+    }
+    if (run.levelClearBubbleTimerMs <= 0 && run.levelClearAnimationRemainingMs <= 0) run.powerups = run.powerups.filter(power => !power.levelClearBubble);
+  }
   // Repair interrupted clear saves without freezing the live simulation.
   if (run.levelClearPending && !run.powerups.some(power => power.kind === 'exit')) {
     const point = randomUnclaimedPoint(run, width, height), angle = Math.random() * Math.PI * 2, speed = 70;
     run.powerups.push({ id: run.nextId++, kind: 'exit', ...point, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
   }
   const skimmerRule = run.mechanics.ballModifiers.skimmer.periodic;
-  if (run.mechanics.ballModifiers.skimmer.enabled && skimmerRule) run.balls = rollPeriodicModifier(run.balls, 'skimmer', skimmerRule, run.elapsedMs, dt, true);
+  if (run.levelEvent !== 'drift-swarm' && run.mechanics.ballModifiers.skimmer.enabled && skimmerRule) run.balls = rollPeriodicModifier(run.balls, 'skimmer', skimmerRule, run.mechanics, run.elapsedMs, dt, true);
   run.balls = run.balls.map(ball => {
-    if (ball.modifierExpiresAtMs === undefined || ball.modifierExpiresAtMs > run.elapsedMs) return ball;
-    const { modifierExpiresAtMs: _expiry, ...rest } = ball;
-    return { ...rest, modifier: undefined, vx: ball.skimmerResumeVx ?? ball.vx, vy: ball.skimmerResumeVy ?? ball.vy, skimmerWallId: undefined, skimmerRemainingMs: undefined, skimmerResumeVx: undefined, skimmerResumeVy: undefined, skimmerStartAlong: undefined };
+    let expired = Object.entries(ball.modifierExpiries ?? {}).filter(([, endsAt]) => endsAt !== undefined && endsAt <= run.elapsedMs).map(([modifier]) => modifier as BallModifier);
+    if (ball.modifierExpiresAtMs !== undefined && ball.modifierExpiresAtMs <= run.elapsedMs) expired = [...new Set([...expired, ball.modifier === 'skimmer' ? 'skimmer' : ball.modifier].filter((value): value is BallModifier => !!value))];
+    if (!expired.length) return ball;
+    let updated = ball;
+    for (const modifier of expired) updated = removeBallModifier(updated, modifier);
+    const { modifierExpiresAtMs: _legacyExpiry, ...rest } = updated;
+    const skimmerExpired = expired.includes('skimmer');
+    return { ...rest, vx: skimmerExpired ? ball.skimmerResumeVx ?? ball.vx : ball.vx, vy: skimmerExpired ? ball.skimmerResumeVy ?? ball.vy : ball.vy, skimmerWallId: skimmerExpired ? undefined : ball.skimmerWallId, skimmerRemainingMs: skimmerExpired ? undefined : ball.skimmerRemainingMs, skimmerResumeVx: skimmerExpired ? undefined : ball.skimmerResumeVx, skimmerResumeVy: skimmerExpired ? undefined : ball.skimmerResumeVy, skimmerStartAlong: skimmerExpired ? undefined : ball.skimmerStartAlong };
   });
   if (run.treasureHunt && run.treasureHunt.remainingMs <= 0) run.treasureHunt = null;
   for (const ball of run.balls) {
-    if (ball.modifier !== 'phase' || (ball.phaseEndsAtMs ?? Infinity) > run.elapsedMs) continue;
+    if (!ballHasModifier(ball, 'phase') || (ball.phaseEndsAtMs ?? Infinity) > run.elapsedMs) continue;
     const { phaseEndsAtMs: _phaseEndsAtMs, ...normalBall } = ball;
-    normalBall.modifier = undefined;
+    Object.assign(normalBall, removeBallModifier(normalBall, 'phase'));
     run.balls = run.balls.map(candidate => candidate.id === ball.id ? normalBall : candidate);
-    if (!isClaimed(run, ball.x, ball.y, width, height)) continue;
-    const radius = run.mechanics.ballModifiers.phase.phaseUnclaimRadius ?? 65;
+    const settings = run.mechanics.ballModifiers.phase;
+    const radius = settings.phaseUnclaimRadius ?? 65;
+    const scale = randomBetween(settings.phaseBlastScaleMin ?? 0.75, settings.phaseBlastScaleMax ?? 1.25);
+    const radiusX = radius * scale;
+    const ellipseRatio = settings.phaseBlastShape === 'ellipse' ? (Math.random() < 0.5 ? 0.72 : 1.28) : 1;
+    const radiusY = radius * scale * ellipseRatio;
     const cols = run.gridCols || 48, rows = run.gridRows || 72;
-    run.claimMask = run.claimMask.map((claimed, index) => {
+    if (isClaimed(run, ball.x, ball.y, width, height)) run.claimMask = run.claimMask.map((claimed, index) => {
       if (!claimed) return 0;
       const x = ((index % cols) + 0.5) * width / cols, y = (Math.floor(index / cols) + 0.5) * height / rows;
-      return Math.hypot(x - ball.x, y - ball.y) <= radius ? 0 : 1;
+      return Math.pow((x - ball.x) / radiusX, 2) + Math.pow((y - ball.y) / radiusY, 2) <= 1 ? 0 : 1;
     });
     run.claimed = run.claimMask.reduce((sum, claimed) => sum + claimed, 0) / run.claimMask.length * 100;
-    const angle = Math.random() * Math.PI * 2, speed = 70;
-    const chestOffset = ball.r + powerupRadius('treasure', run.mechanics) + 8;
-    const chestX = Math.max(powerupRadius('treasure', run.mechanics), Math.min(width - powerupRadius('treasure', run.mechanics), ball.x + Math.cos(angle) * chestOffset));
-    const chestY = Math.max(powerupRadius('treasure', run.mechanics), Math.min(height - powerupRadius('treasure', run.mechanics), ball.y + Math.sin(angle) * chestOffset));
-    run.powerups.push({ id: run.nextId++, x: chestX, y: chestY, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, kind: 'treasure', phaseChest: true });
-    run.captureEvents.push({ id: run.nextId++, x: ball.x, y: ball.y, kind: 'phaseRupture', amount: radius });
+    run.phaseChestPending = true; run.phaseChestOriginBallId = ball.id; run.phaseChestRetryAtMs = 0;
+    run.captureEvents.push({ id: run.nextId++, x: ball.x, y: ball.y, kind: 'phaseRupture', amount: radiusX, amountY: radiusY });
+    trySpawnDeferredPhaseChest(run, width, height);
   }
+  trySpawnDeferredPhaseChest(run, width, height);
   // Grow each free endpoint toward its nearest grounded wall or board edge.
+  const wallGrowthOrigins = new Map(run.walls.map(wall => [wall.id, { low: wall.low, high: wall.high }]));
   run.walls = run.walls.map(w => {
     if (!w.active) return w;
     const delta = run.mechanics.wallGrowthSpeed * w.speedMultiplier * dt / 1000;
@@ -1113,12 +1519,13 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
     }
   }
   const broken = new Set<number>();
+  const chargeDestroyedBalls = new Set<number>();
   const repairedWalls = new Set<number>();
   const breakPoints: { x: number; y: number; axis: Wall['axis']; at: number; low: number; high: number }[] = [];
   const anchorCuts = new Map<number, { wall: Wall; low: number; high: number }>();
   const anchorUsed = new Set<number>();
   for (const b of run.balls) {
-    if (b.modifier === 'drifter') {
+    if (ballHasModifier(b, 'drifter')) {
       const settings = run.mechanics.ballModifiers.drifter;
       const wallTargets = run.walls.filter(wall => wall.active).map(wall => {
         const x = wall.axis === 'vertical' ? wall.at : Math.max(wall.low, Math.min(wall.high, b.x));
@@ -1128,9 +1535,9 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
       const creditTargets = run.powerups.filter(power => power.kind === 'credit').map(power => ({ x: power.x, y: power.y, distance: Math.hypot(power.x - b.x, power.y - b.y) }));
       const targets = [...wallTargets, ...creditTargets].sort((a, c) => a.distance - c.distance);
       const target = targets[0];
-      b.drifting = !!target && target.distance <= (settings.attractionRange ?? 360);
+      b.drifting = !!target && target.distance <= (b.driftRangeOverride ?? settings.attractionRange ?? 360);
       if (b.drifting && target && target.distance > 0) {
-        const acceleration = settings.attractionStrength ?? 240;
+        const acceleration = b.driftStrengthOverride ?? settings.attractionStrength ?? 240;
         b.vx += (target.x - b.x) / target.distance * acceleration * dt / 1000;
         b.vy += (target.y - b.y) / target.distance * acceleration * dt / 1000;
         const speed = Math.hypot(b.vx, b.vy), maxSpeed = run.mechanics.ballSpeedMax * 1.75;
@@ -1179,8 +1586,8 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
     if (nextX < b.r || nextX > width - b.r) { b.vx *= -1; nextX = Math.max(b.r, Math.min(width - b.r, nextX)); }
     if (nextY < b.r || nextY > height - b.r) { b.vy *= -1; nextY = Math.max(b.r, Math.min(height - b.r, nextY)); }
     // Captured cells are solid: reflect the ball at their boundary and keep it in open territory.
-    if (b.modifier !== 'phase' && overlapsClaimed(run, nextX, oldY, b.r, width, height)) { nextX = oldX; b.vx *= -1; }
-    if (b.modifier !== 'phase' && overlapsClaimed(run, nextX, nextY, b.r, width, height)) { nextY = oldY; b.vy *= -1; }
+    if (!ballHasModifier(b, 'phase') && overlapsClaimed(run, nextX, oldY, b.r, width, height)) { nextX = oldX; b.vx *= -1; }
+    if (!ballHasModifier(b, 'phase') && overlapsClaimed(run, nextX, nextY, b.r, width, height)) { nextY = oldY; b.vy *= -1; }
     b.x = nextX; b.y = nextY;
     if (skimmerFinished) {
       b.skimmerWallId = undefined; b.skimmerRemainingMs = undefined; b.skimmerStartAlong = undefined;
@@ -1188,8 +1595,9 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
       b.skimmerResumeVx = undefined; b.skimmerResumeVy = undefined;
       continue;
     }
-    if (b.modifier === 'phase') continue;
+    if (ballHasModifier(b, 'phase')) continue;
     for (const w of run.walls) {
+      if (chargeDestroyedBalls.has(b.id)) break;
       if (anchorUsed.has(b.id)) break;
       if (skimmingWall?.id === w.id) continue;
       if (!pointOnWall(w, b.x, b.y, b.r)) continue;
@@ -1198,7 +1606,27 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
         run.walls = run.walls.filter(candidate => candidate.id !== w.id).map(candidate => ({ ...candidate, connections: candidate.connections.filter(id => id !== w.id) }));
         b.rammed = false;
       }
-      else if (b.modifier === 'anchor' && Math.hypot(b.vx, b.vy) >= (run.mechanics.ballModifiers.anchor.breakSpeedThreshold ?? 190) && !anchorCuts.has(w.id)) {
+      else if (w.active && w.chargeWall) {
+        const origin = wallGrowthOrigins.get(w.id) ?? { low: w.low, high: w.high };
+        const along = w.axis === 'vertical' ? b.y : b.x;
+        const across = w.axis === 'vertical' ? Math.abs(b.x - w.at) : Math.abs(b.y - w.at);
+        const lowFront = origin.low - w.low > 0.01 && along >= w.low - b.r && along <= origin.low + b.r;
+        const highFront = w.high - origin.high > 0.01 && along >= origin.high - b.r && along <= w.high + b.r;
+        if ((lowFront || highFront) && across <= b.r + 4) {
+          chargeDestroyedBalls.add(b.id);
+          run.captureEvents.push({ id: run.nextId++, x: b.x, y: b.y, kind: 'chargeBallBreak', skinId: w.chargeSkinId });
+          continue;
+        }
+        if (!broken.has(w.id) && !repairedWalls.has(w.id)) {
+          const mechanic = run.pets.find(pet => pet.species === 'engi' && pet.health > 0 && !pet.repairedThisLevel);
+          if (mechanic) {
+            run.pets = run.pets.map(pet => pet.id === mechanic.id ? { ...pet, repairedThisLevel: true, task: 'weld', taskUntilMs: run.elapsedMs + 1800 } : pet);
+            repairedWalls.add(w.id); run.captureEvents.push({ id: run.nextId++, x: b.x, y: b.y, kind: 'petRepair' });
+            run.petNotice = `${mechanic.name} REPAIRED THE WALL`; run.petNoticeUntilMs = run.elapsedMs + 3000;
+          } else { broken.add(w.id); breakPoints.push({ x: b.x, y: b.y, axis: w.axis, at: w.at, low: w.low, high: w.high }); }
+        }
+      }
+      else if (ballHasModifier(b, 'anchor') && Math.hypot(b.vx, b.vy) >= (run.mechanics.ballModifiers.anchor.breakSpeedThreshold ?? 190) && !anchorCuts.has(w.id)) {
         const along = w.axis === 'vertical' ? b.y : b.x;
         const joins = run.walls.flatMap(other => {
           if (other.id === w.id || other.axis === w.axis) return [];
@@ -1235,7 +1663,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
         }
         broken.add(w.id); breakPoints.push({ x: b.x, y: b.y, axis: w.axis, at: w.at, low: w.low, high: w.high });
       }
-      else if (b.modifier === 'skimmer' && !w.active && b.skimmerWallId === undefined) {
+      else if (ballHasModifier(b, 'skimmer') && !w.active && b.skimmerWallId === undefined) {
         const speed = Math.max(run.mechanics.ballSpeedMin, Math.hypot(b.vx, b.vy));
         b.skimmerWallId = w.id; b.skimmerRemainingMs = run.mechanics.ballModifiers.skimmer.glideDurationMs ?? 900; b.skimmerStartAlong = w.axis === 'vertical' ? b.y : b.x;
         b.skimmerResumeVx = w.axis === 'vertical' ? (oldX < w.at ? -1 : 1) * Math.abs(b.vx || speed) : b.vx;
@@ -1357,7 +1785,8 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
   run.walls = run.walls.map(w => {
     if (!w.active || !solidify.has(w.id)) return w;
     completedNow = true;
-    const fixed = { ...w, active: false };
+    const { chargeWall: _chargeWall, chargeSkinId: _chargeSkinId, ...rest } = w;
+    const fixed = { ...rest, active: false };
     solidifiedWalls.push(fixed);
     return fixed;
   });
@@ -1375,7 +1804,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
     const a = run.balls[i], b = run.balls[j], dx = b.x - a.x, dy = b.y - a.y;
     if (splitBalls.has(a.id) || splitBalls.has(b.id)) continue;
     const d = Math.hypot(dx, dy), minD = a.r + b.r;
-    if (d > 0 && d < minD && a.modifier !== 'phase' && b.modifier !== 'phase') {
+    if (d > 0 && d < minD && !ballHasModifier(a, 'phase') && !ballHasModifier(b, 'phase')) {
       const nx = dx / d, ny = dy / d;
       const rel = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
       const massA = a.r * a.r, massB = b.r * b.r;
@@ -1387,16 +1816,27 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
       }
       const overlap = Math.max(0, minD - d) / (invMassA + invMassB);
       a.x -= nx * overlap * invMassA; a.y -= ny * overlap * invMassA; b.x += nx * overlap * invMassB; b.y += ny * overlap * invMassB;
-      const splitter = a.modifier === 'splitter' ? a : b.modifier === 'splitter' ? b : undefined;
+      const splitter = ballHasModifier(a, 'splitter') ? a : ballHasModifier(b, 'splitter') ? b : undefined;
       if (splitter) {
         splitBalls.add(splitter.id);
         const angle = Math.random() * Math.PI * 2;
         const radius = splitter.r * (run.mechanics.ballModifiers.splitter.splitSizeMultiplier ?? 0.65);
         const speed = Math.max(run.mechanics.ballSpeedMin, Math.hypot(splitter.vx, splitter.vy));
+        const inheritedModifiers = ballModifierList(splitter).filter(modifier => modifier !== 'splitter');
         for (const direction of [1, -1]) {
           const childAngle = angle + (direction < 0 ? Math.PI : 0);
-          splitOffspring.push({ id: run.nextId++, x: splitter.x + Math.cos(childAngle) * radius * 0.6, y: splitter.y + Math.sin(childAngle) * radius * 0.6,
-            vx: Math.cos(childAngle) * speed, vy: Math.sin(childAngle) * speed, r: radius });
+          const child: Ball = { id: run.nextId++, x: splitter.x + Math.cos(childAngle) * radius * 0.6, y: splitter.y + Math.sin(childAngle) * radius * 0.6,
+            vx: Math.cos(childAngle) * speed, vy: Math.sin(childAngle) * speed, r: radius };
+          if (inheritedModifiers.length) {
+            const inherited = setBallModifiers(child, inheritedModifiers);
+            if (inheritedModifiers.includes('anchor')) { inherited.anchorBaseRadius = radius / (run.mechanics.ballModifiers.anchor.sizeMultiplier ?? 1.6); inherited.r = radius; }
+            splitOffspring.push(inherited);
+          } else splitOffspring.push(child);
+        }
+      } else {
+        if (run.levelEvent !== 'drift-swarm') {
+          const [updatedA, updatedB] = applyCollisionMutation(run, a, b);
+          run.balls[i] = updatedA; run.balls[j] = updatedB;
         }
       }
     }
@@ -1439,26 +1879,44 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
     }
     for (let index = 0; index < captureSpawnCount; index++) run = spawnCaptureBall(run, width, height);
     if (run.treasureHunt && !run.treasureHunt.revealed && isClaimed(run, run.treasureHunt.x, run.treasureHunt.y, width, height)) run = { ...run, treasureHunt: { ...run.treasureHunt, revealed: true } };
-    if (run.claimed >= run.mechanics.clearPercentOfOriginalBoard && !run.levelClearPending) {
-      run.levelClearPending = true;
-      const point = randomUnclaimedPoint(run, width, height), angle = Math.random() * Math.PI * 2, speed = 70;
-      const exit = { id: run.nextId++, kind: 'exit' as const, ...point, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed };
-      run.powerups = [...run.powerups.filter(power => power.kind !== 'exit'), exit];
-    }
   }
+  refreshContainmentMutations(run, width, height, dt);
   run.spawnInMs -= dt;
   if (run.spawnInMs <= 0) {
     const speed = 70;
     const angle = Math.random() * Math.PI * 2;
     const spawnWaldo = run.waldoEligible && !run.waldoEventPending && !run.pictureEvent?.isWaldo && Math.random() < run.mechanics.waldoSpawnChance;
-    const kind = spawnWaldo ? 'waldo' : randomPowerKind(run.treasureEligible, run.merchantTokens === 0, run.mechanics);
-    const radius = powerupRadius(kind, run.mechanics);
-    let x = 0, y = 0;
-    for (let attempt = 0; attempt < 30; attempt++) {
-      const candidateX = randomBetween(70, width - 70), candidateY = randomBetween(70, height - 70);
-      if (!overlapsClaimed(run, candidateX, candidateY, radius, width, height)) { x = candidateX; y = candidateY; break; }
+    const allActiveMutationBoxes = (run.containmentMutations ?? []).filter(box => box.active && box.kind);
+    const mutationBoxes = allActiveMutationBoxes.filter(box => containmentKindAvailable(run, box.kind!));
+    const attractionWeights = mutationBoxes.map(box => containmentMutationUpgrade(run, box.kind!, 'mutationAttraction'));
+    const attractionTotal = attractionWeights.reduce((sum, value) => sum + value, 0);
+    let targetMutationBox: ContainmentMutation | undefined;
+    if (attractionTotal && Math.random() < Math.min(1, run.mechanics.containmentMutationBaseSpawnChance * attractionTotal)) {
+      let draw = Math.random() * attractionTotal;
+      for (let index = 0; index < mutationBoxes.length; index++) { draw -= attractionWeights[index]; if (draw <= 0) { targetMutationBox = mutationBoxes[index]; break; } }
     }
-    if (x > 0) run.powerups.push({ id: run.nextId++, x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, kind, skinId: kind === 'engi-egg' ? randomEngiCocoonSkin() : undefined, despawnAtMs: powerupDespawnAt(kind, run.elapsedMs, run.mechanics) });
+    let kind: PowerKind = targetMutationBox?.kind ?? (spawnWaldo ? 'waldo' : randomEventPowerKind(run));
+    let point = targetMutationBox ? tryPointInMutationBox(run, targetMutationBox, width, height, powerupRadius(kind, run.mechanics)) : null;
+    if (targetMutationBox && !point) { targetMutationBox = undefined; kind = spawnWaldo ? 'waldo' : randomEventPowerKind(run); }
+    for (let attempt = 0; !point && attempt < 36; attempt++) {
+      const radius = powerupRadius(kind, run.mechanics);
+      const candidate = { x: randomBetween(radius + 4, width - radius - 4), y: randomBetween(radius + 4, height - radius - 4) };
+      if (overlapsClaimed(run, candidate.x, candidate.y, radius, width, height)) continue;
+      if (run.balls.some(ball => Math.hypot(ball.x - candidate.x, ball.y - candidate.y) < ball.r + radius + 3)) continue;
+      if (run.walls.some(wall => !wall.active && pointOnWall(wall, candidate.x, candidate.y, radius))) continue;
+      const enclosingMutation = mutationBoxAt(allActiveMutationBoxes, candidate.x, candidate.y, width, height);
+      if (enclosingMutation && !containmentKindAvailable(run, enclosingMutation.kind!)) continue;
+      if (enclosingMutation && kind !== enclosingMutation.kind) { kind = enclosingMutation.kind!; continue; }
+      point = candidate;
+    }
+    if (point) {
+      run.powerups.push({ id: run.nextId++, ...point, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, kind, skinId: kind === 'engi-egg' ? randomEngiCocoonSkin() : undefined, despawnAtMs: powerupDespawnAt(kind, run.elapsedMs, run.mechanics) });
+      const spawnedInMutation = mutationBoxAt(allActiveMutationBoxes, point.x, point.y, width, height);
+      if (spawnedInMutation) {
+        if (spawnedInMutation.decayQueued) run.containmentMutations = run.containmentMutations.map(box => box.key === spawnedInMutation.key ? { ...box, active: false, decayQueued: false } : box);
+        else if (Math.random() < run.mechanics.containmentMutationDecayChance) run.containmentMutations = run.containmentMutations.map(box => box.key === spawnedInMutation.key ? { ...box, decayQueued: true } : box);
+      }
+    }
     run.spawnInMs = Math.floor(randomBetween(run.mechanics.powerupSpawnEverySecondsMin, run.mechanics.powerupSpawnEverySecondsMax + 1)) * 1000;
   }
   const movingPowerups = run.powerups.filter(p => p.despawnAtMs === undefined || p.despawnAtMs > run.elapsedMs).map(p => {
@@ -1487,7 +1945,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
       if (w.axis === 'vertical') vx *= -1; else vy *= -1;
     }
     if (p.kind !== 'ram' && p.kind !== 'merchant' && p.kind !== 'credit' && p.kind !== 'speed' && !p.phaseChest) for (const b of run.balls) {
-      if (b.modifier === 'phase' || (b.modifier === 'anchor' && !p.phaseChest && p.kind !== 'exit')) continue;
+      if (ballHasModifier(b, 'phase') || (ballHasModifier(b, 'anchor') && !p.phaseChest && p.kind !== 'exit')) continue;
       if (Math.hypot(b.x - x, b.y - y) < b.r + radius) { vx *= -1; vy *= -1; }
     }
     let bounceCredits = p.bounceCredits ?? 0;
@@ -1513,7 +1971,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
   const creditBroken = new Set<number>();
   const chestRewards: PowerUp[] = [];
   for (const power of movingPowerups) {
-    const ball = run.balls.find(candidate => candidate.modifier !== 'phase' && Math.hypot(candidate.x - power.x, candidate.y - power.y) <= candidate.r + powerupRadius(power.kind, run.mechanics));
+    const ball = run.balls.find(candidate => !ballHasModifier(candidate, 'phase') && Math.hypot(candidate.x - power.x, candidate.y - power.y) <= candidate.r + powerupRadius(power.kind, run.mechanics));
     if (!ball) continue;
     if (power.kind === 'exit') {
       // The route pickup follows ordinary bounce physics but is never broken.
@@ -1530,7 +1988,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
       const settings = run.mechanics.ballModifiers.phase;
       const count = Math.floor(randomBetween(settings.chestRewardMin ?? 3, (settings.chestRewardMax ?? 6) + 1));
       for (let index = 0; index < count; index++) {
-        const kind = randomPowerKind(true, run.merchantTokens === 0, run.mechanics);
+        const kind = randomEventPowerKind(run);
         const angle = Math.random() * Math.PI * 2, speed = randomBetween(45, 110), radius = powerupRadius(kind, run.mechanics);
         let rewardX = power.x, rewardY = power.y;
         for (let attempt = 0; attempt < 24; attempt++) {
@@ -1549,8 +2007,8 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
       const maxSpeed = run.mechanics.ballSpeedMax;
       run.balls = run.balls.map(candidate => candidate.id === ball.id ? { ...candidate, vx: Math.cos(angle) * maxSpeed, vy: Math.sin(angle) * maxSpeed } : candidate);
       run.captureEvents.push({ id: run.nextId++, x: power.x, y: power.y, kind: 'speed' });
-      if (ball.modifier === 'anchor') run.captureEvents.push({ id: run.nextId++, x: (ball.x + power.x) / 2, y: (ball.y + power.y) / 2, kind: 'anchorBreak' });
-    } else if (ball.modifier === 'anchor' && power.kind !== 'ram') {
+      if (ballHasModifier(ball, 'anchor')) run.captureEvents.push({ id: run.nextId++, x: (ball.x + power.x) / 2, y: (ball.y + power.y) / 2, kind: 'anchorBreak' });
+    } else if (ballHasModifier(ball, 'anchor') && power.kind !== 'ram') {
       anchorBroken.add(power.id);
       run.captureEvents.push({ id: run.nextId++, x: (ball.x + power.x) / 2, y: (ball.y + power.y) / 2, kind: 'anchorBreak' });
     }
@@ -1563,12 +2021,12 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
   for (const ram of movingPowerups.filter(p => p.kind === 'ram' && !anchorBroken.has(p.id) && !chestBroken.has(p.id))) {
     if (explodedRams.has(ram.id)) continue;
     const ramRadius = powerupRadius(ram.kind, run.mechanics);
-    const ball = run.balls.find(b => b.modifier !== 'phase' && Math.hypot(b.x - ram.x, b.y - ram.y) <= b.r + ramRadius);
+    const ball = run.balls.find(b => !ballHasModifier(b, 'phase') && Math.hypot(b.x - ram.x, b.y - ram.y) <= b.r + ramRadius);
     const other = movingPowerups.find(p => p.id !== ram.id && !anchorBroken.has(p.id) && !chestBroken.has(p.id) && Math.hypot(p.x - ram.x, p.y - ram.y) <= ramRadius + powerupRadius(p.kind, run.mechanics));
     const target = ball ?? other;
     if (!target) continue;
     explodedRams.add(ram.id);
-    if (ball?.modifier === 'anchor') {
+    if (ball && ballHasModifier(ball, 'anchor')) {
       const speed = Math.hypot(ball.vx, ball.vy);
       const direction = speed > 0.001 ? Math.atan2(ball.vy, ball.vx) : Math.atan2(ball.y - ram.y, ball.x - ram.x);
       anchorRamBoosts.push({ id: ball.id, direction, speed: (run.mechanics.ballModifiers.anchor.breakSpeedThreshold ?? 190) + 1 });
@@ -1584,10 +2042,11 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
   for (const bubble of movingPowerups.filter(power => power.kind === 'bubble' && !anchorBroken.has(power.id) && !chestBroken.has(power.id))) {
     if (bubble.x < 0 || bubble.y < 0 || bubble.x > width || bubble.y > height) { lostBubbles.add(bubble.id); continue; }
     const radius = powerupRadius('bubble', run.mechanics);
-    const hitBall = run.balls.some(ball => ball.modifier !== 'phase' && Math.hypot(ball.x - bubble.x, ball.y - bubble.y) <= ball.r + radius);
+    const hitBall = run.balls.some(ball => !ballHasModifier(ball, 'phase') && Math.hypot(ball.x - bubble.x, ball.y - bubble.y) <= ball.r + radius);
     const hitProjectile = movingPowerups.some(power => power.id !== bubble.id && !explodedRams.has(power.id) && !anchorBroken.has(power.id) && !chestBroken.has(power.id) && Math.hypot(power.x - bubble.x, power.y - bubble.y) <= radius + powerupRadius(power.kind, run.mechanics));
     if (hitBall || hitProjectile) { lostBubbles.add(bubble.id); bubbleLossPoints.push({ x: bubble.x, y: bubble.y }); }
   }
+  run.balls = run.balls.filter(ball => !chargeDestroyedBalls.has(ball.id));
   run.powerups = [...movingPowerups.filter(p => !explodedRams.has(p.id) && !lostBubbles.has(p.id) && !anchorBroken.has(p.id) && !speedBroken.has(p.id) && !chestBroken.has(p.id) && !creditBroken.has(p.id) && !engiEggBroken.has(p.id)), ...chestRewards];
   for (const point of bubbleLossPoints) run.captureEvents.push({ id: run.nextId++, ...point, kind: 'bubbleLost' });
   for (const impact of impactEvents) run = applyRamBlast(run, impact.x, impact.y);
@@ -1597,13 +2056,14 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
   });
   const brokenMerchants = new Set<number>();
   for (const merchant of movingPowerups.filter(p => p.kind === 'merchant' && !anchorBroken.has(p.id) && !chestBroken.has(p.id))) {
-    const ball = run.balls.find(b => b.modifier !== 'phase' && Math.hypot(b.x - merchant.x, b.y - merchant.y) <= b.r + powerupRadius(merchant.kind, run.mechanics));
+    const ball = run.balls.find(b => !ballHasModifier(b, 'phase') && Math.hypot(b.x - merchant.x, b.y - merchant.y) <= b.r + powerupRadius(merchant.kind, run.mechanics));
     if (!ball) continue;
     brokenMerchants.add(merchant.id);
     run.captureEvents.push({ id: run.nextId++, x: (ball.x + merchant.x) / 2, y: (ball.y + merchant.y) / 2, kind: 'merchantBreak' });
   }
   if (brokenMerchants.size) run.powerups = run.powerups.filter(p => !brokenMerchants.has(p.id));
   run = collectClaimedPickups(run, width, height);
+  run = startLevelClearIfReady(run, width, height);
   const contained = everyBallHasItsOwnRegion(run, width, height);
   if (contained && !run.isotypesContained) run.isotypesNoticeUntilMs = run.elapsedMs + 2200;
   run.isotypesContained = contained;

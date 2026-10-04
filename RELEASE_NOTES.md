@@ -1,22 +1,17 @@
-# Containment Playtest v0.2.0
+# Containment Playtest v0.3.0
 
-This is the second distinct public playtest version. The first published version is preserved at the `v0.1.0-playtest` Git tag. To return to this release later, check out `v0.2.0-playtest`.
+This is the third distinct public playtest release. The previous releases remain available at `v0.1.0-playtest` and `v0.2.0-playtest`; this release is preserved at `v0.3.0-playtest`.
 
 ## Highlights
 
-- Reworked the Developer panel into navigable categories with live tuning, saved balance profiles, and grouped pickup controls.
-- Added a size control for every pickup, measured against the metal-ball diameter and applied consistently to artwork and collision radius.
-- Expanded picture-event art generation with varied palettes, layouts, astronomical, landscape, forest, and fractal motifs.
-- Added tuning for per-level Treasure and Picture event chances, plus saved-versus-generated Picture and Waldo art selection.
-- Expanded ball modifiers, pickup behaviors, pet systems, merchant progression, territory feedback, and wall-break effects.
-- Added touch/swipe input for touch-enabled devices while retaining desktop drag controls.
-- Retained GitHub Pages deployment from `main`; pushing a release commit triggers a fresh web build.
+- Added a dedicated Events category in Developer settings. Event rates, anomaly rules, containment mutation tuning, level transitions, and the Picture/Waldo image libraries are grouped there.
+- Added Normal-mode mutation and infection rate tuning, per-modifier mutation eligibility, and a compatibility matrix for combining ball modifiers.
+- Expanded Phase behavior controls and its distinct chest reward flow, and refined Splitter minimum-size rules.
+- Expanded Picture-event art with additional asset-backed landscape and astronomy styles while retaining procedural scene generation.
+- Continued tuning and stability work for event spawning, mobile/desktop layout, and pickup/ball interactions.
 
-## Balance defaults
+## Existing release behavior
 
-- Picture event chance: 50% per level.
-- Treasure eligibility: 100% per level, with the existing treasure pickup weight unchanged.
-- Saved Picture background selection: 50% when the library contains entries.
-- Saved Waldo puzzle selection: 50% when the library contains entries.
-
-All event rates can be changed from Developer settings and stored in a named balance profile.
+- Picture and Treasure events roll independently; Elimination and Drift Swarm are mutually exclusive.
+- Event settings and balance profiles remain adjustable from Developer mode.
+- Pushing this release to `main` triggers the GitHub Pages workflow and updates the existing hosted game URL.

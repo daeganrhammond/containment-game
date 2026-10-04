@@ -23,6 +23,13 @@ npx expo install --fix      # fix incompatible package versions
 
 Run lint and typecheck before declaring any task done.
 
+## Efficient iteration
+
+- `App.tsx` is a very large screen module. Find the relevant component or handler with `rg` first, then inspect only a bounded section around it; avoid dumping the full file.
+- Prefer small, symbol-scoped edits over broad text replacement, especially in long JSX. Re-read the edited section immediately after patching to catch malformed markup before running checks.
+- Keep gameplay changes localized. Extract a helper or component when it makes the requested change safer or easier to maintain; avoid unrelated refactors during feature work.
+- Once an integration is stable, run `npx expo lint` and `npx tsc --noEmit` concurrently. Run them again only after a code change that could affect their results.
+
 ## Navigation & Routing
 
 - Use **Expo Router** for all navigation. Routes live in `src/app/` — every file there is a screen, `_layout.tsx` files define navigators. Keep non-route code (components, hooks, utils) outside `src/app/`.

@@ -1,7 +1,7 @@
 import { PowerKind } from './mechanics';
 
 export type SkinOption = { id: string; name: string; description: string };
-export type CaptureAnimation = 'heart-beat' | 'seed-bloom' | 'phoenix-rise' | 'moth-bloom' | 'electric-surge' | 'thunder-collapse' | 'ion-launch' | 'ember-impact' | 'metal-shatter' | 'gear-shock' | 'piston-strike' | 'meteor-burst' | 'mantis-snap' | 'meteor-reform' | 'golden-cache' | 'ruby-shatter' | 'heart-flare' | 'necrotic-spores' | 'orb-burst' | 'waldo-triumph' | 'finder-spark' | 'speed-comet' | 'speed-ribbon' | 'speed-pulse' | 'coin-glint' | 'silver-shimmer' | 'radiant-flare' | 'reliquary-unseal' | 'astrolabe-awaken' | 'compass-pulse' | 'sailcoin-glint' | 'chart-unfold' | 'ship-launch' | 'bazaar-opening' | 'bubble-pop' | 'aurora-bloom' | 'glassworld-pop' | 'inkblot-pop' | 'credit-cascade' | 'credit-surge' | 'mint-solarburst' | 'ledger-rain' | 'prism-cascade' | 'mint-fracture' | 'ledger-fracture' | 'prism-fracture' | 'cocoon-unfurl' | 'eye-awakening' | 'scarab-emerge' | 'cocoon-crack' | 'pod-fracture' | 'shell-scatter' | 'skiff-warp' | 'folded-transit' | 'skewer-pierce' | 'engi-hatch' | 'sector-warp';
+export type CaptureAnimation = 'heart-beat' | 'seed-bloom' | 'phoenix-rise' | 'moth-bloom' | 'electric-surge' | 'thunder-collapse' | 'ion-launch' | 'ember-impact' | 'metal-shatter' | 'gear-shock' | 'piston-strike' | 'meteor-burst' | 'mantis-snap' | 'meteor-reform' | 'golden-cache' | 'ruby-shatter' | 'heart-flare' | 'necrotic-spores' | 'orb-burst' | 'waldo-triumph' | 'finder-spark' | 'speed-comet' | 'speed-ribbon' | 'speed-pulse' | 'coin-glint' | 'silver-shimmer' | 'radiant-flare' | 'reliquary-unseal' | 'astrolabe-awaken' | 'compass-pulse' | 'sailcoin-glint' | 'chart-unfold' | 'ship-launch' | 'bazaar-opening' | 'bubble-pop' | 'aurora-bloom' | 'glassworld-pop' | 'inkblot-pop' | 'credit-cascade' | 'credit-surge' | 'mint-solarburst' | 'ledger-rain' | 'prism-cascade' | 'mint-fracture' | 'ledger-fracture' | 'prism-fracture' | 'cocoon-unfurl' | 'eye-awakening' | 'scarab-emerge' | 'cocoon-crack' | 'pod-fracture' | 'shell-scatter' | 'skiff-warp' | 'folded-transit' | 'skewer-pierce' | 'engi-hatch' | 'sector-warp' | 'charge-detonate' | 'charge-shatter' | 'charge-implosion';
 // Silhouette is visual only: every pickup keeps its circular physics/collision radius.
 export type PickupSkinOption = SkinOption & { captureAnimation: CaptureAnimation; breakAnimation?: CaptureAnimation | 'token-fracture' | 'drone-spark' | 'capsule-split' | 'compass-break' | 'shipcoin-break' | 'chart-shatter' | 'glass-fracture' | 'gate-collapse'; silhouette?: 'orb' | 'freeform'; fxColor: string; fxAccent: string; fxGlyph: string; fxParticle: string };
 export type SkinSelections = {
@@ -80,6 +80,11 @@ export const PICKUP_SKINS: Record<PowerKind, readonly PickupSkinOption[]> = {
     { id: 'mantis-breacher', name: 'Mantis Breacher', description: 'A bronze jawed breach mechanism that snaps shut around a heated impact core', captureAnimation: 'mantis-snap', silhouette: 'freeform', fxColor: '#dd9b42', fxAccent: '#fff0b5', fxGlyph: '✹', fxParticle: '⚙' },
     { id: 'meteor-maul', name: 'Meteor Maul', description: 'A cracked volcanic impact stone ringed with iron and molten seams', captureAnimation: 'meteor-reform', silhouette: 'freeform', fxColor: '#ff6330', fxAccent: '#ffe29b', fxGlyph: '✹', fxParticle: '◆' },
   ],
+  charge: [
+    { id: 'breach-cell', name: 'Breach Cell', description: 'A compact amber demolition capsule with a sealed impact core', captureAnimation: 'gear-shock', breakAnimation: 'charge-detonate', silhouette: 'freeform', fxColor: '#ffad42', fxAccent: '#fff0b0', fxGlyph: '✹', fxParticle: '◆' },
+    { id: 'voltaic-cartridge', name: 'Voltaic Cartridge', description: 'A bright cyan charge cartridge with twin conductive rails', captureAnimation: 'electric-surge', breakAnimation: 'charge-shatter', silhouette: 'freeform', fxColor: '#58dcff', fxAccent: '#efffff', fxGlyph: 'ϟ', fxParticle: '⚡' },
+    { id: 'singularity-charge', name: 'Singularity Charge', description: 'A dark containment capsule holding a pulsing violet implosion point', captureAnimation: 'reliquary-unseal', breakAnimation: 'charge-implosion', silhouette: 'freeform', fxColor: '#b58aff', fxAccent: '#f5eaff', fxGlyph: '◈', fxParticle: '✦' },
+  ],
   treasure: [
     { id: 'gilded-coffer', name: 'Gilded Coffer', description: 'Small gold-trimmed treasure chest', captureAnimation: 'golden-cache', fxColor: '#ffd45f', fxAccent: '#fff2bc', fxGlyph: '▣', fxParticle: '●' },
     { id: 'suncoin', name: 'Suncoin', description: 'An unmistakable polished gold coin with a sharp traveling glint', captureAnimation: 'coin-glint', fxColor: '#f5bb42', fxAccent: '#fff2ad', fxGlyph: '✦', fxParticle: '●' },
@@ -134,6 +139,7 @@ export const DEFAULT_SKIN_SELECTIONS: SkinSelections = {
     life: 'classic-heart',
     speed: 'electric-star',
     ram: 'spark-orb',
+    charge: 'breach-cell',
     treasure: 'gilded-coffer',
     merchant: 'compass-wheel',
     bubble: 'cosmic-pearl',
