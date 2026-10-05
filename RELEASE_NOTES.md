@@ -1,17 +1,17 @@
-# Containment Playtest v0.3.0
+# Containment Playtest v0.4.0
 
-This is the third distinct public playtest release. The previous releases remain available at `v0.1.0-playtest` and `v0.2.0-playtest`; this release is preserved at `v0.3.0-playtest`.
+This is the fourth distinct public playtest release. Previous builds remain available at `v0.1.0-playtest`, `v0.2.0-playtest`, and `v0.3.0-playtest`; this release is preserved at `v0.4.0-playtest`.
 
 ## Highlights
 
-- Added a dedicated Events category in Developer settings. Event rates, anomaly rules, containment mutation tuning, level transitions, and the Picture/Waldo image libraries are grouped there.
-- Added Normal-mode mutation and infection rate tuning, per-modifier mutation eligibility, and a compatibility matrix for combining ball modifiers.
-- Expanded Phase behavior controls and its distinct chest reward flow, and refined Splitter minimum-size rules.
-- Expanded Picture-event art with additional asset-backed landscape and astronomy styles while retaining procedural scene generation.
-- Continued tuning and stability work for event spawning, mobile/desktop layout, and pickup/ball interactions.
+- Reworked the main menu as a panoramic starship command bridge with animated navigation artifacts and a toggleable side console. The bridge artwork is a menu background; gameplay retains its black arena background.
+- Added a compact live stage preview on the bridge console. Selecting it resumes the active run or starts a fresh run in the playable game view.
+- Added the THEMES cosmetic archive with connected, vertically progressing constellation routes, skin previews, discovery unlocks, and persistent equipped choices.
+- Added a manual active-run save slot, resume flow, and a top-five local score board with additional run statistics.
+- Continued gameplay and balance work for pickups, metal-ball modifiers, event frequencies, mutation compatibility, containment mutations, and developer tuning.
+- Preserved the existing touch and desktop web controls and automatic GitHub Pages deployment from `main`.
 
-## Existing release behavior
+## Rollback and hosting
 
-- Picture and Treasure events roll independently; Elimination and Drift Swarm are mutually exclusive.
-- Event settings and balance profiles remain adjustable from Developer mode.
-- Pushing this release to `main` triggers the GitHub Pages workflow and updates the existing hosted game URL.
+- The `v0.4.0-playtest` tag preserves this build; earlier playtest tags remain available for rollback.
+- Pushing this release to `main` starts the GitHub Pages workflow and updates the existing hosted game link after deployment succeeds.

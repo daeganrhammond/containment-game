@@ -2,11 +2,11 @@
 
 An early desktop-first prototype for the swipe-to-draw arena game in the parent project brief. Built with Expo and React Native, with browser preview support.
 
-## Playtest release 0.3.0
+## Playtest release 0.4.0
 
-This is the third distinct public playtest version. Earlier releases remain preserved at [`v0.1.0-playtest`](https://github.com/daeganrhammond/containment-game/tree/v0.1.0-playtest) and [`v0.2.0-playtest`](https://github.com/daeganrhammond/containment-game/tree/v0.2.0-playtest). The `v0.3.0-playtest` Git tag is the rollback point for this release. The `main` branch is the current build and publishes to GitHub Pages after pushes.
+This is the fourth distinct public playtest version. Earlier releases remain preserved at [`v0.1.0-playtest`](https://github.com/daeganrhammond/containment-game/tree/v0.1.0-playtest), [`v0.2.0-playtest`](https://github.com/daeganrhammond/containment-game/tree/v0.2.0-playtest), and [`v0.3.0-playtest`](https://github.com/daeganrhammond/containment-game/tree/v0.3.0-playtest). The `v0.4.0-playtest` Git tag is the rollback point for this release. The `main` branch is the current build and publishes to GitHub Pages after pushes.
 
-Version 0.3.0 expands event and modifier tuning, including mutation/infection balance, modifier compatibility, and picture-event art. Developer settings now have a dedicated Events tab for event frequencies, anomaly tuning, containment mutations, picture libraries, and level transitions. See [`RELEASE_NOTES.md`](RELEASE_NOTES.md) for this playtest's full summary.
+Version 0.4.0 adds the command-bridge main menu, a live clickable run preview, a constellation-style Themes archive, persistent cosmetic unlocks/loadouts, manual run saves, and a top-five score table. The bridge panorama belongs to the menu; the playable game remains on its black arena background. It also includes the latest playtest systems and balance work. See [`RELEASE_NOTES.md`](RELEASE_NOTES.md) for this playtest's full summary.
 
 ## Run it
 
@@ -17,7 +17,7 @@ npm run web
 
 ## Distribution
 
-Build a static release with `npm run export:web`. The ready-to-host files are written to `dist/`; the v0.3.0 web bundle is also provided as `Containment-Web-Release-2026-10-04.zip`. See [`DEPLOYING.md`](DEPLOYING.md) for hosting instructions and the automatic GitHub Pages workflow. Once the project is connected to GitHub and Pages is enabled, pushes to `main` publish updates to the same game URL.
+Build a static release with `npm run export:web`. The ready-to-host files are written to `dist/`. See [`DEPLOYING.md`](DEPLOYING.md) for hosting instructions and the automatic GitHub Pages workflow. Once the project is connected to GitHub and Pages is enabled, pushes to `main` publish updates to the same game URL.
 
 Use touch or a mouse drag in the arena. On web, the **DRAW WITH: TOUCH / MOUSE** selector uses the swapped mapping requested for browser testing: selecting **TOUCH** enables cursor drag, and selecting **MOUSE** turns cursor drag off. Touch swipes remain active in both modes. A vertical drag grows a vertical wall; a horizontal drag grows a horizontal wall. Release the gesture to start it. Several walls can grow at once, up to the configurable prototype limit. Wall growth speed is controlled in `mechanics.ts`.
 

@@ -30,6 +30,15 @@ Run lint and typecheck before declaring any task done.
 - Keep gameplay changes localized. Extract a helper or component when it makes the requested change safer or easier to maintain; avoid unrelated refactors during feature work.
 - Once an integration is stable, run `npx expo lint` and `npx tsc --noEmit` concurrently. Run them again only after a code change that could affect their results.
 
+## Patch and release workflow
+
+- For behavior changes, gather unresolved behavior choices into one concise, numbered clarification before implementation. Include a recommended default for each material choice; do not ask again about decisions already answered in the conversation.
+- Start with `git status --short`, branch, and latest release tag. Keep the patch scoped to the requested feature; don't mix release/version changes into ordinary development work unless publishing is requested.
+- For large source files, search once with `rg`, read only the bounded relevant region, make the edit, then inspect that region and `git diff --stat` before checks. Prefer one targeted implementation pass over repeatedly dumping or re-reading entire files.
+- Preserve each edited file's existing line endings. Check with `git ls-files --eol <paths>` before scripted edits; use `git diff --ignore-space-at-eol` to distinguish meaningful edits from line-ending churn. Never normalize a whole file as part of a feature patch.
+- Run lint and typecheck together once after code edits settle. Run a web export only for web-facing changes or a release. Don't repeat successful checks unless code changes afterward.
+- When publishing, inspect the intended release files before staging. Stage the source, assets, docs, and generated archives deliberately; do not include stale build archives or unrelated artifacts by default. Verify the pushed commit and tag, then check the GitHub Pages workflow run before telling the user the live site is updated.
+
 ## Navigation & Routing
 
 - Use **Expo Router** for all navigation. Routes live in `src/app/` — every file there is a screen, `_layout.tsx` files define navigators. Keep non-route code (components, hooks, utils) outside `src/app/`.

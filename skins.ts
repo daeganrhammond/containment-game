@@ -9,6 +9,7 @@ export type SkinSelections = {
   ball: string;
   pickups: Record<PowerKind, string>;
   credit: string;
+  engiPet: string;
 };
 export type EngiSkinOption = SkinOption & { shell: string; trim: string; glow: string; form: 'aegis' | 'cartographer' | 'pilgrim' };
 export const LEVEL_CLEAR_ANIMATIONS = [
@@ -135,6 +136,7 @@ export const DEFAULT_SKIN_SELECTIONS: SkinSelections = {
   background: 'abyss',
   ball: 'polished-chrome',
   credit: 'sunshard',
+  engiPet: 'salvage-engi',
   pickups: {
     life: 'classic-heart',
     speed: 'electric-star',
@@ -159,5 +161,6 @@ export function normalizeSkinSelections(value: Partial<SkinSelections> | null | 
     return [kind, valid ? candidate! : DEFAULT_SKIN_SELECTIONS.pickups[kind]];
   })) as SkinSelections['pickups'];
   const credit = CREDIT_SKINS.some(skin => skin.id === value?.credit) ? value!.credit! : DEFAULT_SKIN_SELECTIONS.credit;
-  return { background, ball, pickups, credit };
+  const engiPet = ENGI_PET_SKINS.some(skin => skin.id === value?.engiPet) ? value!.engiPet! : DEFAULT_SKIN_SELECTIONS.engiPet;
+  return { background, ball, pickups, credit, engiPet };
 }

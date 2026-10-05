@@ -21,6 +21,8 @@ export type MechanicsSettings = {
   containmentMutationDecayChance: number; containmentMutationBaseSpawnChance: number;
   containmentMutationPickupEnabled: Record<ContainmentPickupKind, boolean>;
   eliminationEventChance: number; driftSwarmEventChance: number; driftSwarmBannerDurationMs: number;
+  skinDiscoveryChance: number; skinDiscoveryCategoryWeights: Record<string, number>;
+  skinDiscoveryClaimBonusPercent: Record<string, number>; skinDiscoveryRequiresIsotypes: Record<string, boolean>;
   eliminationChargeSpawnChance: number;
   driftSwarmVariationMin: number; driftSwarmVariationMax: number;
   powerupSpawnWeights: Record<PowerKind, number>;
@@ -104,6 +106,7 @@ export const DEFAULT_MECHANICS: MechanicsSettings = {
   containmentMutationChance: 0.05, containmentMutationDelayMinSeconds: 10, containmentMutationDelayMaxSeconds: 30, containmentMutationDecayChance: 0.1, containmentMutationBaseSpawnChance: 0.15,
   containmentMutationPickupEnabled: { life: true, speed: true, ram: true, charge: true, treasure: true, merchant: true, credit: true, 'engi-egg': true },
   eliminationEventChance: 0.05, driftSwarmEventChance: 0.05, driftSwarmBannerDurationMs: 3000, eliminationChargeSpawnChance: 0.4, driftSwarmVariationMin: 0.65, driftSwarmVariationMax: 1.5,
+  skinDiscoveryChance: 0.02, skinDiscoveryCategoryWeights: { background: 1, ball: 1, 'credit-symbol': 1, pet: 1, 'pickup:life': 1, 'pickup:speed': 1, 'pickup:ram': 1, 'pickup:charge': 1, 'pickup:treasure': 1, 'pickup:merchant': 1, 'pickup:bubble': 1, 'pickup:waldo': 1, 'pickup:credit': 1, 'pickup:engi-egg': 1, 'pickup:exit': 1 }, skinDiscoveryClaimBonusPercent: {}, skinDiscoveryRequiresIsotypes: {},
   powerupSpawnWeights: { life: 49.5, speed: 34.65, ram: 14.85, charge: 5, treasure: 1, merchant: 1, bubble: 0, waldo: 0, credit: 5, 'engi-egg': 1, exit: 0 },
   powerupDespawnEnabled: { life: false, speed: true, ram: true, charge: true, treasure: true, merchant: true, bubble: false, waldo: true, credit: true, 'engi-egg': true, exit: false },
   powerupDespawnSeconds: { life: 0, speed: 20, ram: 10, charge: 20, treasure: 10, merchant: 30, bubble: 0, waldo: 30, credit: 5, 'engi-egg': 30, exit: 0 },
@@ -140,9 +143,9 @@ export const DEFAULT_MECHANICS: MechanicsSettings = {
 
 const copyBallModifierSettings = (settings: MechanicsSettings['ballModifiers']) => Object.fromEntries(Object.entries(settings).map(([key, value]) => [key, { ...value, periodic: value.periodic ? { ...value.periodic } : undefined }])) as MechanicsSettings['ballModifiers'];
 const copyModifierCompatibility = (value: MechanicsSettings['modifierCompatibility']) => Object.fromEntries(Object.entries(value).map(([key, pairs]) => [key, { ...pairs }])) as MechanicsSettings['modifierCompatibility'];
-export let MECHANICS: MechanicsSettings = { ...DEFAULT_MECHANICS, ballModifiers: copyBallModifierSettings(DEFAULT_MECHANICS.ballModifiers), modifierMutationRates: { ...DEFAULT_MECHANICS.modifierMutationRates }, modifierInfectionRates: { ...DEFAULT_MECHANICS.modifierInfectionRates }, modifierCompatibility: copyModifierCompatibility(DEFAULT_MECHANICS.modifierCompatibility), powerupSpawnWeights: { ...DEFAULT_MECHANICS.powerupSpawnWeights }, containmentMutationPickupEnabled: { ...DEFAULT_MECHANICS.containmentMutationPickupEnabled }, backgroundColors: [...DEFAULT_MECHANICS.backgroundColors] };
-export function getMechanicsSettings(): MechanicsSettings { return { ...MECHANICS, ballModifiers: copyBallModifierSettings(MECHANICS.ballModifiers), modifierMutationRates: { ...MECHANICS.modifierMutationRates }, modifierInfectionRates: { ...MECHANICS.modifierInfectionRates }, modifierCompatibility: copyModifierCompatibility(MECHANICS.modifierCompatibility), powerupSpawnWeights: { ...MECHANICS.powerupSpawnWeights }, containmentMutationPickupEnabled: { ...MECHANICS.containmentMutationPickupEnabled }, powerupDespawnEnabled: { ...MECHANICS.powerupDespawnEnabled }, powerupDespawnSeconds: { ...MECHANICS.powerupDespawnSeconds }, overflowCreditValues: { ...MECHANICS.overflowCreditValues }, merchantRewardsEnabled: { ...MECHANICS.merchantRewardsEnabled }, merchantUpgradePerBar: { ...MECHANICS.merchantUpgradePerBar }, merchantSkinTierMultipliers: { ...MECHANICS.merchantSkinTierMultipliers }, backgroundColors: [...MECHANICS.backgroundColors] }; }
-export function setMechanicsSettings(settings: MechanicsSettings) { MECHANICS = { ...settings, ballModifiers: copyBallModifierSettings(settings.ballModifiers), modifierMutationRates: { ...settings.modifierMutationRates }, modifierInfectionRates: { ...settings.modifierInfectionRates }, modifierCompatibility: copyModifierCompatibility(settings.modifierCompatibility), powerupSpawnWeights: { ...settings.powerupSpawnWeights }, containmentMutationPickupEnabled: { ...settings.containmentMutationPickupEnabled }, powerupDespawnEnabled: { ...settings.powerupDespawnEnabled }, powerupDespawnSeconds: { ...settings.powerupDespawnSeconds }, overflowCreditValues: { ...settings.overflowCreditValues }, merchantRewardsEnabled: { ...settings.merchantRewardsEnabled }, merchantUpgradePerBar: { ...settings.merchantUpgradePerBar }, merchantSkinTierMultipliers: { ...settings.merchantSkinTierMultipliers }, backgroundColors: [...settings.backgroundColors] }; }
+export let MECHANICS: MechanicsSettings = { ...DEFAULT_MECHANICS, ballModifiers: copyBallModifierSettings(DEFAULT_MECHANICS.ballModifiers), modifierMutationRates: { ...DEFAULT_MECHANICS.modifierMutationRates }, modifierInfectionRates: { ...DEFAULT_MECHANICS.modifierInfectionRates }, modifierCompatibility: copyModifierCompatibility(DEFAULT_MECHANICS.modifierCompatibility), powerupSpawnWeights: { ...DEFAULT_MECHANICS.powerupSpawnWeights }, containmentMutationPickupEnabled: { ...DEFAULT_MECHANICS.containmentMutationPickupEnabled }, skinDiscoveryCategoryWeights: { ...DEFAULT_MECHANICS.skinDiscoveryCategoryWeights }, skinDiscoveryClaimBonusPercent: {}, skinDiscoveryRequiresIsotypes: {}, backgroundColors: [...DEFAULT_MECHANICS.backgroundColors] };
+export function getMechanicsSettings(): MechanicsSettings { return { ...MECHANICS, ballModifiers: copyBallModifierSettings(MECHANICS.ballModifiers), modifierMutationRates: { ...MECHANICS.modifierMutationRates }, modifierInfectionRates: { ...MECHANICS.modifierInfectionRates }, modifierCompatibility: copyModifierCompatibility(MECHANICS.modifierCompatibility), powerupSpawnWeights: { ...MECHANICS.powerupSpawnWeights }, containmentMutationPickupEnabled: { ...MECHANICS.containmentMutationPickupEnabled }, skinDiscoveryCategoryWeights: { ...MECHANICS.skinDiscoveryCategoryWeights }, skinDiscoveryClaimBonusPercent: { ...MECHANICS.skinDiscoveryClaimBonusPercent }, skinDiscoveryRequiresIsotypes: { ...MECHANICS.skinDiscoveryRequiresIsotypes }, powerupDespawnEnabled: { ...MECHANICS.powerupDespawnEnabled }, powerupDespawnSeconds: { ...MECHANICS.powerupDespawnSeconds }, overflowCreditValues: { ...MECHANICS.overflowCreditValues }, merchantRewardsEnabled: { ...MECHANICS.merchantRewardsEnabled }, merchantUpgradePerBar: { ...MECHANICS.merchantUpgradePerBar }, merchantSkinTierMultipliers: { ...MECHANICS.merchantSkinTierMultipliers }, backgroundColors: [...MECHANICS.backgroundColors] }; }
+export function setMechanicsSettings(settings: MechanicsSettings) { MECHANICS = { ...settings, ballModifiers: copyBallModifierSettings(settings.ballModifiers), modifierMutationRates: { ...settings.modifierMutationRates }, modifierInfectionRates: { ...settings.modifierInfectionRates }, modifierCompatibility: copyModifierCompatibility(settings.modifierCompatibility), powerupSpawnWeights: { ...settings.powerupSpawnWeights }, containmentMutationPickupEnabled: { ...settings.containmentMutationPickupEnabled }, skinDiscoveryCategoryWeights: { ...settings.skinDiscoveryCategoryWeights }, skinDiscoveryClaimBonusPercent: { ...settings.skinDiscoveryClaimBonusPercent }, skinDiscoveryRequiresIsotypes: { ...settings.skinDiscoveryRequiresIsotypes }, powerupDespawnEnabled: { ...settings.powerupDespawnEnabled }, powerupDespawnSeconds: { ...settings.powerupDespawnSeconds }, overflowCreditValues: { ...settings.overflowCreditValues }, merchantRewardsEnabled: { ...settings.merchantRewardsEnabled }, merchantUpgradePerBar: { ...settings.merchantUpgradePerBar }, merchantSkinTierMultipliers: { ...settings.merchantSkinTierMultipliers }, backgroundColors: [...settings.backgroundColors] }; }
 
 export type Ball = { id: number; x: number; y: number; vx: number; vy: number; r: number; rammed?: boolean; modifier?: BallModifier; modifiers?: BallModifier[]; modifierExpiresAtMs?: number; modifierExpiries?: Partial<Record<BallModifier, number>>; anchorBaseRadius?: number; phaseEndsAtMs?: number; skimmerWallId?: number; skimmerRemainingMs?: number; skimmerResumeVx?: number; skimmerResumeVy?: number; skimmerStartAlong?: number; drifting?: boolean; driftStrengthOverride?: number; driftRangeOverride?: number };
 export type Wall = {
@@ -228,6 +231,8 @@ export type Run = {
   merchantUpgrades: Record<string, number>;
   petEggs: number; petEggVisitProgress: number; pets: CompanionPet[]; petIncubations: PetIncubation[];
   isotypesContained: boolean; isotypesNoticeUntilMs: number; petNotice: string | null; petNoticeUntilMs: number;
+  skinDiscovery: { category: string; skinId: string; requiredClaimed: number; requiresIsotypes: boolean } | null;
+  totalTerritoryClaimed: number; ballsDestroyed: number; ballsContained: number; pickupsCaptured: number; containedBallIds: number[]; containedCountedThisLevel: boolean;
   levelClearPending: boolean;
   levelClearAnimationRemainingMs: number;
   levelClearBubbleTimerMs: number;
@@ -262,7 +267,7 @@ export type Run = {
   ended?: boolean;
 };
 
-export type ScoreEntry = { level: number; claimed: number; timestamp: number };
+export type ScoreEntry = { score: number; level: number; claimed: number; totalTerritoryClaimed: number; ballsDestroyed: number; ballsContained: number; pickupsCaptured: number; timestamp: number };
 
 export function randomBetween(a: number, b: number) { return a + Math.random() * (b - a); }
 
@@ -691,7 +696,7 @@ export function newRun(level = 1, boardWidth = 900, boardHeight = 1100, waldoReq
     balls.push(ball);
   }
   return {
-    level, lives: MECHANICS.startLives, lifeCapacity: Math.max(MECHANICS.startLives, MECHANICS.lifeStorageBaseCapacity), lifeCapacityPurchases: 0, speedCapacityBonus: 0, speedCapacityPurchases: 0, ramCapacityBonus: 0, ramCapacityPurchases: 0, chargeCapacityBonus: 0, chargeCapacityPurchases: 0, chargeCharges: 0, overflowJobs: [], overflowSuccessChance: MECHANICS.overflowBaseSuccessChance, overflowUpgradePurchases: 0, overflowProcessingUpgradePurchases: 0, claimed: 0, claimMask: Array(gridCols * gridRows).fill(0), walls: [], powerups: [], speedCharges: 0, ramCharges: 0, merchantTokens: 0, credits: 0, powerBars: 0, powerBarsPurchased: 0, merchantUpgrades: Object.fromEntries(['life','speed','ram','treasure','waldo', ...Object.keys(MECHANICS.containmentMutationPickupEnabled).flatMap(kind => [`mutationAffinity:${kind}`, `mutationAttraction:${kind}`])].map(key => [key, 0])), petEggs: 0, petEggVisitProgress: 0, pets: [], petIncubations: [], isotypesContained: false, isotypesNoticeUntilMs: 0, petNotice: null, petNoticeUntilMs: 0, levelClearPending: false, levelClearAnimationRemainingMs: 0, levelClearBubbleTimerMs: 0, levelClearBubbleAccumulatorMs: 0, levelEvent, levelEventBannerUntilMs: levelEvent === 'drift-swarm' ? MECHANICS.driftSwarmBannerDurationMs : 0, containmentMutations: [], containmentMutationScanRemainingMs: 0, speedReadyUntil: null, chargeReadyUntil: null, captureEvents: [], wallBreakEvents: [], territoryGainEvents: [], creditGainEvents: [], treasureEligible: Math.random() < MECHANICS.treasureLevelEligibilityChance, treasureHuntPending: false, treasureHunt: null, pictureEvent, waldoEventPending: waldoRequested && !pictureEvent?.isWaldo, waldoEligible: Math.random() >= MECHANICS.waldoIneligibleChance, mechanics: getMechanicsSettings(), boardWidth, boardHeight, gridCols, gridRows, nextId: count + 1,
+    level, lives: MECHANICS.startLives, lifeCapacity: Math.max(MECHANICS.startLives, MECHANICS.lifeStorageBaseCapacity), lifeCapacityPurchases: 0, speedCapacityBonus: 0, speedCapacityPurchases: 0, ramCapacityBonus: 0, ramCapacityPurchases: 0, chargeCapacityBonus: 0, chargeCapacityPurchases: 0, chargeCharges: 0, overflowJobs: [], overflowSuccessChance: MECHANICS.overflowBaseSuccessChance, overflowUpgradePurchases: 0, overflowProcessingUpgradePurchases: 0, claimed: 0, totalTerritoryClaimed: 0, ballsDestroyed: 0, ballsContained: 0, pickupsCaptured: 0, containedBallIds: [], containedCountedThisLevel: false, skinDiscovery: null, claimMask: Array(gridCols * gridRows).fill(0), walls: [], powerups: [], speedCharges: 0, ramCharges: 0, merchantTokens: 0, credits: 0, powerBars: 0, powerBarsPurchased: 0, merchantUpgrades: Object.fromEntries(['life','speed','ram','treasure','waldo', ...Object.keys(MECHANICS.containmentMutationPickupEnabled).flatMap(kind => [`mutationAffinity:${kind}`, `mutationAttraction:${kind}`])].map(key => [key, 0])), petEggs: 0, petEggVisitProgress: 0, pets: [], petIncubations: [], isotypesContained: false, isotypesNoticeUntilMs: 0, petNotice: null, petNoticeUntilMs: 0, levelClearPending: false, levelClearAnimationRemainingMs: 0, levelClearBubbleTimerMs: 0, levelClearBubbleAccumulatorMs: 0, levelEvent, levelEventBannerUntilMs: levelEvent === 'drift-swarm' ? MECHANICS.driftSwarmBannerDurationMs : 0, containmentMutations: [], containmentMutationScanRemainingMs: 0, speedReadyUntil: null, chargeReadyUntil: null, captureEvents: [], wallBreakEvents: [], territoryGainEvents: [], creditGainEvents: [], treasureEligible: Math.random() < MECHANICS.treasureLevelEligibilityChance, treasureHuntPending: false, treasureHunt: null, pictureEvent, waldoEventPending: waldoRequested && !pictureEvent?.isWaldo, waldoEligible: Math.random() >= MECHANICS.waldoIneligibleChance, mechanics: getMechanicsSettings(), boardWidth, boardHeight, gridCols, gridRows, nextId: count + 1,
     balls,
     elapsedMs: 0,
     spawnInMs: Math.floor(randomBetween(MECHANICS.powerupSpawnEverySecondsMin, MECHANICS.powerupSpawnEverySecondsMax + 1)) * 1000,
@@ -747,8 +752,8 @@ function isClaimed(run: Run, x: number, y: number, width: number, height: number
   return !!run.claimMask?.[row * cols + col];
 }
 
-export function everyBallHasItsOwnRegion(run: Run, width: number, height: number) {
-  if (run.balls.length === 0) return false;
+export function isolatedBallIds(run: Run, width: number, height: number): number[] {
+  if (run.balls.length === 0) return [];
   const cols = run.gridCols || 48, rows = run.gridRows || 72;
   const solidWalls = run.walls.filter(wall => !wall.active);
   const labels = new Int32Array(cols * rows);
@@ -779,7 +784,13 @@ export function everyBallHasItsOwnRegion(run: Run, width: number, height: number
     const row = Math.max(0, Math.min(rows - 1, Math.floor(ball.y / height * rows)));
     return labels[row * cols + col];
   });
-  return occupied.every(label => label > 0) && new Set(occupied).size === occupied.length;
+  const regionCounts = new Map<number, number>();
+  for (const label of occupied) if (label > 0) regionCounts.set(label, (regionCounts.get(label) ?? 0) + 1);
+  return run.balls.filter((_, index) => occupied[index] > 0 && regionCounts.get(occupied[index]) === 1).map(ball => ball.id);
+}
+
+export function everyBallHasItsOwnRegion(run: Run, width: number, height: number) {
+  return run.balls.length > 0 && isolatedBallIds(run, width, height).length === run.balls.length;
 }
 
 /** Finds open rectangular enclosures made by exactly four solid player walls. */
@@ -1054,7 +1065,7 @@ export function claimEmptyRegions(run: Run, width: number, height: number, addit
     return true;
   });
   const captured = [...new Map([...newlyEnclosed, ...additionalCaptured].map(power => [power.id, power])).values()];
-  return applyPickupCaptures({ ...run, claimed: newClaimed, claimMask }, captured, skeweredIds, skeweredWalls);
+  return applyPickupCaptures({ ...run, claimed: newClaimed, totalTerritoryClaimed: (run.totalTerritoryClaimed ?? 0) + Math.max(0, newClaimed - run.claimed), claimMask }, captured, skeweredIds, skeweredWalls);
 }
 
 function bubbleSpawnPoints(run: Run, count: number) {
@@ -1126,6 +1137,7 @@ function applyPickupCaptures(run: Run, captured: PowerUp[], skeweredIds = new Se
   const overflowJobs = [...(run.overflowJobs ?? []), ...queuedOverflow.jobs];
   nextId = queuedOverflow.nextId;
   return { ...run,
+    pickupsCaptured: (run.pickupsCaptured ?? 0) + captured.filter(power => power.kind !== 'exit').length,
     lives: Math.min(run.lifeCapacity, run.lives + lifePowerups.length),
     speedCharges: Math.min(chargeCapacity(run, 'speed'), run.speedCharges + speedPowerups.length),
     ramCharges: Math.min(chargeCapacity(run, 'ram'), run.ramCharges + ramPowerups.length),
@@ -2046,6 +2058,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
     const hitProjectile = movingPowerups.some(power => power.id !== bubble.id && !explodedRams.has(power.id) && !anchorBroken.has(power.id) && !chestBroken.has(power.id) && Math.hypot(power.x - bubble.x, power.y - bubble.y) <= radius + powerupRadius(power.kind, run.mechanics));
     if (hitBall || hitProjectile) { lostBubbles.add(bubble.id); bubbleLossPoints.push({ x: bubble.x, y: bubble.y }); }
   }
+  run.ballsDestroyed = (run.ballsDestroyed ?? 0) + chargeDestroyedBalls.size;
   run.balls = run.balls.filter(ball => !chargeDestroyedBalls.has(ball.id));
   run.powerups = [...movingPowerups.filter(p => !explodedRams.has(p.id) && !lostBubbles.has(p.id) && !anchorBroken.has(p.id) && !speedBroken.has(p.id) && !chestBroken.has(p.id) && !creditBroken.has(p.id) && !engiEggBroken.has(p.id)), ...chestRewards];
   for (const point of bubbleLossPoints) run.captureEvents.push({ id: run.nextId++, ...point, kind: 'bubbleLost' });
@@ -2064,8 +2077,13 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
   if (brokenMerchants.size) run.powerups = run.powerups.filter(p => !brokenMerchants.has(p.id));
   run = collectClaimedPickups(run, width, height);
   run = startLevelClearIfReady(run, width, height);
-  const contained = everyBallHasItsOwnRegion(run, width, height);
+  const isolatedIds = isolatedBallIds(run, width, height);
+  const contained = run.balls.length > 0 && isolatedIds.length === run.balls.length;
   if (contained && !run.isotypesContained) run.isotypesNoticeUntilMs = run.elapsedMs + 2200;
+  const previouslyContained = new Set(run.containedBallIds ?? []);
+  run.ballsContained = (run.ballsContained ?? 0) + isolatedIds.filter(id => !previouslyContained.has(id)).length;
+  run.containedBallIds = [...previouslyContained, ...isolatedIds.filter(id => !previouslyContained.has(id))];
+  run.containedCountedThisLevel = contained;
   run.isotypesContained = contained;
   run = advanceOverflowProcessor(run, dt);
   advancePetIncubations(run, dt);

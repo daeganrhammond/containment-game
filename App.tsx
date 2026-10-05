@@ -3,9 +3,11 @@ import * as DocumentPicker from 'expo-document-picker';
 import { Directory, File, Paths } from 'expo-file-system';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Image, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, Image, ImageSourcePropType, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { activateCharge, activateSpeed, Ball, BallModifier, CaptureEvent, chargeCapacity, chargeStorageUpgradeCost, CompanionPet, ContainmentPickupKind, CreditGainEvent, DEFAULT_MECHANICS, deployEngi, engiUpgradeCost, enforceChargeCapacities, getMechanicsSettings, hireEngi, lifeStorageUpgradeCost, MechanicsSettings, MECHANICS, merchantPowerBarCost as getMerchantPowerBarCost, newRun, OverflowJob, OverflowResult, overflowProcessingUpgradeCost, overflowRefineryUpgradeCost, PictureLibraryEntry, PowerKind, PowerUp, powerupCollisionRadius, powerupDespawnAt, randomBetween, randomEngiCocoonSkin, ramAt, startEngiIncubation, tapPickupAt, resizeRunBoard, Run, ScoreEntry, setMechanicsSettings, setPictureLibrary, setWaldoLibrary, startWall, stepRun, TerritoryGainEvent, upgradeEngi, WaldoLibraryEntry, Wall, WallBreakEvent } from './mechanics';
 import { BACKGROUND_SKINS, BALL_SKINS, CREDIT_SKINS, DEFAULT_SKIN_SELECTIONS, ENGI_PET_SKINS, LEVEL_CLEAR_ANIMATIONS, normalizeSkinSelections, PICKUP_SKINS, SkinOption, SkinSelections, CaptureAnimation } from './skins';
+import { defaultSkinUnlocks, normalizeSkinUnlocks, reachableSkin, SKIN_ARCHIVE, SKIN_CATEGORY_KEYS, SKIN_DEFAULTS, SkinArchiveNode, SkinUnlocks } from './themeCatalog';
+import { ThemeTreeScreen } from './ThemeTreeScreen';
 
 const SAVE_KEY = 'trap-game-save-v1';
 const SETTINGS_KEY = 'trap-game-dev-settings-v1';
@@ -13,7 +15,9 @@ const PROFILES_KEY = 'trap-game-dev-profiles-v1';
 const SKINS_KEY = 'trap-game-skin-selections-v1';
 const PICTURE_LIBRARY_KEY = 'trap-game-picture-library-v1';
 const WALDO_LIBRARY_KEY = 'trap-game-waldo-library-v1';
-const SKIN_UNLOCKS_KEY = 'trap-game-skin-unlocks-v1';
+const SKIN_UNLOCKS_V2_KEY = 'trap-game-skin-unlocks-v2';
+const MANUAL_SAVE_KEY = 'trap-game-manual-save-v1';
+const COMMAND_BRIDGE_ART = require('./assets/bridge-command-full.png');
 const CREDIT_SYMBOL_ART: Record<string, number> = {
   sunshard: require('./assets/credits/sunshard.png'),
   'circuit-chit': require('./assets/credits/circuit-chit.png'),
@@ -100,36 +104,23 @@ const BOARD_H = 1100;
 const CLAIM_SWATCHES = ['#071019', '#17372f', '#25203e', '#40202c', '#45515e'];
 type Gesture = { x: number; y: number };
 type TuningProfile = { name: string; settings: MechanicsSettings; skins?: SkinSelections };
-type SkinTier = 1 | 2 | 3;
-type SkinProgression = { unlocked: Partial<Record<PowerKind, string[]>>; tiers: Record<string, SkinTier> };
+type SkinProgression = SkinUnlocks;
 
-function createSkinTiers(): Record<string, SkinTier> {
-  const tiers: Record<string, SkinTier> = {};
-  for (const kind of Object.keys(PICKUP_SKINS) as PowerKind[]) {
-    const locked = PICKUP_SKINS[kind].filter(option => option.id !== DEFAULT_SKIN_SELECTIONS.pickups[kind]).map(option => option.id);
-    for (let i = locked.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [locked[i], locked[j]] = [locked[j], locked[i]]; }
-    const slots: SkinTier[] = locked.length >= 4 ? [1, 2, 2, 3] : locked.length === 3 ? [1, 2, 3] : locked.length === 2 ? [1, 3] : [1];
-    locked.forEach((id, index) => { tiers[`${kind}:${id}`] = slots[index] ?? 3; });
-  }
-  return tiers;
+function discoveryGroup(category: string): string {
+  return category;
 }
 
-function defaultSkinProgression(): SkinProgression {
-  const unlocked: Partial<Record<PowerKind, string[]>> = {};
-  for (const kind of Object.keys(PICKUP_SKINS) as PowerKind[]) unlocked[kind] = [DEFAULT_SKIN_SELECTIONS.pickups[kind]];
-  return { unlocked, tiers: createSkinTiers() };
-}
-
-function normalizeSkinProgression(value: Partial<SkinProgression> | null | undefined): SkinProgression {
-  const defaults = defaultSkinProgression();
-  const unlocked: Partial<Record<PowerKind, string[]>> = {};
-  for (const kind of Object.keys(PICKUP_SKINS) as PowerKind[]) {
-    const valid = new Set(PICKUP_SKINS[kind].map(option => option.id));
-    unlocked[kind] = [...new Set([DEFAULT_SKIN_SELECTIONS.pickups[kind], ...(value?.unlocked?.[kind] ?? []).filter(id => valid.has(id))])];
-  }
-  const tiers = { ...defaults.tiers };
-  for (const [key, tier] of Object.entries(value?.tiers ?? {})) if (tier === 1 || tier === 2 || tier === 3) tiers[key] = tier;
-  return { unlocked, tiers };
+function attachSkinDiscovery(run: Run, progression: SkinProgression): Run {
+  if (run.levelEvent === 'elimination' || Math.random() >= run.mechanics.skinDiscoveryChance) return { ...run, skinDiscovery: null };
+  const eligible = SKIN_ARCHIVE.filter(node => reachableSkin(node, progression.unlocked, progression.tiers));
+  const candidates = [...new Set(eligible.map(node => node.category))].map(category => ({ category, nodes: eligible.filter(node => node.category === category), weight: Math.max(0, run.mechanics.skinDiscoveryCategoryWeights[discoveryGroup(category)] ?? 0) })).filter(item => item.weight > 0 && item.nodes.length > 0);
+  const totalWeight = candidates.reduce((sum, item) => sum + item.weight, 0);
+  if (!totalWeight) return { ...run, skinDiscovery: null };
+  let roll = Math.random() * totalWeight;
+  const category = candidates.find(item => (roll -= item.weight) < 0) ?? candidates[candidates.length - 1];
+  const selected = category.nodes[Math.floor(Math.random() * category.nodes.length)];
+  const key = `${selected.category}:${selected.id}`;
+  return { ...run, skinDiscovery: { category: selected.category, skinId: selected.id, requiredClaimed: Math.min(100, run.mechanics.clearPercentOfOriginalBoard + Math.max(0, run.mechanics.skinDiscoveryClaimBonusPercent[key] ?? 12)), requiresIsotypes: run.mechanics.skinDiscoveryRequiresIsotypes[key] ?? true } };
 }
 
 function normalizeMechanicsSettings(settings: Partial<MechanicsSettings> | undefined): MechanicsSettings {
@@ -195,6 +186,10 @@ function normalizeMechanicsSettings(settings: Partial<MechanicsSettings> | undef
     containmentMutationPickupEnabled: { ...DEFAULT_MECHANICS.containmentMutationPickupEnabled, ...settings?.containmentMutationPickupEnabled },
     eliminationEventChance: Math.max(0, Math.min(1, settings?.eliminationEventChance ?? DEFAULT_MECHANICS.eliminationEventChance)),
     driftSwarmEventChance: Math.max(0, Math.min(1, settings?.driftSwarmEventChance ?? DEFAULT_MECHANICS.driftSwarmEventChance)),
+    skinDiscoveryChance: Math.max(0, Math.min(1, settings?.skinDiscoveryChance ?? DEFAULT_MECHANICS.skinDiscoveryChance)),
+    skinDiscoveryCategoryWeights: { ...DEFAULT_MECHANICS.skinDiscoveryCategoryWeights, ...settings?.skinDiscoveryCategoryWeights },
+    skinDiscoveryClaimBonusPercent: { ...settings?.skinDiscoveryClaimBonusPercent },
+    skinDiscoveryRequiresIsotypes: { ...settings?.skinDiscoveryRequiresIsotypes },
     driftSwarmBannerDurationMs: Math.max(0, settings?.driftSwarmBannerDurationMs ?? DEFAULT_MECHANICS.driftSwarmBannerDurationMs),
     eliminationChargeSpawnChance: Math.max(0, Math.min(1, settings?.eliminationChargeSpawnChance ?? DEFAULT_MECHANICS.eliminationChargeSpawnChance)),
     driftSwarmVariationMin: Math.max(0.1, Math.min(settings?.driftSwarmVariationMin ?? DEFAULT_MECHANICS.driftSwarmVariationMin, settings?.driftSwarmVariationMax ?? DEFAULT_MECHANICS.driftSwarmVariationMax)),
@@ -244,16 +239,105 @@ function boardLayoutFor(width: number, height: number) {
   return { displayWidth, displayHeight, worldWidth: displayWidth / scale, worldHeight: displayHeight / scale };
 }
 
+function normalizeScoreEntry(entry: Partial<ScoreEntry>): ScoreEntry {
+  const level = entry.level ?? entry.score ?? 0;
+  return { score: entry.score ?? level, level, claimed: entry.claimed ?? 0, totalTerritoryClaimed: entry.totalTerritoryClaimed ?? entry.claimed ?? 0, ballsDestroyed: entry.ballsDestroyed ?? 0, ballsContained: entry.ballsContained ?? 0, pickupsCaptured: entry.pickupsCaptured ?? 0, timestamp: entry.timestamp ?? Date.now() };
+}
 function formatScore(entry: ScoreEntry) { return `LV ${entry.level}  ·  ${entry.claimed.toFixed(2)}% claimed`; }
 function pickupDisplayName(kind: PowerKind) {
   const titles: Record<PowerKind, string> = { life: 'EXTRA LIFE', speed: 'SPEED BOOST', ram: 'BATTERING RAM', charge: 'CHARGE', treasure: 'TREASURE', merchant: 'MERCHANT', bubble: 'COSMIC BUBBLE', waldo: 'WALDO PICKUP', credit: 'CREDIT CACHE', 'engi-egg': 'ENGI COCOON', exit: 'WAYFINDER COURIER' };
   return titles[kind];
 }
-function attachCaptureSkins(events: CaptureEvent[], selections: SkinSelections) {
-  return events.map(event => ({ ...event, skinId: event.skinId ?? (event.kind === 'jackpot' ? selections.pickups.treasure : event.kind === 'chargeBallBreak' ? selections.pickups.charge : event.kind === 'ramBlast' ? selections.pickups.ram : event.kind === 'merchantBreak' ? selections.pickups.merchant : event.kind === 'bubbleLost' ? selections.pickups.bubble : event.kind === 'creditLost' ? selections.pickups.credit : event.kind === 'engiEggBreak' ? selections.pickups['engi-egg'] : event.kind === 'explosion' || event.kind === 'overflowFailed' || event.kind === 'phaseRupture' || event.kind === 'phaseChestBreak' || event.kind === 'anchorBreak' || event.kind === 'combo' || event.kind === 'waldoFound' || event.kind === 'petRepair' || event.kind === 'petLost' || event.kind === 'petHatched' ? undefined : selections.pickups[event.kind]) }));
+
+function BridgePulse({ delay = 0, color = '#75f4dc' }: { delay?: number; color?: string }) {
+  const [pulse] = useState(() => new Animated.Value(0.35));
+  useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.delay(delay),
+      Animated.timing(pulse, { toValue: 1, duration: 720, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 0.3, duration: 1080, useNativeDriver: true }),
+    ]));
+    loop.start(); return () => loop.stop();
+  }, [delay, pulse]);
+  return <Animated.View style={[styles.bridgePulse, { backgroundColor: color, shadowColor: color, opacity: pulse }]} />;
+}
+
+function BridgeStagePreview({ run, hasActiveRun, simulationRunning, pictureSource, defaultBackground, onPress }: {
+  run: Run;
+  hasActiveRun: boolean;
+  simulationRunning: boolean;
+  pictureSource?: ImageSourcePropType;
+  defaultBackground?: ImageSourcePropType;
+  onPress: () => void;
+}) {
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  const [scan] = useState(() => new Animated.Value(0));
+  const claimedRects = React.useMemo(() => {
+    const rects: { id: string; x: number; y: number; width: number }[] = [];
+    for (let y = 0; y < run.gridRows; y++) {
+      let x = 0;
+      while (x < run.gridCols) {
+        if (!run.claimMask?.[y * run.gridCols + x]) { x++; continue; }
+        const start = x;
+        while (x < run.gridCols && run.claimMask?.[y * run.gridCols + x]) x++;
+        rects.push({ id: `${y}-${start}`, x: start, y, width: x - start });
+      }
+    }
+    return rects;
+  }, [run.claimMask, run.gridCols, run.gridRows]);
+  useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(scan, { toValue: 1, duration: 3600, useNativeDriver: true }),
+      Animated.delay(650),
+      Animated.timing(scan, { toValue: 0, duration: 1, useNativeDriver: true }),
+    ]));
+    loop.start(); return () => loop.stop();
+  }, [scan]);
+  const aspect = Math.max(1.2, Math.min(2.35, run.boardWidth / Math.max(1, run.boardHeight)));
+  // Keep the preview compact and dock it to the bridge console instead of
+  // letting it dominate the panoramic window.
+  const boardWidth = Math.min(viewport.width * 0.46, viewport.height * 0.3 * aspect);
+  const boardHeight = boardWidth / aspect;
+  const scanY = scan.interpolate({ inputRange: [0, 1], outputRange: [-10, Math.max(1, boardHeight)] });
+  const activeBackground = run.pictureEvent ? pictureSource : defaultBackground;
+  return <View style={styles.bridgePreviewRegion} onLayout={event => {
+    const { width, height } = event.nativeEvent.layout;
+    setViewport(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height });
+  }}>
+    {boardWidth > 0 && boardHeight > 0 && <Pressable accessibilityRole="button" accessibilityLabel={hasActiveRun ? `Resume active run, stage ${run.level}` : 'Start a new run'} onPress={onPress} style={[styles.bridgeMiniFrame, { width: boardWidth, height: boardHeight }]}>
+      {activeBackground && <Image source={activeBackground} resizeMode={run.pictureEvent ? 'stretch' : 'cover'} style={StyleSheet.absoluteFill} />}
+      <View pointerEvents="none" style={styles.bridgeMiniTint} />
+      {claimedRects.map(rect => <View key={`claim-${rect.id}`} pointerEvents="none" style={[styles.bridgeMiniClaim, { left: `${rect.x / run.gridCols * 100}%`, top: `${rect.y / run.gridRows * 100}%`, width: `${rect.width / run.gridCols * 100}%`, height: `${100 / run.gridRows}%` }]} />)}
+      {run.walls.map(wall => <View key={`wall-${wall.id}`} pointerEvents="none" style={[styles.bridgeMiniWall, wall.axis === 'vertical'
+        ? { left: `${wall.at / run.boardWidth * 100}%`, top: `${wall.low / run.boardHeight * 100}%`, width: wall.active ? 2 : 1.5, height: `${Math.max(0.5, (wall.high - wall.low) / run.boardHeight * 100)}%` }
+        : { left: `${wall.low / run.boardWidth * 100}%`, top: `${wall.at / run.boardHeight * 100}%`, width: `${Math.max(0.5, (wall.high - wall.low) / run.boardWidth * 100)}%`, height: wall.active ? 2 : 1.5 }]} />)}
+      {run.powerups.map((powerup, index) => <View key={`pickup-${powerup.id}`} pointerEvents="none" style={[styles.bridgeMiniPickup, { left: `${powerup.x / run.boardWidth * 100}%`, top: `${powerup.y / run.boardHeight * 100}%`, backgroundColor: powerup.kind === 'exit' ? '#fff0a1' : index % 2 ? '#edb65f' : '#78e9d1' }]} />)}
+      {run.balls.map(ball => {
+        const diameter = Math.max(4, Math.min(10, 2 * ball.r / run.boardWidth * boardWidth));
+        return <View key={`ball-${ball.id}`} pointerEvents="none" style={[styles.bridgeMiniBall, { width: diameter, height: diameter, borderRadius: diameter / 2, left: `${ball.x / run.boardWidth * 100}%`, top: `${ball.y / run.boardHeight * 100}%`, marginLeft: -diameter / 2, marginTop: -diameter / 2 }]} />;
+      })}
+      <Animated.View pointerEvents="none" style={[styles.bridgeMiniScan, { transform: [{ translateY: scanY }] }]} />
+      <View pointerEvents="none" style={styles.bridgeMiniTop}><View><Text style={styles.bridgeMiniEyebrow}>{simulationRunning ? 'LIVE SECTOR FEED' : 'SAVED SECTOR VIEW'}</Text><Text style={styles.bridgeMiniStage}>STAGE {String(run.level).padStart(2, '0')}</Text></View><Text style={styles.bridgeMiniPercent}>{run.claimed.toFixed(1)}%</Text></View>
+      <View pointerEvents="none" style={styles.bridgeMiniBottom}><Text style={styles.bridgeMiniResume}>{hasActiveRun ? 'TAP TO RESUME ACTIVE RUN' : 'TAP TO LAUNCH A NEW SECTOR'}</Text><Text style={styles.bridgeMiniReadouts}>{run.balls.length} BALLS  ·  {run.credits.toLocaleString()} CREDITS</Text></View>
+      <View pointerEvents="none" style={styles.bridgeMiniPulse}><BridgePulse delay={180} /></View>
+    </Pressable>}
+  </View>;
+}
+
+function BridgeArtifact({ title, detail, glyph, color = '#78ead4', onPress }: {
+  title: string; detail: string; glyph: string; color?: string; onPress: () => void;
+}) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={`${title}: ${detail}`} onPress={onPress} style={[styles.bridgeArtifact, { borderColor: `${color}77` }]}>
+    <View style={styles.bridgeArtifactHead}><Text style={[styles.bridgeArtifactGlyph, { color, textShadowColor: color }]}>{glyph}</Text><BridgePulse color={color} /></View>
+    <Text style={styles.bridgeArtifactTitle}>{title}</Text><Text numberOfLines={1} style={styles.bridgeArtifactDetail}>{detail}</Text>
+  </Pressable>;
+}
+function attachCaptureSkins(events: CaptureEvent[], selections: SkinSelections, discovery: Run['skinDiscovery'] = null) {
+  return events.map(event => ({ ...event, skinId: discovery?.category === `pickup:${event.kind}` ? discovery.skinId : event.skinId ?? (event.kind === 'jackpot' ? selections.pickups.treasure : event.kind === 'chargeBallBreak' ? selections.pickups.charge : event.kind === 'ramBlast' ? selections.pickups.ram : event.kind === 'merchantBreak' ? selections.pickups.merchant : event.kind === 'bubbleLost' ? selections.pickups.bubble : event.kind === 'creditLost' ? selections.pickups.credit : event.kind === 'engiEggBreak' ? selections.pickups['engi-egg'] : event.kind === 'explosion' || event.kind === 'overflowFailed' || event.kind === 'phaseRupture' || event.kind === 'phaseChestBreak' || event.kind === 'anchorBreak' || event.kind === 'combo' || event.kind === 'waldoFound' || event.kind === 'petRepair' || event.kind === 'petLost' || event.kind === 'petHatched' ? undefined : selections.pickups[event.kind]) }));
 }
 
 export default function App() {
+  const nativeDimensions = useWindowDimensions();
   const [run, setRun] = useState<Run>(() => newRun());
   const runRef = useRef<Run>(run);
   const gestures = useRef<Record<string, Gesture>>({});
@@ -317,18 +401,24 @@ export default function App() {
   const [expandedPickupSettings, setExpandedPickupSettings] = useState<PowerKind | null>(null);
   const [merchantOpen, setMerchantOpen] = useState(false);
   const [merchantOpenedAtClear, setMerchantOpenedAtClear] = useState(false);
-  const [skinProgression, setSkinProgression] = useState<SkinProgression>(() => defaultSkinProgression());
+  const [skinProgression, setSkinProgression] = useState<SkinProgression>(() => defaultSkinUnlocks());
   const skinProgressionRef = useRef(skinProgression);
-  const [freeSkinUnlocks, setFreeSkinUnlocks] = useState(false);
+  const [menuPage, setMenuPage] = useState<'home' | 'themes' | 'scores' | 'settings' | null>('home');
+  const [bridgeRailVisible, setBridgeRailVisible] = useState(true);
+  const [manualSave, setManualSave] = useState<Run | null>(null);
+  const [confirmOverwriteSave, setConfirmOverwriteSave] = useState(false);
+  const [confirmNewRun, setConfirmNewRun] = useState(false);
+  const [skinAchievement, setSkinAchievement] = useState<SkinArchiveNode | null>(null);
   const [profileSaveOpen, setProfileSaveOpen] = useState(false);
   const [tuning, setTuning] = useState<MechanicsSettings>(() => getMechanicsSettings());
   const [skinSelections, setSkinSelections] = useState<SkinSelections>(() => DEFAULT_SKIN_SELECTIONS);
   const skinSelectionsRef = useRef(skinSelections);
+  const visualSkinSelectionsRef = useRef(skinSelections);
   const levelClearSequence = useRef(0);
   const exitTransitionPending = useRef(false);
   const exitTransitionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [levelClearAnimation, setLevelClearAnimation] = useState<{ id: number; level: number; style: MechanicsSettings['levelClearStyle']; durationMs: number } | null>(null);
-  const commit = useCallback((next: Run, playCaptureEvents = false) => { const oldCredits = new Set((runRef.current.creditGainEvents ?? []).map(event => event.id)); const newCreditEvents = (next.creditGainEvents ?? []).filter(event => !oldCredits.has(event.id)); runRef.current = next; setRun({ ...next, balls: [...next.balls], walls: [...next.walls], powerups: [...next.powerups] }); if (newCreditEvents.length) setCreditGainEffects(old => [...old, ...newCreditEvents].slice(-6)); if (playCaptureEvents && next.captureEvents.length) setCaptureEffects(old => [...old, ...attachCaptureSkins(next.captureEvents, skinSelectionsRef.current)].slice(-8)); }, []);
+  const commit = useCallback((next: Run, playCaptureEvents = false) => { const oldCredits = new Set((runRef.current.creditGainEvents ?? []).map(event => event.id)); const newCreditEvents = (next.creditGainEvents ?? []).filter(event => !oldCredits.has(event.id)); runRef.current = next; setRun({ ...next, balls: [...next.balls], walls: [...next.walls], powerups: [...next.powerups] }); if (newCreditEvents.length) setCreditGainEffects(old => [...old, ...newCreditEvents].slice(-6)); if (playCaptureEvents && next.captureEvents.length) setCaptureEffects(old => [...old, ...attachCaptureSkins(next.captureEvents, visualSkinSelectionsRef.current, next.skinDiscovery)].slice(-8)); }, []);
   const [profiles, setProfiles] = useState<TuningProfile[]>([]);
   const [profileName, setProfileName] = useState('');
   const [selectedProfileName, setSelectedProfileName] = useState<string | null>(null);
@@ -342,26 +432,42 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [save, boardScores, settingsSave, profilesSave, skinsSave, pictureLibrarySave, waldoLibrarySave, skinUnlocksSave] = await Promise.all([AsyncStorage.getItem(SAVE_KEY), AsyncStorage.getItem(`${SAVE_KEY}-scores`), AsyncStorage.getItem(SETTINGS_KEY), AsyncStorage.getItem(PROFILES_KEY), AsyncStorage.getItem(SKINS_KEY), AsyncStorage.getItem(PICTURE_LIBRARY_KEY), AsyncStorage.getItem(WALDO_LIBRARY_KEY), AsyncStorage.getItem(SKIN_UNLOCKS_KEY)]);
+        const [save, boardScores, settingsSave, profilesSave, skinsSave, pictureLibrarySave, waldoLibrarySave, skinUnlocksSave, legacySkinUnlocksSave, manualSaveData] = await Promise.all([AsyncStorage.getItem(SAVE_KEY), AsyncStorage.getItem(`${SAVE_KEY}-scores`), AsyncStorage.getItem(SETTINGS_KEY), AsyncStorage.getItem(PROFILES_KEY), AsyncStorage.getItem(SKINS_KEY), AsyncStorage.getItem(PICTURE_LIBRARY_KEY), AsyncStorage.getItem(WALDO_LIBRARY_KEY), AsyncStorage.getItem(SKIN_UNLOCKS_V2_KEY), AsyncStorage.getItem('trap-game-skin-unlocks-v1'), AsyncStorage.getItem(MANUAL_SAVE_KEY)]);
         if (settingsSave) {
           const rawSettings = JSON.parse(settingsSave) as Partial<MechanicsSettings>; const legacyStorageSettings = rawSettings.resourceStorageUpgradeBaseCost === undefined; const savedSettings = normalizeMechanicsSettings(rawSettings); if (legacyStorageSettings) { if (savedSettings.overflowCreditValues.speed === 0) savedSettings.overflowCreditValues.speed = DEFAULT_MECHANICS.overflowCreditValues.speed; if (savedSettings.overflowCreditValues.ram === 0) savedSettings.overflowCreditValues.ram = DEFAULT_MECHANICS.overflowCreditValues.ram; }
           setTuning(savedSettings);
         }
         if (profilesSave) setProfiles((JSON.parse(profilesSave) as TuningProfile[]).map(profile => ({ ...profile, settings: normalizeMechanicsSettings(profile.settings), skins: normalizeSkinSelections(profile.skins ?? DEFAULT_SKIN_SELECTIONS) })));
-        const loadedSkinSelections = skinsSave ? normalizeSkinSelections(JSON.parse(skinsSave)) : DEFAULT_SKIN_SELECTIONS;
-        if (skinsSave) setSkinSelections(loadedSkinSelections);
-        const progression = normalizeSkinProgression(skinUnlocksSave ? JSON.parse(skinUnlocksSave) : undefined);
-        // Preserve skins already equipped before permanent unlocks were introduced.
-        for (const kind of Object.keys(PICKUP_SKINS) as PowerKind[]) {
-          const equipped = loadedSkinSelections.pickups[kind];
-          if (!progression.unlocked[kind]?.includes(equipped)) progression.unlocked[kind] = [...(progression.unlocked[kind] ?? []), equipped];
+        let loadedSkinSelections = skinsSave ? normalizeSkinSelections(JSON.parse(skinsSave)) : DEFAULT_SKIN_SELECTIONS;
+        const progression = normalizeSkinUnlocks(skinUnlocksSave ? JSON.parse(skinUnlocksSave) : undefined);
+        if (!skinUnlocksSave && legacySkinUnlocksSave) {
+          const legacy = JSON.parse(legacySkinUnlocksSave) as { tiers?: Record<string, 1 | 2 | 3> };
+          for (const [key, tier] of Object.entries(legacy.tiers ?? {})) {
+            if (tier !== 1 && tier !== 2 && tier !== 3) continue;
+            const [kind, ...idParts] = key.split(':'); const id = idParts.join(':');
+            const target = `pickup:${kind}:${id}`;
+            if (progression.tiers[target] !== undefined) progression.tiers[target] = tier;
+          }
         }
+        if (!skinUnlocksSave) loadedSkinSelections = DEFAULT_SKIN_SELECTIONS;
+        for (const [category, selectedId] of Object.entries({ background: loadedSkinSelections.background, ball: loadedSkinSelections.ball, 'credit-symbol': loadedSkinSelections.credit, pet: loadedSkinSelections.engiPet, ...Object.fromEntries(Object.entries(loadedSkinSelections.pickups).map(([kind, id]) => [`pickup:${kind}`, id])) })) {
+          if (!progression.unlocked[category]?.includes(selectedId)) {
+            const fallback = SKIN_DEFAULTS[category];
+            if (category === 'background') loadedSkinSelections = { ...loadedSkinSelections, background: fallback };
+            else if (category === 'ball') loadedSkinSelections = { ...loadedSkinSelections, ball: fallback };
+            else if (category === 'credit-symbol') loadedSkinSelections = { ...loadedSkinSelections, credit: fallback };
+            else if (category === 'pet') loadedSkinSelections = { ...loadedSkinSelections, engiPet: fallback };
+            else { const kind = category.slice('pickup:'.length) as PowerKind; loadedSkinSelections = { ...loadedSkinSelections, pickups: { ...loadedSkinSelections.pickups, [kind]: fallback } }; }
+          }
+        }
+        setSkinSelections(loadedSkinSelections);
         skinProgressionRef.current = progression;
         setSkinProgression(progression);
         if (pictureLibrarySave) { const entries = JSON.parse(pictureLibrarySave) as PictureLibraryEntry[]; pictureLibraryRef.current = entries; setPictureLibraryState(entries); setPictureLibrary(entries); }
         if (waldoLibrarySave) { const entries = JSON.parse(waldoLibrarySave) as WaldoLibraryEntry[]; waldoLibraryRef.current = entries; setWaldoLibraryState(entries); setWaldoLibrary(entries); }
-        if (save) { const parsed = JSON.parse(save) as Run; const legacyStorageRun = parsed.speedCapacityBonus === undefined; parsed.speedCharges ??= 0; parsed.ramCharges ??= 0; parsed.chargeCharges ??= 0; parsed.chargeCapacityBonus ??= 0; parsed.chargeCapacityPurchases ??= 0; parsed.overflowProcessingUpgradePurchases ??= 0; parsed.levelClearBubbleTimerMs ??= 0; parsed.levelClearBubbleAccumulatorMs ??= 0; parsed.levelClearAnimationRemainingMs ??= 0; parsed.levelEvent ??= 'none'; parsed.levelEventBannerUntilMs ??= 0; parsed.containmentMutations ??= []; parsed.containmentMutationScanRemainingMs ??= 0; parsed.chargeReadyUntil ??= null; parsed.speedCapacityBonus ??= 0; parsed.speedCapacityPurchases ??= parsed.speedCapacityBonus; parsed.ramCapacityBonus ??= 0; parsed.ramCapacityPurchases ??= parsed.ramCapacityBonus; parsed.waldoEventPending ??= false; parsed.mechanics = normalizeMechanicsSettings(parsed.mechanics); if (legacyStorageRun) { if (parsed.mechanics.overflowCreditValues.speed === 0) parsed.mechanics.overflowCreditValues.speed = DEFAULT_MECHANICS.overflowCreditValues.speed; if (parsed.mechanics.overflowCreditValues.ram === 0) parsed.mechanics.overflowCreditValues.ram = DEFAULT_MECHANICS.overflowCreditValues.ram; } parsed.lifeCapacity = Math.max(parsed.lives, parsed.lifeCapacity ?? parsed.mechanics.lifeStorageBaseCapacity); parsed.lifeCapacityPurchases ??= Math.max(0, parsed.lifeCapacity - parsed.mechanics.lifeStorageBaseCapacity); parsed.overflowJobs ??= []; parsed.overflowSuccessChance = Math.max(0, Math.min(100, parsed.overflowSuccessChance ?? parsed.mechanics.overflowBaseSuccessChance)); parsed.overflowUpgradePurchases ??= Math.max(0, Math.floor((parsed.overflowSuccessChance - parsed.mechanics.overflowBaseSuccessChance) / Math.max(1, parsed.mechanics.overflowUpgradeChanceIncrease))); parsed.waldoEligible ??= Math.random() >= parsed.mechanics.waldoIneligibleChance; parsed.merchantTokens ??= 0; parsed.credits ??= 0; parsed.powerBars ??= 0; parsed.powerBarsPurchased ??= 0; parsed.merchantUpgrades ??= { life: 0, speed: 0, ram: 0, treasure: 0, waldo: 0 }; parsed.merchantUpgrades.waldo ??= 0; for (const kind of Object.keys(DEFAULT_MECHANICS.containmentMutationPickupEnabled)) { parsed.merchantUpgrades[`mutationAffinity:${kind}`] ??= 0; parsed.merchantUpgrades[`mutationAttraction:${kind}`] ??= 0; } parsed.petEggs ??= 0; parsed.petEggVisitProgress ??= 0; parsed.pets ??= []; parsed.pets = parsed.pets.map(pet => ({ ...pet, species: pet.species ?? 'engi', paintings: pet.paintings ?? [] })); parsed.petIncubations ??= []; parsed.isotypesContained ??= false; parsed.isotypesNoticeUntilMs ??= 0; parsed.petNotice ??= null; parsed.petNoticeUntilMs ??= 0; parsed.levelClearPending ??= false; parsed.speedReadyUntil ??= null; parsed.captureEvents ??= []; parsed.wallBreakEvents ??= []; parsed.territoryGainEvents ??= []; parsed.creditGainEvents ??= []; parsed.treasureEligible ??= Math.random() < MECHANICS.treasureLevelEligibilityChance; parsed.treasureHuntPending ??= false; parsed.treasureHunt ??= null; if (parsed.treasureHunt) parsed.treasureHunt.revealed ??= false; parsed.pictureEvent ??= null; parsed.boardWidth ??= BOARD_W; parsed.boardHeight ??= BOARD_H; parsed.gridCols ??= 48; parsed.gridRows ??= 72; parsed.walls = parsed.walls.map(w => ({ ...w, speedMultiplier: w.speedMultiplier ?? 1 })); parsed.powerups = (parsed.powerups ?? []).map(p => ({ ...p, skinId: p.kind === 'engi-egg' ? p.skinId ?? randomEngiCocoonSkin() : p.skinId, despawnAtMs: p.despawnAtMs ?? powerupDespawnAt(p.kind, parsed.elapsedMs ?? 0, parsed.mechanics) })); if (parsed.levelClearPending && !parsed.powerups.some(p => p.kind === 'exit')) parsed.powerups.push({ id: parsed.nextId++, kind: 'exit', x: parsed.boardWidth * 0.5, y: parsed.boardHeight * 0.5, vx: 0, vy: 0 }); if (!parsed.ended) { setMechanicsSettings(parsed.mechanics); const layout = boardLayoutFor(stageSizeRef.current.width, stageSizeRef.current.height); const restored = layout.displayWidth ? resizeRunBoard(parsed, layout.worldWidth, layout.worldHeight) : parsed; const capacitySafe = enforceChargeCapacities(restored); runRef.current = capacitySafe; setRun(capacitySafe); setHasSave(true); } }
-        if (boardScores) setScores(JSON.parse(boardScores));
+        if (save) { const parsed = JSON.parse(save) as Run; const legacyStorageRun = parsed.speedCapacityBonus === undefined; parsed.speedCharges ??= 0; parsed.ramCharges ??= 0; parsed.chargeCharges ??= 0; parsed.chargeCapacityBonus ??= 0; parsed.chargeCapacityPurchases ??= 0; parsed.overflowProcessingUpgradePurchases ??= 0; parsed.levelClearBubbleTimerMs ??= 0; parsed.levelClearBubbleAccumulatorMs ??= 0; parsed.levelClearAnimationRemainingMs ??= 0; parsed.levelEvent ??= 'none'; parsed.levelEventBannerUntilMs ??= 0; parsed.containmentMutations ??= []; parsed.containmentMutationScanRemainingMs ??= 0; parsed.chargeReadyUntil ??= null; parsed.speedCapacityBonus ??= 0; parsed.speedCapacityPurchases ??= parsed.speedCapacityBonus; parsed.ramCapacityBonus ??= 0; parsed.ramCapacityPurchases ??= parsed.ramCapacityBonus; parsed.waldoEventPending ??= false; parsed.mechanics = normalizeMechanicsSettings(parsed.mechanics); parsed.skinDiscovery ??= null; parsed.totalTerritoryClaimed ??= 0; parsed.ballsDestroyed ??= 0; parsed.ballsContained ??= 0; parsed.pickupsCaptured ??= 0; parsed.containedBallIds ??= []; parsed.containedCountedThisLevel ??= false; if (legacyStorageRun) { if (parsed.mechanics.overflowCreditValues.speed === 0) parsed.mechanics.overflowCreditValues.speed = DEFAULT_MECHANICS.overflowCreditValues.speed; if (parsed.mechanics.overflowCreditValues.ram === 0) parsed.mechanics.overflowCreditValues.ram = DEFAULT_MECHANICS.overflowCreditValues.ram; } parsed.lifeCapacity = Math.max(parsed.lives, parsed.lifeCapacity ?? parsed.mechanics.lifeStorageBaseCapacity); parsed.lifeCapacityPurchases ??= Math.max(0, parsed.lifeCapacity - parsed.mechanics.lifeStorageBaseCapacity); parsed.overflowJobs ??= []; parsed.overflowSuccessChance = Math.max(0, Math.min(100, parsed.overflowSuccessChance ?? parsed.mechanics.overflowBaseSuccessChance)); parsed.overflowUpgradePurchases ??= Math.max(0, Math.floor((parsed.overflowSuccessChance - parsed.mechanics.overflowBaseSuccessChance) / Math.max(1, parsed.mechanics.overflowUpgradeChanceIncrease))); parsed.waldoEligible ??= Math.random() >= parsed.mechanics.waldoIneligibleChance; parsed.merchantTokens ??= 0; parsed.credits ??= 0; parsed.powerBars ??= 0; parsed.powerBarsPurchased ??= 0; parsed.merchantUpgrades ??= { life: 0, speed: 0, ram: 0, treasure: 0, waldo: 0 }; parsed.merchantUpgrades.waldo ??= 0; for (const kind of Object.keys(DEFAULT_MECHANICS.containmentMutationPickupEnabled)) { parsed.merchantUpgrades[`mutationAffinity:${kind}`] ??= 0; parsed.merchantUpgrades[`mutationAttraction:${kind}`] ??= 0; } parsed.petEggs ??= 0; parsed.petEggVisitProgress ??= 0; parsed.pets ??= []; parsed.pets = parsed.pets.map(pet => ({ ...pet, species: pet.species ?? 'engi', paintings: pet.paintings ?? [] })); parsed.petIncubations ??= []; parsed.isotypesContained ??= false; parsed.isotypesNoticeUntilMs ??= 0; parsed.petNotice ??= null; parsed.petNoticeUntilMs ??= 0; parsed.levelClearPending ??= false; parsed.speedReadyUntil ??= null; parsed.captureEvents ??= []; parsed.wallBreakEvents ??= []; parsed.territoryGainEvents ??= []; parsed.creditGainEvents ??= []; parsed.treasureEligible ??= Math.random() < MECHANICS.treasureLevelEligibilityChance; parsed.treasureHuntPending ??= false; parsed.treasureHunt ??= null; if (parsed.treasureHunt) parsed.treasureHunt.revealed ??= false; parsed.pictureEvent ??= null; parsed.boardWidth ??= BOARD_W; parsed.boardHeight ??= 1100; parsed.gridCols ??= 48; parsed.gridRows ??= 72; parsed.walls = parsed.walls.map(w => ({ ...w, speedMultiplier: w.speedMultiplier ?? 1 })); parsed.powerups = (parsed.powerups ?? []).map(p => ({ ...p, skinId: p.kind === 'engi-egg' ? p.skinId ?? randomEngiCocoonSkin() : p.skinId, despawnAtMs: p.despawnAtMs ?? powerupDespawnAt(p.kind, parsed.elapsedMs ?? 0, parsed.mechanics) })); if (parsed.levelClearPending && !parsed.powerups.some(p => p.kind === 'exit')) parsed.powerups.push({ id: parsed.nextId++, kind: 'exit', x: parsed.boardWidth * 0.5, y: parsed.boardHeight * 0.5, vx: 0, vy: 0 }); if (!parsed.ended) { setMechanicsSettings(parsed.mechanics); const layout = boardLayoutFor(stageSizeRef.current.width, stageSizeRef.current.height); const restored = layout.displayWidth ? resizeRunBoard(parsed, layout.worldWidth, layout.worldHeight) : parsed; const capacitySafe = enforceChargeCapacities(restored); runRef.current = capacitySafe; setRun(capacitySafe); setHasSave(true); } }
+        if (manualSaveData) setManualSave(JSON.parse(manualSaveData) as Run);
+        if (boardScores) { const parsedScores = JSON.parse(boardScores) as Partial<ScoreEntry>[]; setScores(parsedScores.map(normalizeScoreEntry).sort((a, b) => b.score - a.score || b.ballsContained - a.ballsContained).slice(0, 5)); }
       } catch { setNotice('Could not load the saved run'); }
       setLoaded(true);
     })();
@@ -383,16 +489,23 @@ export default function App() {
   useEffect(() => { waldoLibraryRef.current = waldoLibrary; setWaldoLibrary(waldoLibrary); if (loaded) AsyncStorage.setItem(WALDO_LIBRARY_KEY, JSON.stringify(waldoLibrary)).catch(() => {}); }, [loaded, waldoLibrary]);
   useEffect(() => { skinSelectionsRef.current = skinSelections; }, [skinSelections]);
   useEffect(() => { if (loaded) AsyncStorage.setItem(SKINS_KEY, JSON.stringify(skinSelections)).catch(() => {}); }, [loaded, skinSelections]);
-  useEffect(() => { skinProgressionRef.current = skinProgression; if (loaded) AsyncStorage.setItem(SKIN_UNLOCKS_KEY, JSON.stringify(skinProgression)).catch(() => {}); }, [loaded, skinProgression]);
+  useEffect(() => { skinProgressionRef.current = skinProgression; if (loaded) AsyncStorage.setItem(SKIN_UNLOCKS_V2_KEY, JSON.stringify(skinProgression)).catch(() => {}); }, [loaded, skinProgression]);
 
   const nextLevelAfterClear = useCallback((current: Run) => {
     exitTransitionPending.current = false;
     if (!current.levelClearPending || current.ended) return;
+    const discovery = current.skinDiscovery;
+    if (discovery && current.claimed >= discovery.requiredClaimed && (!discovery.requiresIsotypes || current.isotypesContained) && !skinProgressionRef.current.unlocked[discovery.category]?.includes(discovery.skinId)) {
+      const updated = { ...skinProgressionRef.current, unlocked: { ...skinProgressionRef.current.unlocked, [discovery.category]: [...(skinProgressionRef.current.unlocked[discovery.category] ?? []), discovery.skinId] } };
+      skinProgressionRef.current = updated; setSkinProgression(updated);
+      const unlockedNode = SKIN_ARCHIVE.find(node => node.category === discovery.category && node.id === discovery.skinId);
+      setSkinAchievement(unlockedNode ? { ...unlockedNode, tier: updated.tiers[`${discovery.category}:${discovery.skinId}`] ?? unlockedNode.tier } : null);
+    }
     const pendingTreasure = current.treasureHuntPending;
     const next = newRun(current.level + 1, current.boardWidth, current.boardHeight, current.waldoEventPending);
-    const continued = { ...next, lives: current.lives, lifeCapacity: current.lifeCapacity, lifeCapacityPurchases: current.lifeCapacityPurchases, speedCapacityBonus: current.speedCapacityBonus, speedCapacityPurchases: current.speedCapacityPurchases, ramCapacityBonus: current.ramCapacityBonus, ramCapacityPurchases: current.ramCapacityPurchases, chargeCapacityBonus: current.chargeCapacityBonus, chargeCapacityPurchases: current.chargeCapacityPurchases, chargeCharges: current.chargeCharges, overflowProcessingUpgradePurchases: current.overflowProcessingUpgradePurchases, overflowJobs: current.overflowJobs, overflowSuccessChance: current.overflowSuccessChance, overflowUpgradePurchases: current.overflowUpgradePurchases, speedCharges: current.speedCharges, ramCharges: current.ramCharges, merchantTokens: current.merchantTokens, credits: current.credits, powerBars: current.powerBars, powerBarsPurchased: current.powerBarsPurchased, merchantUpgrades: current.merchantUpgrades, petEggs: current.petEggs, petEggVisitProgress: current.petEggVisitProgress, petIncubations: current.petIncubations, pets: current.pets.map(pet => ({ ...pet, deployed: false, vx: 0, vy: 0, repairedThisLevel: false, ...(pet.species === 'waldo' ? { paintings: [], nextPaintingAtMs: next.elapsedMs + next.mechanics.waldoPetPaintingIntervalMs } : {}) })), isotypesContained: false, isotypesNoticeUntilMs: 0, treasureHunt: pendingTreasure ? { x: randomBetween(40, current.boardWidth - 40), y: randomBetween(40, current.boardHeight - 40), remainingMs: current.mechanics.treasureHuntDurationMs, revealed: false } : null, territoryGainEvents: [], creditGainEvents: current.creditGainEvents, levelClearPending: false };
+    const continued = attachSkinDiscovery({ ...next, lives: current.lives, lifeCapacity: current.lifeCapacity, lifeCapacityPurchases: current.lifeCapacityPurchases, speedCapacityBonus: current.speedCapacityBonus, speedCapacityPurchases: current.speedCapacityPurchases, ramCapacityBonus: current.ramCapacityBonus, ramCapacityPurchases: current.ramCapacityPurchases, chargeCapacityBonus: current.chargeCapacityBonus, chargeCapacityPurchases: current.chargeCapacityPurchases, chargeCharges: current.chargeCharges, overflowProcessingUpgradePurchases: current.overflowProcessingUpgradePurchases, overflowJobs: current.overflowJobs, overflowSuccessChance: current.overflowSuccessChance, overflowUpgradePurchases: current.overflowUpgradePurchases, speedCharges: current.speedCharges, ramCharges: current.ramCharges, merchantTokens: current.merchantTokens, credits: current.credits, powerBars: current.powerBars, powerBarsPurchased: current.powerBarsPurchased, merchantUpgrades: current.merchantUpgrades, petEggs: current.petEggs, petEggVisitProgress: current.petEggVisitProgress, petIncubations: current.petIncubations, pets: current.pets.map(pet => ({ ...pet, deployed: false, vx: 0, vy: 0, repairedThisLevel: false, ...(pet.species === 'waldo' ? { paintings: [], nextPaintingAtMs: next.elapsedMs + next.mechanics.waldoPetPaintingIntervalMs } : {}) })), totalTerritoryClaimed: current.totalTerritoryClaimed, ballsDestroyed: current.ballsDestroyed, ballsContained: current.ballsContained, pickupsCaptured: current.pickupsCaptured, containedBallIds: [], isotypesContained: false, containedCountedThisLevel: false, isotypesNoticeUntilMs: 0, treasureHunt: pendingTreasure ? { x: randomBetween(40, current.boardWidth - 40), y: randomBetween(40, current.boardHeight - 40), remainingMs: current.mechanics.treasureHuntDurationMs, revealed: false } : null, territoryGainEvents: [], creditGainEvents: current.creditGainEvents, levelClearPending: false }, skinProgressionRef.current);
     commit(continued); setLevelClearAnimation(null); setMerchantOpenedAtClear(false); setPaused(false); queuedWalls.current = []; setQueuedWallPreview([]); setRunning(true); setNotice(`Stage ${String(continued.level).padStart(2, '0')} underway`);
-  }, [commit, setLevelClearAnimation]);
+  }, [commit, setLevelClearAnimation, setSkinAchievement, setSkinProgression]);
 
   useEffect(() => {
     if (!running) return;
@@ -407,7 +520,7 @@ export default function App() {
         exitTransitionPending.current = true;
         runRef.current = next;
         setRun({ ...next, balls: [...next.balls], walls: [...next.walls], powerups: [...next.powerups] });
-        setCaptureEffects(old => [...old, ...attachCaptureSkins(next.captureEvents, skinSelectionsRef.current)].slice(-8));
+        setCaptureEffects(old => [...old, ...attachCaptureSkins(next.captureEvents, visualSkinSelectionsRef.current, next.skinDiscovery)].slice(-8));
         exitTransitionTimer.current = setTimeout(() => nextLevelAfterClear(next), 1450);
         return;
       }
@@ -416,7 +529,7 @@ export default function App() {
       runRef.current = next;
       setRun({ ...next, balls: [...next.balls], walls: [...next.walls], powerups: [...next.powerups] });
       if (next.creditGainEvents.length) setCreditGainEffects(old => [...old, ...next.creditGainEvents].slice(-6));
-      if (next.captureEvents.length) setCaptureEffects(old => [...old, ...attachCaptureSkins(next.captureEvents, skinSelectionsRef.current)].slice(-8));
+      if (next.captureEvents.length) setCaptureEffects(old => [...old, ...attachCaptureSkins(next.captureEvents, visualSkinSelectionsRef.current, next.skinDiscovery)].slice(-8));
       if (next.wallBreakEvents.length) setWallBreakEffects(old => [...old, ...next.wallBreakEvents].slice(-6));
       if (next.territoryGainEvents.length) setTerritoryEffects(old => [...old, ...next.territoryGainEvents].slice(-4));
       if (next.ended) {
@@ -437,11 +550,11 @@ export default function App() {
     if (!run.ended || savedRef.current) return;
     savedRef.current = true;
     (async () => {
-      const entry = { level: run.level, claimed: run.claimed, timestamp: Date.now() };
+      const entry: ScoreEntry = { score: run.level, level: run.level, claimed: run.claimed, totalTerritoryClaimed: run.totalTerritoryClaimed, ballsDestroyed: run.ballsDestroyed, ballsContained: run.ballsContained, pickupsCaptured: run.pickupsCaptured, timestamp: Date.now() };
       const previous = await AsyncStorage.getItem(`${SAVE_KEY}-scores`);
-      const next = [...(previous ? JSON.parse(previous) as ScoreEntry[] : []), entry]
-        .sort((a, b) => b.level - a.level || b.claimed - a.claimed || a.timestamp - b.timestamp)
-        .slice(0, MECHANICS.leaderboardSize);
+      const next = [...(previous ? (JSON.parse(previous) as Partial<ScoreEntry>[]).map(normalizeScoreEntry) : []), entry]
+        .sort((a, b) => b.score - a.score || b.ballsContained - a.ballsContained || a.timestamp - b.timestamp)
+        .slice(0, 5);
       setScores(next);
       await AsyncStorage.setItem(`${SAVE_KEY}-scores`, JSON.stringify(next));
       await AsyncStorage.removeItem(SAVE_KEY);
@@ -454,11 +567,22 @@ export default function App() {
     const runTuning = { ...tuning, backgroundColorIndex: backgroundIndex >= 0 ? backgroundIndex : 0, backgroundColors: BACKGROUND_SKINS.map(skin => skin.color) };
     setMechanicsSettings(runTuning);
     const layout = boardLayoutFor(stageSize.width, stageSize.height);
-    const fresh = newRun(1, layout.worldWidth, layout.worldHeight);
-    runRef.current = fresh; setRun(fresh); setHasSave(false); savedRef.current = false; queuedWalls.current = []; setQueuedWallPreview([]); setPaused(false); setLevelClearAnimation(null); setRunning(true);
+    const fresh = attachSkinDiscovery(newRun(1, layout.worldWidth, layout.worldHeight), skinProgressionRef.current);
+    runRef.current = fresh; setRun(fresh); setHasSave(true); savedRef.current = false; void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(fresh)); queuedWalls.current = []; setQueuedWallPreview([]); setPaused(false); setLevelClearAnimation(null); setMenuPage(null); setActiveTab('game'); setRunning(true);
     setNotice('Complete walls to claim regions without balls');
   };
-  const resume = () => { setPaused(false); setRunning(true); setNotice('Run resumed'); };
+  const saveActiveRunToSlot = async () => {
+    const snapshot = JSON.parse(JSON.stringify(runRef.current)) as Run;
+    await AsyncStorage.setItem(MANUAL_SAVE_KEY, JSON.stringify(snapshot));
+    setManualSave(snapshot); setConfirmOverwriteSave(false); setNotice('Active run saved to the manual slot');
+  };
+  const loadManualRun = () => {
+    if (!manualSave) return;
+    const restored = { ...manualSave, mechanics: normalizeMechanicsSettings(manualSave.mechanics), skinDiscovery: manualSave.skinDiscovery ?? null, totalTerritoryClaimed: manualSave.totalTerritoryClaimed ?? 0, ballsDestroyed: manualSave.ballsDestroyed ?? 0, ballsContained: manualSave.ballsContained ?? 0, pickupsCaptured: manualSave.pickupsCaptured ?? 0, containedBallIds: manualSave.containedBallIds ?? [], containedCountedThisLevel: manualSave.containedCountedThisLevel ?? false };
+    setMechanicsSettings(restored.mechanics); runRef.current = restored; setRun(restored); setHasSave(true); savedRef.current = false; void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(restored)); setMenuPage(null); setActiveTab('game'); setPaused(false); setRunning(!restored.ended); setNotice('Manual run save loaded');
+  };
+  const openMainMenu = (page: 'home' | 'themes' | 'scores' | 'settings' = 'home') => { setMerchantOpen(false); setMenuPage(page); setConfirmOverwriteSave(false); };
+  const resume = () => { setMenuPage(null); setActiveTab('game'); setPaused(false); setRunning(!runRef.current.ended); setNotice(runRef.current.ended ? 'Run ended · start a new run to continue' : 'Run resumed'); };
   const togglePause = useCallback(() => {
     if (running) { setRunning(false); setPaused(true); setRamArmed(false); setNotice('Draw a wall now to queue it for resume'); return; }
     if (!paused || runRef.current.ended) return;
@@ -513,23 +637,19 @@ export default function App() {
     setSelectedProfileName(profile.name);
     commit({ ...runRef.current, mechanics: settings });
   };
-  const unlockPickupSkin = (kind: PowerKind, id: string) => {
-    const current = runRef.current, progression = skinProgressionRef.current;
-    if (progression.unlocked[kind]?.includes(id)) return;
-    const tier = progression.tiers[`${kind}:${id}`] ?? 1;
-    const owned = progression.unlocked[kind] ?? [];
-    const hasTier = (required: SkinTier) => owned.some(ownedId => (progression.tiers[`${kind}:${ownedId}`] ?? 0) === required);
-    if ((tier === 2 && !hasTier(1)) || (tier === 3 && !hasTier(2))) return;
-    const tierMultiplier = current.mechanics.merchantSkinTierMultipliers[`tier${tier}` as 'tier1' | 'tier2' | 'tier3'];
-    const cost = Math.ceil(current.mechanics.merchantSkinUnlockBaseCost * tierMultiplier);
-    if (!freeSkinUnlocks && current.credits < cost) return;
-    if (!freeSkinUnlocks) commit({ ...current, credits: current.credits - cost });
-    const next = { ...progression, unlocked: { ...progression.unlocked, [kind]: [...owned, id] } };
-    skinProgressionRef.current = next; setSkinProgression(next);
+  const equipArchiveSkin = (node: SkinArchiveNode) => {
+    if (!skinProgressionRef.current.unlocked[node.category]?.includes(node.id)) return;
+    if (node.category === 'background') { const index = BACKGROUND_SKINS.findIndex(skin => skin.id === node.id); setSkinSelections(old => ({ ...old, background: node.id })); setTuning(old => ({ ...old, autoBackground: false, backgroundColorIndex: Math.max(0, index), backgroundColors: BACKGROUND_SKINS.map(skin => skin.color) })); }
+    else if (node.category === 'ball') setSkinSelections(old => ({ ...old, ball: node.id }));
+    else if (node.category === 'credit-symbol') setSkinSelections(old => ({ ...old, credit: node.id }));
+    else if (node.category === 'pet') setSkinSelections(old => ({ ...old, engiPet: node.id }));
+    else if (node.category.startsWith('pickup:')) { const kind = node.category.slice(7) as PowerKind; setSkinSelections(old => ({ ...old, pickups: { ...old.pickups, [kind]: node.id } })); }
   };
-  const equipPickupSkin = (kind: PowerKind, id: string) => {
-    if (!skinProgressionRef.current.unlocked[kind]?.includes(id)) return;
-    setSkinSelections(old => ({ ...old, pickups: { ...old.pickups, [kind]: id } }));
+  const unlockAllArchiveSkins = () => {
+    const unlocked = { ...skinProgressionRef.current.unlocked };
+    for (const category of SKIN_CATEGORY_KEYS) unlocked[category] = [...new Set([...(unlocked[category] ?? []), ...SKIN_ARCHIVE.filter(node => node.category === category).map(node => node.id)])];
+    const next = { ...skinProgressionRef.current, unlocked };
+    skinProgressionRef.current = next; setSkinProgression(next);
   };
   const beginEngiIncubation = () => { const skin = ENGI_PET_SKINS[Math.floor(Math.random() * ENGI_PET_SKINS.length)]; commit(startEngiIncubation(runRef.current, skin.id), true); };
   const purchaseEngi = () => { const skin = ENGI_PET_SKINS[Math.floor(Math.random() * ENGI_PET_SKINS.length)]; commit(hireEngi(runRef.current, skin.id)); };
@@ -734,15 +854,38 @@ export default function App() {
   const arenaHeight = worldLayout.displayHeight;
   const lifeCapacity = Math.max(run.lives, run.lifeCapacity ?? run.mechanics.lifeStorageBaseCapacity);
   const runSettings = run.mechanics ?? getMechanicsSettings();
-  const selectedBackground = BACKGROUND_SKINS.find(skin => skin.id === skinSelections.background) ?? BACKGROUND_SKINS[0];
+  const visualSkins = useMemo(() => {
+    const discovery = run.skinDiscovery;
+    if (!discovery) return skinSelections;
+    if (discovery.category === 'background') return { ...skinSelections, background: discovery.skinId };
+    if (discovery.category === 'ball') return { ...skinSelections, ball: discovery.skinId };
+    if (discovery.category === 'credit-symbol') return { ...skinSelections, credit: discovery.skinId };
+    if (discovery.category === 'pet') return { ...skinSelections, engiPet: discovery.skinId };
+    if (discovery.category.startsWith('pickup:')) { const kind = discovery.category.slice(7) as PowerKind; return { ...skinSelections, pickups: { ...skinSelections.pickups, [kind]: discovery.skinId } }; }
+    return skinSelections;
+  }, [run.skinDiscovery, skinSelections]);
+  useEffect(() => { visualSkinSelectionsRef.current = visualSkins; }, [visualSkins]);
+  const discoveryNode = run.skinDiscovery ? SKIN_ARCHIVE.find(node => node.category === run.skinDiscovery?.category && node.id === run.skinDiscovery?.skinId) : undefined;
+  const selectedBackground = BACKGROUND_SKINS.find(skin => skin.id === visualSkins.background) ?? BACKGROUND_SKINS[0];
   const legacyDefaultPalette = runSettings.backgroundColors.length === 5 && runSettings.backgroundColors.every((color, index) => color === ['#0b1728', '#17112b', '#102321', '#251623', '#17202a'][index]);
   const backgroundCycleIndex = (run.level - 1) % BACKGROUND_SKINS.length;
-  const tint = tuning.autoBackground
+  const discoveryBackground = run.skinDiscovery?.category === 'background';
+  const pictureEntry = run.pictureEvent?.pictureId ? pictureLibrary.find(entry => entry.id === run.pictureEvent?.pictureId) : undefined;
+  const tint = discoveryBackground ? selectedBackground.color : tuning.autoBackground
     ? legacyDefaultPalette ? BACKGROUND_SKINS[backgroundCycleIndex].color : runSettings.backgroundColors[(run.level - 1) % runSettings.backgroundColors.length]
     : selectedBackground.color;
-  const activeBackground = tuning.autoBackground
+  const activeBackground = discoveryBackground ? selectedBackground : tuning.autoBackground
     ? BACKGROUND_SKINS.find(skin => skin.color === tint) ?? BACKGROUND_SKINS[backgroundCycleIndex]
     : selectedBackground;
+  const uiWidth = Platform.OS === 'web' ? viewport.width : nativeDimensions.width;
+  const uiHeight = Platform.OS === 'web' ? viewport.height : nativeDimensions.height;
+  const compactBridge = uiWidth < 920 || uiHeight < 650;
+  const portraitBridge = uiHeight > uiWidth;
+  const bridgePictureSource: ImageSourcePropType | undefined = run.pictureEvent?.isWaldo ? undefined
+    : pictureEntry?.uri ? { uri: pictureEntry.uri }
+      : (pictureEntry?.generatedBackdropId ?? run.pictureEvent?.generatedBackdropId) !== undefined
+        ? GENERATED_PICTURE_BACKDROPS[(pictureEntry?.generatedBackdropId ?? run.pictureEvent?.generatedBackdropId ?? 0) % GENERATED_PICTURE_BACKDROPS.length]
+        : undefined;
   const claimRects = useMemo(() => {
     const cols = run.gridCols, rows = run.gridRows, rects: { key: string; x: number; y: number; width: number }[] = [];
     for (let y = 0; y < rows; y++) {
@@ -778,7 +921,6 @@ export default function App() {
     width: rect.width / run.gridCols,
     height: 1 / run.gridRows,
   })), [openRects, run.gridCols, run.gridRows]);
-  const pictureEntry = run.pictureEvent?.pictureId ? pictureLibrary.find(entry => entry.id === run.pictureEvent?.pictureId) : undefined;
   const finishPetDrag = (pet: CompanionPet, event: any) => {
     event?.stopPropagation?.();
     const point = event?.nativeEvent ?? event ?? {};
@@ -805,22 +947,31 @@ export default function App() {
 
   const abilityRail = <View style={[styles.abilityRail, isPhoneLandscape && styles.phoneAbilityRail, Platform.OS === 'web' && !phoneViewport && desktopHudStyles.abilityRail]}>
     <View style={[styles.railAbility, isPhoneLandscape && styles.phoneRailAbility]}>
-      <Text style={styles.abilityLabel}>SPEED</Text><Pressable accessibilityRole="button" accessibilityLabel="Queue one no-capture wall, W on keyboard" onTouchStart={(e: any) => e.stopPropagation()} onPointerDown={(e: any) => e.stopPropagation()} disabled={!running || run.speedCharges < 1 || run.speedReadyUntil !== null} onPress={() => commit(activateSpeed(runRef.current))} style={[styles.abilityButton, isPhoneLandscape && styles.phoneAbilityButton, run.speedReadyUntil !== null && (run.speedReadyUntil - run.elapsedMs < 2000 ? styles.speedExpiring : styles.speedReady), run.speedCharges < 1 && styles.abilityDisabled]}><Text pointerEvents="none" style={styles.abilityKeyHint}>W</Text><HudPickupIcon kind="speed" skinId={skinSelections.pickups.speed} size={17} /><HudChargeIcons kind="speed" skinId={skinSelections.pickups.speed} count={run.speedCharges} /></Pressable>
+      <Text style={styles.abilityLabel}>SPEED</Text><Pressable accessibilityRole="button" accessibilityLabel="Queue one no-capture wall, W on keyboard" onTouchStart={(e: any) => e.stopPropagation()} onPointerDown={(e: any) => e.stopPropagation()} disabled={!running || run.speedCharges < 1 || run.speedReadyUntil !== null} onPress={() => commit(activateSpeed(runRef.current))} style={[styles.abilityButton, isPhoneLandscape && styles.phoneAbilityButton, run.speedReadyUntil !== null && (run.speedReadyUntil - run.elapsedMs < 2000 ? styles.speedExpiring : styles.speedReady), run.speedCharges < 1 && styles.abilityDisabled]}><Text pointerEvents="none" style={styles.abilityKeyHint}>W</Text><HudPickupIcon kind="speed" skinId={visualSkins.pickups.speed} size={17} /><HudChargeIcons kind="speed" skinId={visualSkins.pickups.speed} count={run.speedCharges} /></Pressable>
       <Text style={styles.storageReadout}>{run.speedCharges} / {chargeCapacity(run, 'speed')} STORED</Text><Pressable accessibilityRole="button" accessibilityLabel={`Expand Speed storage for ${chargeStorageUpgradeCost(run, 'speed')} Credits`} disabled={run.credits < chargeStorageUpgradeCost(run, 'speed')} onPress={() => expandChargeCapacity('speed')} style={[styles.storageUpgrade, run.credits < chargeStorageUpgradeCost(run, 'speed') && styles.storageUpgradeDisabled]}><Text style={styles.storageUpgradeText}>+ SLOT · {chargeStorageUpgradeCost(run, 'speed')} C</Text></Pressable>
       {run.speedReadyUntil !== null && <Text style={styles.readyTimer}>NO CLAIM · {Math.max(0, (run.speedReadyUntil - run.elapsedMs) / 1000).toFixed(1)}s</Text>}
     </View>
     <View style={[styles.railAbility, isPhoneLandscape && styles.phoneRailAbility]}>
-      <Text style={styles.abilityLabel}>RAM</Text><Pressable accessibilityRole="button" accessibilityLabel="Activate RAM, Shift on keyboard" onTouchStart={(e: any) => e.stopPropagation()} onPointerDown={(e: any) => e.stopPropagation()} disabled={!running || run.ramCharges < 1} onPress={() => setRamArmed(value => !value)} style={[styles.abilityButton, isPhoneLandscape && styles.phoneAbilityButton, styles.ramButton, ramArmed && styles.ramArmed, run.ramCharges < 1 && styles.abilityDisabled]}><Text pointerEvents="none" style={styles.abilityKeyHint}>SHIFT</Text><HudPickupIcon kind="ram" skinId={skinSelections.pickups.ram} size={17} /><HudChargeIcons kind="ram" skinId={skinSelections.pickups.ram} count={run.ramCharges} /></Pressable>
+      <Text style={styles.abilityLabel}>RAM</Text><Pressable accessibilityRole="button" accessibilityLabel="Activate RAM, Shift on keyboard" onTouchStart={(e: any) => e.stopPropagation()} onPointerDown={(e: any) => e.stopPropagation()} disabled={!running || run.ramCharges < 1} onPress={() => setRamArmed(value => !value)} style={[styles.abilityButton, isPhoneLandscape && styles.phoneAbilityButton, styles.ramButton, ramArmed && styles.ramArmed, run.ramCharges < 1 && styles.abilityDisabled]}><Text pointerEvents="none" style={styles.abilityKeyHint}>SHIFT</Text><HudPickupIcon kind="ram" skinId={visualSkins.pickups.ram} size={17} /><HudChargeIcons kind="ram" skinId={visualSkins.pickups.ram} count={run.ramCharges} /></Pressable>
       <Text style={styles.storageReadout}>{run.ramCharges} / {chargeCapacity(run, 'ram')} STORED</Text><Pressable accessibilityRole="button" accessibilityLabel={`Expand RAM storage for ${chargeStorageUpgradeCost(run, 'ram')} Credits`} disabled={run.credits < chargeStorageUpgradeCost(run, 'ram')} onPress={() => expandChargeCapacity('ram')} style={[styles.storageUpgrade, run.credits < chargeStorageUpgradeCost(run, 'ram') && styles.storageUpgradeDisabled]}><Text style={styles.storageUpgradeText}>+ SLOT · {chargeStorageUpgradeCost(run, 'ram')} C</Text></Pressable>
       {ramArmed && <Text style={styles.readyTimer}>{run.pictureEvent?.isWaldo && !run.pictureEvent.waldoFound ? 'TAP WALDO IN THE CROWD' : run.treasureHunt?.revealed && run.ramCharges < 3 ? '3 RAM TO OPEN · MISS COSTS 1' : 'TAP A BALL OR JACKPOT'}</Text>}
     </View>
     <View style={[styles.railAbility, isPhoneLandscape && styles.phoneRailAbility]}>
-      <Text style={styles.abilityLabel}>CHARGE</Text><Pressable accessibilityRole="button" accessibilityLabel="Arm a charge wall" onTouchStart={(e: any) => e.stopPropagation()} onPointerDown={(e: any) => e.stopPropagation()} disabled={!running || run.chargeCharges < 1 || (run.chargeReadyUntil !== null && run.chargeReadyUntil > run.elapsedMs)} onPress={() => commit(activateCharge(runRef.current, skinSelectionsRef.current.pickups.charge))} style={[styles.abilityButton, isPhoneLandscape && styles.phoneAbilityButton, styles.chargeButton, run.chargeCharges < 1 && styles.abilityDisabled]}><HudPickupIcon kind="charge" skinId={skinSelections.pickups.charge} size={17} /><HudChargeIcons kind="charge" skinId={skinSelections.pickups.charge} count={run.chargeCharges} /></Pressable>
+      <Text style={styles.abilityLabel}>CHARGE</Text><Pressable accessibilityRole="button" accessibilityLabel="Arm a charge wall" onTouchStart={(e: any) => e.stopPropagation()} onPointerDown={(e: any) => e.stopPropagation()} disabled={!running || run.chargeCharges < 1 || (run.chargeReadyUntil !== null && run.chargeReadyUntil > run.elapsedMs)} onPress={() => commit(activateCharge(runRef.current, visualSkinSelectionsRef.current.pickups.charge))} style={[styles.abilityButton, isPhoneLandscape && styles.phoneAbilityButton, styles.chargeButton, run.chargeCharges < 1 && styles.abilityDisabled]}><HudPickupIcon kind="charge" skinId={visualSkins.pickups.charge} size={17} /><HudChargeIcons kind="charge" skinId={visualSkins.pickups.charge} count={run.chargeCharges} /></Pressable>
       <Text style={styles.storageReadout}>{run.chargeCharges} / {chargeCapacity(run, 'charge')} STORED</Text><Pressable accessibilityRole="button" accessibilityLabel={`Expand Charge storage for ${chargeStorageUpgradeCost(run, 'charge')} Credits`} disabled={run.credits < chargeStorageUpgradeCost(run, 'charge')} onPress={() => expandChargeCapacity('charge')} style={[styles.storageUpgrade, run.credits < chargeStorageUpgradeCost(run, 'charge') && styles.storageUpgradeDisabled]}><Text style={styles.storageUpgradeText}>+ SLOT · {chargeStorageUpgradeCost(run, 'charge')} C</Text></Pressable>
       {run.chargeReadyUntil !== null && <Text style={styles.readyTimer}>CHARGED · {Math.max(0, (run.chargeReadyUntil - run.elapsedMs) / 1000).toFixed(1)}s</Text>}
     </View>
   </View>;
   const smelterSpeedUpgrade = <Pressable accessibilityRole="button" accessibilityLabel={`Reduce smelter duration for ${overflowProcessingUpgradeCost(run)} Credits`} disabled={run.credits < overflowProcessingUpgradeCost(run) || run.mechanics.overflowProcessingMs <= run.mechanics.overflowProcessingMinimumMs} onPress={upgradeSmelterSpeed} style={[styles.smelterSpeedUpgrade, (run.credits < overflowProcessingUpgradeCost(run) || run.mechanics.overflowProcessingMs <= run.mechanics.overflowProcessingMinimumMs) && styles.storageUpgradeDisabled]}><Text style={styles.smelterSpeedLabel}>SMELTER CYCLE · {Math.ceil(run.mechanics.overflowProcessingMs / 1000)}s</Text><Text style={styles.smelterSpeedAction}>−{run.mechanics.overflowProcessingReductionPercent}% TIME · {overflowProcessingUpgradeCost(run)} C</Text></Pressable>;
+  const themeSelectionMap = { background: skinSelections.background, ball: skinSelections.ball, 'credit-symbol': skinSelections.credit, pet: skinSelections.engiPet, ...Object.fromEntries(Object.entries(skinSelections.pickups).map(([kind, id]) => [`pickup:${kind}`, id])) };
+  const renderThemePreview = (node: SkinArchiveNode) => {
+    if (node.category === 'background') { const skin = BACKGROUND_SKINS.find(item => item.id === node.id); return <View style={{ width: '100%', height: '100%', backgroundColor: skin?.color ?? '#101e2e', justifyContent: 'center', alignItems: 'center' }}><Text style={{ color: '#d5f8f3', fontWeight: '900', letterSpacing: 2 }}>ARENA</Text></View>; }
+    if (node.category === 'ball') { const skin = BALL_SKINS.find(item => item.id === node.id) ?? BALL_SKINS[0]; return <BallArtwork skin={skin} diameter={82} left={69} top={24} preview />; }
+    if (node.category === 'credit-symbol') return <CreditSymbol skinId={node.id} size={76} />;
+    if (node.category === 'pet') return <EngiPetArtwork skinId={node.id} task="inspect" size={92} />;
+    if (node.category.startsWith('pickup:')) { const kind = node.category.slice(7) as PowerKind; return <PowerOrb power={{ id: -900, kind, x: 110, y: 65, vx: 0, vy: 0 }} sx={1} sy={1} skinId={node.id} staticDisplay />; }
+    return null;
+  };
 
   return (
     <View style={[styles.screen, Platform.OS === 'web' && styles.screenWeb]}>
@@ -830,8 +981,9 @@ export default function App() {
         <Text style={styles.best}>BEST RUNS{scores.length ? `  ${scores[0].level}` : '  —'}</Text>
       </View>
       <View style={[styles.tabBar, Platform.OS === 'web' && styles.tabBarWeb, isPhoneLandscape && styles.phoneTabBar]}>
-        <Pressable onPress={() => setActiveTab('game')} style={[styles.tabButton, activeTab === 'game' && styles.tabSelected]}><Text style={[styles.tabText, activeTab === 'game' && styles.tabTextSelected]}>GAME</Text></Pressable>
-        <Pressable onPress={() => setActiveTab('developer')} style={[styles.tabButton, activeTab === 'developer' && styles.tabSelected]}><Text style={[styles.tabText, activeTab === 'developer' && styles.tabTextSelected]}>DEVELOPER</Text></Pressable>
+        <Pressable onPress={() => openMainMenu('home')} style={[styles.tabButton, menuPage !== null && styles.tabSelected]}><Text style={[styles.tabText, menuPage !== null && styles.tabTextSelected]}>HOME</Text></Pressable>
+        <Pressable onPress={() => { setMenuPage(null); setActiveTab('game'); }} style={[styles.tabButton, activeTab === 'game' && styles.tabSelected]}><Text style={[styles.tabText, activeTab === 'game' && styles.tabTextSelected]}>GAME</Text></Pressable>
+        <Pressable onPress={() => { setMenuPage(null); setRunning(false); setPaused(true); setActiveTab('developer'); }} style={[styles.tabButton, activeTab === 'developer' && styles.tabSelected]}><Text style={[styles.tabText, activeTab === 'developer' && styles.tabTextSelected]}>DEVELOPER</Text></Pressable>
         {Platform.OS === 'web' && <Pressable onPress={() => setDeveloperOverlay(value => !value)} style={[styles.tabButton, developerOverlay && styles.tabSelected]}><Text style={[styles.tabText, developerOverlay && styles.tabTextSelected]}>DEV OVERLAY {developerOverlay ? 'ON' : 'OFF'}</Text></Pressable>}
       </View>
       {activeTab === 'game' && developerOverlay && !isPhonePortrait && <View style={styles.devOverlayQuick}><Text style={styles.devOverlayTitle}>DEV SPAWNS</Text>{(Object.keys(PICKUP_SKINS) as PowerKind[]).filter(kind => kind !== 'exit').map(kind => <Pressable key={kind} style={styles.devOverlayButton} onPress={() => spawnTestPickup(kind)}><HudPickupIcon kind={kind} skinId={skinSelections.pickups[kind]} size={18} /><Text style={styles.devOverlayButtonText}>{kind.toUpperCase()}</Text></Pressable>)}<Pressable style={styles.devOverlayButton} onPress={() => { void saveCurrentPicture(); }}><Text style={styles.devOverlayButtonText}>SAVE PICTURE</Text></Pressable></View>}
@@ -843,8 +995,9 @@ export default function App() {
       <View style={[styles.hud, Platform.OS === 'web' && styles.hudWeb, isPhoneLandscape && styles.phoneHud]}>
         <View style={Platform.OS === 'web' ? styles.stageFocus : undefined}><Text style={styles.hudLabel}>STAGE</Text><Text style={styles.hudValue}>{String(run.level).padStart(2, '0')}</Text></View>
         <View style={styles.eventBadges}>
-          {run.merchantTokens > 0 && <Pressable style={styles.merchantTokenButton} onPress={() => openMerchant(runRef.current.levelClearPending)}><HudPickupIcon kind="merchant" skinId={skinSelections.pickups.merchant} size={22} /><Text style={styles.merchantTokenText}>MERCHANT · ENTER</Text></Pressable>}
+          {run.merchantTokens > 0 && <Pressable style={styles.merchantTokenButton} onPress={() => openMerchant(runRef.current.levelClearPending)}><HudPickupIcon kind="merchant" skinId={visualSkins.pickups.merchant} size={22} /><Text style={styles.merchantTokenText}>MERCHANT · ENTER</Text></Pressable>}
           {run.pictureEvent && <Text style={styles.pictureEventLabel}>{run.pictureEvent.isWaldo ? run.pictureEvent.waldoFound ? 'WALDO FOUND · TREASURE SPAWNED' : 'WALDO CROWD · ARM RAM TO SEARCH' : 'PICTURE · CLAIM TO REVEAL'}</Text>}
+          {run.skinDiscovery && discoveryNode && <Text style={styles.skinDiscoveryLabel}>SKIN SIGNAL · {discoveryNode.name} · CLEAR {run.skinDiscovery.requiredClaimed.toFixed(0)}%{run.skinDiscovery.requiresIsotypes ? ' + ISOTYPES CONTAINED' : ''}</Text>}
           {run.levelEvent === 'elimination' && <Text style={styles.eliminationEventLabel}>ELIMINATION · CLEAR ALL BALLS</Text>}
           {run.levelEvent === 'drift-swarm' && run.elapsedMs < run.levelEventBannerUntilMs && <Text style={styles.driftSwarmEventLabel}>DRIFT SWARM ANOMALY DETECTED</Text>}
           {run.treasureHunt && <Text style={styles.treasureEventLabel}>{run.treasureHunt.revealed ? 'JACKPOT FOUND · USE 3 RAM TO OPEN' : 'TREASURE HUNT'} · {Math.ceil(run.treasureHunt.remainingMs / 1000)}s</Text>}
@@ -852,16 +1005,16 @@ export default function App() {
         </View>
         <View style={creditStyles.runReadouts}>
           <View style={[creditStyles.runReadout, creditStyles.claimReadout]}><View style={creditStyles.claimGlyph}><Text style={creditStyles.claimGlyphText}>▧</Text></View><View><Text style={creditStyles.readoutLabel}>TERRITORY</Text><Text style={creditStyles.readoutValue}>{run.claimed.toFixed(2)}<Text style={creditStyles.readoutUnit}>%</Text></Text></View></View>
-          <View style={[creditStyles.runReadout, creditStyles.creditReadout]}><CreditSymbol skinId={skinSelections.credit} size={20} /><View><Text style={creditStyles.readoutLabel}>CREDITS</Text><Text style={creditStyles.readoutValue}>{run.credits.toLocaleString()}</Text></View></View>
+          <View style={[creditStyles.runReadout, creditStyles.creditReadout]}><CreditSymbol skinId={visualSkins.credit} size={20} /><View><Text style={creditStyles.readoutLabel}>CREDITS</Text><Text style={creditStyles.readoutValue}>{run.credits.toLocaleString()}</Text></View></View>
           {(running || paused) && <Pressable accessibilityRole="button" accessibilityLabel={paused ? 'Resume run' : 'Pause run'} onPress={togglePause} style={[styles.pauseButton, paused && styles.pauseButtonActive]}><Text style={styles.pauseButtonText}>{paused ? '▶' : 'Ⅱ'}</Text><Text style={styles.pauseButtonLabel}>{paused ? 'RESUME' : 'PAUSE'}</Text></Pressable>}
         </View>
       </View>
-      {!isPhoneLandscape && Platform.OS !== 'web' && <View style={styles.lifeHud}><LifeVaultDisplay lives={run.lives} capacity={lifeCapacity} skinId={skinSelections.pickups.life} pickupSkins={skinSelections.pickups} creditSkin={skinSelections.credit} overflowJobs={run.overflowJobs} overflowResult={run.overflowResult} elapsedMs={run.elapsedMs} processingMs={run.mechanics.overflowProcessingMs} overflowChance={run.overflowSuccessChance} overflowIncrease={run.mechanics.overflowUpgradeChanceIncrease} overflowUpgradeCost={overflowRefineryUpgradeCost(run)} credits={run.credits} onUpgrade={upgradeOverflowRefinery} />{smelterSpeedUpgrade}</View>}
+      {!isPhoneLandscape && Platform.OS !== 'web' && <View style={styles.lifeHud}><LifeVaultDisplay lives={run.lives} capacity={lifeCapacity} skinId={visualSkins.pickups.life} pickupSkins={visualSkins.pickups} creditSkin={visualSkins.credit} overflowJobs={run.overflowJobs} overflowResult={run.overflowResult} elapsedMs={run.elapsedMs} processingMs={run.mechanics.overflowProcessingMs} overflowChance={run.overflowSuccessChance} overflowIncrease={run.mechanics.overflowUpgradeChanceIncrease} overflowUpgradeCost={overflowRefineryUpgradeCost(run)} credits={run.credits} onUpgrade={upgradeOverflowRefinery} />{smelterSpeedUpgrade}</View>}
       <View onLayout={Platform.OS === 'web' && !phoneViewport ? event => {
         const { width, height } = event.nativeEvent.layout;
         setDesktopStageArea(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height });
       } : undefined} style={[styles.stageRow, Platform.OS === 'web' && styles.stageRowWeb, isPhoneLandscape && styles.phoneStageRow, Platform.OS === 'web' && !phoneViewport && desktopHudStyles.stageRow]}>
-        {isPhoneLandscape && <ScrollView style={styles.phoneResourceRail} contentContainerStyle={styles.phoneResourceRailContent} showsVerticalScrollIndicator><LifeVaultDisplay lives={run.lives} capacity={lifeCapacity} skinId={skinSelections.pickups.life} pickupSkins={skinSelections.pickups} creditSkin={skinSelections.credit} overflowJobs={run.overflowJobs} overflowResult={run.overflowResult} elapsedMs={run.elapsedMs} processingMs={run.mechanics.overflowProcessingMs} overflowChance={run.overflowSuccessChance} overflowIncrease={run.mechanics.overflowUpgradeChanceIncrease} overflowUpgradeCost={overflowRefineryUpgradeCost(run)} credits={run.credits} onUpgrade={upgradeOverflowRefinery} compact phoneLayout />{smelterSpeedUpgrade}{abilityRail}</ScrollView>}
+        {isPhoneLandscape && <ScrollView style={styles.phoneResourceRail} contentContainerStyle={styles.phoneResourceRailContent} showsVerticalScrollIndicator><LifeVaultDisplay lives={run.lives} capacity={lifeCapacity} skinId={visualSkins.pickups.life} pickupSkins={visualSkins.pickups} creditSkin={visualSkins.credit} overflowJobs={run.overflowJobs} overflowResult={run.overflowResult} elapsedMs={run.elapsedMs} processingMs={run.mechanics.overflowProcessingMs} overflowChance={run.overflowSuccessChance} overflowIncrease={run.mechanics.overflowUpgradeChanceIncrease} overflowUpgradeCost={overflowRefineryUpgradeCost(run)} credits={run.credits} onUpgrade={upgradeOverflowRefinery} compact phoneLayout />{smelterSpeedUpgrade}{abilityRail}</ScrollView>}
         <View style={[styles.boardWrap, isPhoneLandscape ? styles.phoneBoardWrap : Platform.OS === 'web' ? [desktopHudStyles.board, { height: desktopBoardHeight }] : { width: arenaWidth, height: arenaHeight, flexGrow: 1, flexShrink: 1, minHeight: 0 }]} onLayout={e => handleStageLayout(e.nativeEvent.layout.width, e.nativeEvent.layout.height)}>
           <View ref={boardRef} style={[styles.board, { backgroundColor: tint }, { touchAction: 'none', ...(Platform.OS === 'web' && !phoneViewport ? { cursor: 'none' } : {}) } as any]} onLayout={e => { setBoard({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height }); requestAnimationFrame(() => boardRef.current?.measureInWindow((x, y, width, height) => { boardScreenRect.current = { x, y, width, height }; })); }}
           onTouchStart={e => collectTouches(e, 'start')} onTouchEnd={e => collectTouches(e, 'end')} onTouchCancel={e => collectTouches(e, 'cancel')}
@@ -876,7 +1029,7 @@ export default function App() {
           {paused && queuedWallPreview.map((wall, index) => <View key={`queued-wall-${index}`} pointerEvents="none" style={{ position: 'absolute', zIndex: 8, left: wall.x * sx - 6, top: wall.y * sy - 6, width: 12, height: 12, alignItems: 'center', justifyContent: 'center' }}><View style={{ position: 'absolute', width: wall.axis === 'vertical' ? 2 : 12, height: wall.axis === 'vertical' ? 12 : 2, borderRadius: 2, backgroundColor: '#78f6dc', shadowColor: '#78f6dc', shadowOpacity: 1, shadowRadius: 5 }} /><View style={{ width: 4, height: 4, borderRadius: 4, borderWidth: 1, borderColor: '#f1fff9', backgroundColor: '#35cbaa' }} /></View>)}
           {run.balls.map((ball: Ball) => {
             const sphereSize = 2 * ball.r * Math.min(sx, sy);
-            const skin = BALL_SKINS.find(option => option.id === skinSelections.ball) ?? BALL_SKINS[0];
+            const skin = BALL_SKINS.find(option => option.id === visualSkins.ball) ?? BALL_SKINS[0];
             return <BallArtwork key={ball.id} skin={skin} diameter={sphereSize} left={ball.x * sx - sphereSize / 2} top={ball.y * sy - sphereSize / 2} rammed={ball.rammed} modifier={ball.modifier} extraModifiers={ball.modifiers?.length ?? 0} drifting={ball.drifting} skimming={ball.skimmerWallId !== undefined} />;
           })}
           {run.pets.filter(pet => pet.species === 'waldo').flatMap(pet => (pet.paintings ?? []).map(painting => {
@@ -886,13 +1039,13 @@ export default function App() {
             const top = painting.axis === 'vertical' ? painting.along * sy - 9 : painting.at * sy - 9;
             return <WaldoPaintingView key={`painting-${painting.id}`} left={left} top={top} styleId={painting.style} />;
           }))}
-          {run.pets.map(pet => <View key={`pet-${pet.id}`} {...petDragHandlers(pet)} style={[styles.deployedEngi, !pet.deployed && styles.roamingPet, { left: pet.x * sx - 20, top: pet.y * sy - 22 }]}>{pet.species === 'waldo' ? <WaldoPetArtwork pet={pet} size={40} /> : <EngiPetArtwork skinId={pet.skinId} task={pet.task as any} size={40} />}</View>)}
-          {run.powerups.map((p: PowerUp) => <PowerOrb key={p.id} power={p} sx={sx} sy={sy} skinId={p.skinId ?? skinSelections.pickups[p.kind]} creditBaseAmount={run.mechanics.creditPickupBaseAmount} />)}
-          {run.treasureHunt?.revealed && <PowerOrb key="revealed-jackpot" power={{ id: -2, kind: 'treasure', x: run.treasureHunt.x, y: run.treasureHunt.y, vx: 0, vy: 0 }} sx={sx} sy={sy} skinId={skinSelections.pickups.treasure} />}
+          {run.pets.map(pet => <View key={`pet-${pet.id}`} {...petDragHandlers(pet)} style={[styles.deployedEngi, !pet.deployed && styles.roamingPet, { left: pet.x * sx - 20, top: pet.y * sy - 22 }]}>{pet.species === 'waldo' ? <WaldoPetArtwork pet={pet} size={40} /> : <EngiPetArtwork skinId={visualSkins.engiPet} task={pet.task as any} size={40} />}</View>)}
+          {run.powerups.map((p: PowerUp) => <PowerOrb key={p.id} power={p} sx={sx} sy={sy} skinId={run.skinDiscovery?.category === `pickup:${p.kind}` ? visualSkins.pickups[p.kind] : p.skinId ?? visualSkins.pickups[p.kind]} creditBaseAmount={run.mechanics.creditPickupBaseAmount} />)}
+          {run.treasureHunt?.revealed && <PowerOrb key="revealed-jackpot" power={{ id: -2, kind: 'treasure', x: run.treasureHunt.x, y: run.treasureHunt.y, vx: 0, vy: 0 }} sx={sx} sy={sy} skinId={visualSkins.pickups.treasure} />}
           {captureEffects.map((effect, index) => <CaptureBurst key={`${effect.id}-${index}`} event={effect} sx={sx} sy={sy} creditSkin={skinSelections.credit} stageWidth={board.width} stageHeight={board.height} onDone={() => setCaptureEffects(old => old.filter(e => e !== effect))} />)}
           {wallBreakEffects.map((effect, index) => <WallBreakBurst key={`${effect.id}-${index}`} event={effect} sx={sx} sy={sy} onDone={() => setWallBreakEffects(old => old.filter(e => e !== effect))} />)}
           {territoryEffects.map((effect, index) => <TerritoryGainPopup key={`${effect.id}-${index}`} event={effect} sx={sx} sy={sy} placement={runSettings.territoryPopupPlacement} onDone={() => setTerritoryEffects(old => old.filter(e => e !== effect))} />)}
-          {creditGainEffects.map((effect, index) => <CreditGainPopup key={`${effect.id}-${index}`} event={effect} sx={sx} sy={sy} stageWidth={run.boardWidth * sx} stageHeight={run.boardHeight * sy} creditSkin={skinSelections.credit} style={run.mechanics.creditGainStyle} onDone={() => setCreditGainEffects(old => old.filter(item => item !== effect))} />)}
+          {creditGainEffects.map((effect, index) => <CreditGainPopup key={`${effect.id}-${index}`} event={effect} sx={sx} sy={sy} stageWidth={run.boardWidth * sx} stageHeight={run.boardHeight * sy} creditSkin={visualSkins.credit} style={run.mechanics.creditGainStyle} onDone={() => setCreditGainEffects(old => old.filter(item => item !== effect))} />)}
           {!running && !paused && !run.levelClearPending && <View pointerEvents="none" style={styles.pauseBadge}><Text style={styles.pauseText}>{run.ended ? 'RUN ENDED' : 'READY'}</Text></View>}
           {run.isotypesContained && run.isotypesNoticeUntilMs > run.elapsedMs && <View pointerEvents="none" style={styles.isotypesBanner}><Text style={styles.isotypesBannerText}>Isotypes Contained</Text></View>}
           {Platform.OS === 'web' && !phoneViewport && mouseCursor && <View pointerEvents="none" style={{ position: 'absolute', zIndex: 60, left: mouseCursor.x - 11, top: mouseCursor.y - 11, width: 22, height: 22, alignItems: 'center', justifyContent: 'center', borderRadius: 99, borderWidth: cursorSkin === 'halo' ? 2 : 0, borderColor: '#7af3dc', transform: [{ scale: mouseCursor.down ? 0.72 : 1 }] }}><Text style={{ color: cursorSkin === 'spark' ? '#ffe39a' : '#c9fff2', fontSize: cursorSkin === 'crosshair' ? 21 : 18, fontWeight: '900', textShadowColor: cursorSkin === 'spark' ? '#ffab42' : '#43e5cb', textShadowRadius: 8 }}>{cursorSkin === 'crosshair' ? '⌖' : cursorSkin === 'spark' ? '✦' : '◉'}</Text></View>}
@@ -901,7 +1054,7 @@ export default function App() {
       </View>
       <View style={[styles.stageInfoRow, Platform.OS === 'web' && styles.stageInfoRowWeb, isPhoneLandscape && styles.phoneStageInfoRow]}>{Platform.OS !== 'web' && abilityRail}<View pointerEvents="none" style={styles.boardFooter}><Text style={styles.footerText}>{run.balls.length} METAL BALLS</Text></View></View>
       {Platform.OS === 'web' && !phoneViewport && <View style={desktopHudStyles.bottomResources}>
-        <View style={desktopHudStyles.vaultGroup}><LifeVaultDisplay lives={run.lives} capacity={lifeCapacity} skinId={skinSelections.pickups.life} pickupSkins={skinSelections.pickups} creditSkin={skinSelections.credit} overflowJobs={run.overflowJobs} overflowResult={run.overflowResult} elapsedMs={run.elapsedMs} processingMs={run.mechanics.overflowProcessingMs} overflowChance={run.overflowSuccessChance} overflowIncrease={run.mechanics.overflowUpgradeChanceIncrease} overflowUpgradeCost={overflowRefineryUpgradeCost(run)} credits={run.credits} onUpgrade={upgradeOverflowRefinery} compact />{smelterSpeedUpgrade}</View>
+        <View style={desktopHudStyles.vaultGroup}><LifeVaultDisplay lives={run.lives} capacity={lifeCapacity} skinId={visualSkins.pickups.life} pickupSkins={visualSkins.pickups} creditSkin={visualSkins.credit} overflowJobs={run.overflowJobs} overflowResult={run.overflowResult} elapsedMs={run.elapsedMs} processingMs={run.mechanics.overflowProcessingMs} overflowChance={run.overflowSuccessChance} overflowIncrease={run.mechanics.overflowUpgradeChanceIncrease} overflowUpgradeCost={overflowRefineryUpgradeCost(run)} credits={run.credits} onUpgrade={upgradeOverflowRefinery} compact />{smelterSpeedUpgrade}</View>
         {abilityRail}
       </View>}
       <View style={[styles.controls, Platform.OS === 'web' && styles.controlsWeb, isPhoneLandscape && styles.phoneControls]}>
@@ -966,6 +1119,12 @@ export default function App() {
         <Text style={styles.devHint}>Tune level events, their procedural or saved art, containment mutations, and level-clear sequences in one place. Event chance rolls apply when a new level starts unless a setting says otherwise.</Text>
         <Text style={styles.sectionTitle}>EVENT FREQUENCY & SOURCES</Text>
         <Text style={styles.devHint}>Treasure and Picture events roll independently, so both can occur together. Elimination and Drift Swarm are mutually exclusive. A collected Waldo pickup guarantees the next Picture event is Waldo.</Text>
+        <Text style={styles.sectionTitle}>SKIN DISCOVERY</Text>
+        <Text style={styles.devHint}>One global roll per new level. A discovered skin temporarily replaces its category&apos;s equipped skin for that level. Unlock it by meeting the optional clear target and, by default, isolating every ball when you collect the route beacon. Failed objectives never block progression.</Text>
+        <NumberRow label="Skin Discovery chance per level (%)" value={tuning.skinDiscoveryChance * 100} step={0.1} min={0} max={100} onChange={value => setTuning(old => ({ ...old, skinDiscoveryChance: value / 100 }))} />
+        {SKIN_CATEGORY_KEYS.map(category => <NumberRow key={category} label={`${category.toUpperCase()} discovery weight`} value={tuning.skinDiscoveryCategoryWeights[category] ?? 0} step={0.25} min={0} max={20} onChange={value => setTuning(old => ({ ...old, skinDiscoveryCategoryWeights: { ...old.skinDiscoveryCategoryWeights, [category]: value } }))} />)}
+        <Text style={styles.devHint}>Per-skin conditions are keyed by archive node. Defaults are +12 percentage points above the clear threshold and Isotypes Contained.</Text>
+        {SKIN_ARCHIVE.filter(node => node.id !== SKIN_DEFAULTS[node.category]).map(node => { const key = `${node.category}:${node.id}`; return <View key={key} style={styles.profileCard}><Text style={styles.settingLabel}>{node.categoryName} · {node.name} · T{node.tier}</Text><NumberRow label="Additional capture above base (%)" value={tuning.skinDiscoveryClaimBonusPercent[key] ?? 12} step={1} min={0} max={35} onChange={value => setTuning(old => ({ ...old, skinDiscoveryClaimBonusPercent: { ...old.skinDiscoveryClaimBonusPercent, [key]: value } }))} /><ToggleRow label="Require Isotypes Contained at exit" value={tuning.skinDiscoveryRequiresIsotypes[key] ?? true} onChange={value => setTuning(old => ({ ...old, skinDiscoveryRequiresIsotypes: { ...old.skinDiscoveryRequiresIsotypes, [key]: value } }))} /></View>; })}
         <NumberRow label="Treasure hunt eligible level chance (%)" value={tuning.treasureLevelEligibilityChance * 100} step={1} min={0} max={100} onChange={value => setTuning(old => ({ ...old, treasureLevelEligibilityChance: value / 100 }))} />
         <NumberRow label="Picture event chance per level (%)" value={tuning.pictureEventChance * 100} step={1} min={0} max={100} onChange={value => setTuning(old => ({ ...old, pictureEventChance: value / 100 }))} />
         <NumberRow label="Asset-backed generated-scene chance (%)" value={tuning.pictureAssetBackdropChance * 100} step={5} min={0} max={100} onChange={value => setTuning(old => ({ ...old, pictureAssetBackdropChance: value / 100 }))} />
@@ -1131,11 +1290,6 @@ export default function App() {
         {(Object.keys(PICKUP_SKINS) as PowerKind[]).map(kind => <NumberRow key={`overflow-${kind}`} label={`${kind.toUpperCase()} overflow yield (Credits)`} value={tuning.overflowCreditValues[kind] ?? 0} step={1} min={0} max={10000} onChange={value => setTuning(old => ({ ...old, overflowCreditValues: { ...old.overflowCreditValues, [kind]: value } }))} />)}
         <NumberRow label="Power Bar price (Credits)" value={tuning.merchantPowerBarCost} step={1} min={0} max={10000} onChange={value => setTuning(old => ({ ...old, merchantPowerBarCost: value }))} />
         <NumberRow label="Power Bar price growth per purchase (%)" value={tuning.merchantPowerBarCostIncreasePercent} step={1} min={0} max={100} onChange={value => setTuning(old => ({ ...old, merchantPowerBarCostIncreasePercent: value }))} />
-        <Text style={styles.sectionTitle}>PERMANENT SKIN RESEARCH COSTS</Text>
-        <NumberRow label="Tier I skin unlock base price" value={tuning.merchantSkinUnlockBaseCost} step={10} min={0} max={100000} onChange={value => setTuning(old => ({ ...old, merchantSkinUnlockBaseCost: value }))} />
-        <NumberRow label="Tier I price multiplier" value={tuning.merchantSkinTierMultipliers.tier1} step={0.25} min={0} max={100} onChange={value => setTuning(old => ({ ...old, merchantSkinTierMultipliers: { ...old.merchantSkinTierMultipliers, tier1: value } }))} />
-        <NumberRow label="Tier II price multiplier" value={tuning.merchantSkinTierMultipliers.tier2} step={0.25} min={0} max={100} onChange={value => setTuning(old => ({ ...old, merchantSkinTierMultipliers: { ...old.merchantSkinTierMultipliers, tier2: value } }))} />
-        <NumberRow label="Tier III price multiplier" value={tuning.merchantSkinTierMultipliers.tier3} step={0.25} min={0} max={100} onChange={value => setTuning(old => ({ ...old, merchantSkinTierMultipliers: { ...old.merchantSkinTierMultipliers, tier3: value } }))} />
         <Text style={styles.sectionTitle}>RUN MODULE SCALING · PER POWER BAR</Text>
         <NumberRow label="Life: spawn-weight increase" value={tuning.merchantUpgradePerBar.lifeSpawnWeight} step={0.5} min={0} max={100} onChange={value => setTuning(old => ({ ...old, merchantUpgradePerBar: { ...old.merchantUpgradePerBar, lifeSpawnWeight: value } }))} />
         <NumberRow label="Life: lifetime increase (sec)" value={tuning.merchantUpgradePerBar.lifeLifetimeSeconds} step={1} min={0} max={600} onChange={value => setTuning(old => ({ ...old, merchantUpgradePerBar: { ...old.merchantUpgradePerBar, lifeLifetimeSeconds: value } }))} />
@@ -1158,8 +1312,7 @@ export default function App() {
         <Text style={styles.sectionTitle}>SHOP REWARD TYPES</Text>
         {(Object.keys(tuning.merchantRewardsEnabled) as (keyof MechanicsSettings['merchantRewardsEnabled'])[]).map(kind => <ToggleRow key={kind} label={`${kind.toUpperCase()} upgrades in shop`} value={tuning.merchantRewardsEnabled[kind]} onChange={value => setTuning(old => ({ ...old, merchantRewardsEnabled: { ...old.merchantRewardsEnabled, [kind]: value } }))} />)}
         <Text style={styles.sectionTitle}>SKIN TREE PLAYTESTING</Text>
-        <ToggleRow label="Developer: unlock skins without Credits" value={freeSkinUnlocks} onChange={setFreeSkinUnlocks} />
-        <Pressable style={styles.smallAction} onPress={() => { const next = { ...skinProgressionRef.current, tiers: createSkinTiers() }; skinProgressionRef.current = next; setSkinProgression(next); }}><Text style={styles.smallActionText}>REROLL RANDOM SKIN TIERS</Text></Pressable>
+        <View style={styles.profileRow}><Pressable style={styles.smallAction} onPress={unlockAllArchiveSkins}><Text style={styles.smallActionText}>UNLOCK ALL ARCHIVE SKINS</Text></Pressable><Pressable style={styles.smallAction} onPress={() => { const next = defaultSkinUnlocks(); skinProgressionRef.current = next; setSkinProgression(next); setSkinSelections(DEFAULT_SKIN_SELECTIONS); }}><Text style={styles.smallActionText}>RESET OPTIONAL UNLOCKS</Text></Pressable></View>
       </>}
       {devTab === 'pets' && <>
         <Text style={styles.devTitle}>COMPANIONS · ENGI</Text>
@@ -1180,8 +1333,50 @@ export default function App() {
       </>}
       </ScrollView>
       </>}
-    {activeTab === 'game' && merchantOpen && <MerchantScreen run={run} baseSettings={tuning} skinSelections={skinSelections} skinProgression={skinProgression} freeSkinUnlocks={freeSkinUnlocks} openedAtClear={merchantOpenedAtClear} onBuy={buyPowerBar} onExpandLifeVault={expandLifeVault} onInstall={installPowerBar} onUnlock={unlockPickupSkin} onEquip={equipPickupSkin} onClose={closeMerchant} onIncubate={beginEngiIncubation} onHireEngi={purchaseEngi} onUpgradeEngi={upgradeEngiPet} onRenameEngi={renameEngiPet} />}
+    {activeTab === 'game' && merchantOpen && <MerchantScreen run={run} baseSettings={tuning} skinSelections={skinSelections} openedAtClear={merchantOpenedAtClear} onBuy={buyPowerBar} onExpandLifeVault={expandLifeVault} onInstall={installPowerBar} onClose={closeMerchant} onIncubate={beginEngiIncubation} onHireEngi={purchaseEngi} onUpgradeEngi={upgradeEngiPet} onRenameEngi={renameEngiPet} />}
     {levelClearAnimation && <LevelClearTransition key={levelClearAnimation.id} event={levelClearAnimation} onDone={() => setLevelClearAnimation(current => current?.id === levelClearAnimation.id ? null : current)} />}
+    {menuPage === 'home' && <View style={styles.commandScrim}>
+      <Image source={COMMAND_BRIDGE_ART} resizeMode="contain" style={StyleSheet.absoluteFill} />
+      <View pointerEvents="none" style={styles.commandImageShade} />
+      <View style={[styles.commandLayout, { flexDirection: portraitBridge ? 'column' : 'row' }]}>
+        {bridgeRailVisible && <View style={[styles.commandRail, { width: portraitBridge ? '100%' : uiWidth < 620 ? 166 : uiWidth < 920 ? 205 : 258, maxHeight: portraitBridge ? '48%' : undefined, paddingHorizontal: compactBridge ? 11 : 19, paddingVertical: compactBridge ? 10 : 18 }]}>
+          <ScrollView style={styles.commandRailScroll} contentContainerStyle={styles.commandRailContent} showsVerticalScrollIndicator={false}>
+            <View style={styles.bridgeBrandBlock}><View style={styles.bridgeBrandGlyph}><Text style={styles.bridgeBrandGlyphText}>✧</Text></View><View><Text style={styles.menuEyebrow}>TRAP / SURVIVAL</Text><Text style={[styles.commandBrand, compactBridge && styles.commandBrandCompact]}>Containment</Text><Text style={styles.commandSubBrand}>STARSHIP COMMAND</Text></View></View>
+            <Text style={[styles.commandSectionLabel, styles.bridgeSectionLabel]}>RUN CONTROL</Text>
+            <Pressable disabled={!hasSave || run.ended} style={[styles.bridgeRailAction, styles.bridgeRailResume, (!hasSave || run.ended) && styles.bridgeRailDisabled]} onPress={resume}><Text style={styles.bridgeRailGlyph}>▶</Text><View style={styles.bridgeRailCopy}><Text style={styles.bridgeRailTitle}>RESUME ACTIVE RUN</Text><Text style={styles.bridgeRailDetail}>{hasSave && !run.ended ? `Stage ${String(run.level).padStart(2, '0')} · ${running ? 'simulation live' : paused ? 'simulation paused' : 'ready to resume'}` : 'No active sector'}</Text></View><BridgePulse /></Pressable>
+            {!!manualSave && <Pressable style={styles.bridgeRailAction} onPress={loadManualRun}><Text style={styles.bridgeRailGlyph}>◫</Text><View style={styles.bridgeRailCopy}><Text style={styles.bridgeRailTitle}>LOAD SAVED RUN</Text><Text style={styles.bridgeRailDetail}>Checkpoint · stage {String(manualSave.level).padStart(2, '0')}</Text></View></Pressable>}
+            {!!hasSave && !run.ended && <Pressable style={styles.bridgeRailAction} onPress={() => manualSave ? confirmOverwriteSave ? void saveActiveRunToSlot() : setConfirmOverwriteSave(true) : void saveActiveRunToSlot()}><Text style={styles.bridgeRailGlyph}>▣</Text><View style={styles.bridgeRailCopy}><Text style={styles.bridgeRailTitle}>{confirmOverwriteSave ? 'CONFIRM SAVE OVERWRITE' : manualSave ? 'SAVE ACTIVE RUN OVER SLOT' : 'SAVE ACTIVE RUN'}</Text><Text style={styles.bridgeRailDetail}>{confirmOverwriteSave ? 'Replace the manual checkpoint' : 'Copy the live sector to your save slot'}</Text></View></Pressable>}
+            {confirmOverwriteSave && <Text style={styles.bridgeRailWarning}>This replaces the saved checkpoint.</Text>}
+            <Pressable style={[styles.bridgeRailAction, styles.bridgeRailNew, confirmNewRun && styles.commandActionWarn]} onPress={() => { if (hasSave && !run.ended && !confirmNewRun) setConfirmNewRun(true); else { setConfirmNewRun(false); startFresh(); } }}><Text style={styles.bridgeRailGlyph}>✧</Text><View style={styles.bridgeRailCopy}><Text style={styles.bridgeRailTitle}>{confirmNewRun ? 'CONFIRM NEW RUN' : 'START NEW RUN'}</Text><Text style={styles.bridgeRailDetail}>{confirmNewRun ? 'The active run will be replaced' : 'Deploy into a fresh sector'}</Text></View></Pressable>
+            <Pressable disabled={!hasSave || run.ended || (!running && !paused)} style={[styles.bridgePauseLink, (!running && !paused) && styles.bridgeRailDisabled]} onPress={togglePause}><Text style={styles.bridgePauseGlyph}>{running ? 'Ⅱ' : '▶'}</Text><Text style={styles.bridgePauseText}>{running ? 'PAUSE LIVE SIMULATION' : paused ? 'RESUME LIVE SIMULATION' : 'SIMULATION STANDBY'}</Text></Pressable>
+            <View style={styles.bridgeReadoutGroup}>
+              <Pressable style={styles.bridgeReadout} onPress={() => setMenuPage('settings')}><View style={styles.bridgeReadoutHeading}><Text style={styles.bridgeReadoutGlyph}>◈</Text><Text style={styles.bridgeReadoutLabel}>PLAY MODE</Text></View><Text style={styles.bridgeReadoutValue}>{tuning.easyMode ? 'EASY' : tuning.hardMode ? 'HARD' : 'NORMAL'}</Text></Pressable>
+              <Pressable style={styles.bridgeReadout} onPress={() => setMenuPage('themes')}><View style={styles.bridgeReadoutHeading}><Text style={styles.bridgeReadoutGlyph}>✦</Text><Text style={styles.bridgeReadoutLabel}>THEME LOADOUT</Text></View><Text style={styles.bridgeReadoutValue}>{Object.entries(themeSelectionMap).filter(([category, id]) => id !== SKIN_DEFAULTS[category]).length || 'STANDARD'}</Text></Pressable>
+              <Pressable style={styles.bridgeReadout} onPress={() => setMenuPage('scores')}><View style={styles.bridgeReadoutHeading}><Text style={styles.bridgeReadoutGlyph}>⌁</Text><Text style={styles.bridgeReadoutLabel}>BEST RUN</Text></View><Text style={styles.bridgeReadoutValue}>{scores[0] ? `STAGE ${String(scores[0].level).padStart(2, '0')}` : 'NO RECORD'}</Text></Pressable>
+            </View>
+          </ScrollView>
+          <View style={styles.commandFooterRow}><BridgePulse delay={450} color="#ffc879" /><Text style={styles.commandFooter}>FLIGHT SYSTEMS ONLINE</Text></View>
+        </View>}
+        <View style={[styles.commandMain, compactBridge && styles.commandMainCompact]}>
+          <View style={styles.bridgeWelcome}><View><Text style={styles.menuEyebrow}>COMMAND BRIDGE · DEEP SPACE</Text><Text style={[styles.bridgeWelcomeTitle, compactBridge && styles.bridgeWelcomeTitleCompact]}>Welcome aboard</Text></View><View style={styles.bridgeReady}><BridgePulse delay={240} /><Text style={styles.bridgeReadyText}>{running ? 'SECTOR LIVE' : paused ? 'SECTOR PAUSED' : 'SYSTEMS READY'}</Text></View></View>
+          <BridgeStagePreview run={run} hasActiveRun={hasSave && !run.ended} simulationRunning={running} pictureSource={bridgePictureSource} defaultBackground={activeBackground.asset ?? undefined} onPress={hasSave && !run.ended ? resume : startFresh} />
+          <View style={styles.bridgeArtifactDock}>
+            <Text style={styles.bridgeDockHeading}>SHIP SYSTEMS · SELECT A CONSOLE</Text>
+            <View style={styles.bridgeArtifactRow}>
+              <BridgeArtifact title="THEMES" detail="SKIN CONSTELLATIONS" glyph="✦" color="#75e8db" onPress={() => setMenuPage('themes')} />
+              <BridgeArtifact title="SCORES" detail="FLIGHT RECORDS" glyph="⌁" color="#94bbff" onPress={() => setMenuPage('scores')} />
+              <BridgeArtifact title="PLAY MODE" detail="SECTOR RULES" glyph="◈" color="#f6cd7c" onPress={() => setMenuPage('settings')} />
+              <BridgeArtifact title="DEVELOPER" detail="SYSTEMS ACCESS" glyph="⌘" color="#c9a5ff" onPress={() => { setMenuPage(null); setActiveTab('developer'); }} />
+              <BridgeArtifact title="NAV CONSOLE" detail={bridgeRailVisible ? 'HIDE SIDE PANEL' : 'RESTORE SIDE PANEL'} glyph={bridgeRailVisible ? '⇤' : '⇥'} color="#8ed4ff" onPress={() => setBridgeRailVisible(visible => !visible)} />
+            </View>
+          </View>
+        </View>
+      </View>
+    </View>}
+    {menuPage === 'scores' && <View style={styles.mainMenuScrim}><View style={styles.scorePanel}><View style={styles.menuPanelHeader}><View><Text style={styles.menuEyebrow}>RUN ARCHIVE · TOP FIVE</Text><Text style={styles.menuTitle}>Scores</Text></View><Pressable style={styles.menuBack} onPress={() => setMenuPage('home')}><Text style={styles.menuBackText}>HOME</Text></Pressable></View><Text style={styles.menuSubhead}>Ranked by Score (currently the level reached), then by total balls contained.</Text>{scores.length ? scores.map((entry, index) => <View key={`${entry.timestamp}-${index}`} style={styles.menuScoreCard}><View style={styles.menuScoreRank}><Text style={styles.menuScoreRankText}>{String(index + 1).padStart(2, '0')}</Text></View><View style={styles.scoreMain}><Text style={styles.scoreLevel}>SCORE {entry.score} · STAGE {String(entry.level).padStart(2, '0')}</Text><Text style={styles.scoreDetails}>{entry.totalTerritoryClaimed.toFixed(1)}% total claimed · {entry.ballsContained} balls contained · {entry.ballsDestroyed} destroyed · {entry.pickupsCaptured} pickups</Text></View><Text style={styles.scoreClaim}>{entry.claimed.toFixed(1)}%</Text></View>) : <Text style={styles.menuEmpty}>No completed runs yet. Scores are recorded when a run ends.</Text>}</View></View>}
+    {menuPage === 'settings' && <View style={styles.mainMenuScrim}><View style={styles.scorePanel}><View style={styles.menuPanelHeader}><View><Text style={styles.menuEyebrow}>PLAYER SETTINGS</Text><Text style={styles.menuTitle}>Play mode</Text></View><Pressable style={styles.menuBack} onPress={() => setMenuPage('home')}><Text style={styles.menuBackText}>HOME</Text></Pressable></View><Text style={styles.menuSubhead}>Choose the baseline rules for your next run. Active runs keep their saved settings.</Text><View style={styles.modeRow}>{(['easy', 'normal', 'hard'] as const).map(mode => { const active = mode === 'easy' ? tuning.easyMode : mode === 'hard' ? tuning.hardMode : !tuning.easyMode && !tuning.hardMode; return <Pressable key={mode} style={[styles.modeCard, active && styles.modeCardActive]} onPress={() => setTuning(old => ({ ...old, easyMode: mode === 'easy', hardMode: mode === 'hard' }))}><Text style={[styles.modeTitle, active && styles.modeTitleActive]}>{mode.toUpperCase()}</Text><Text style={styles.menuButtonCopy}>{mode === 'easy' ? 'Balls added between levels only.' : mode === 'normal' ? 'A chance to add a ball after capture.' : 'Additional ball on every completed wall.'}</Text></Pressable>; })}</View></View></View>}
+    {menuPage === 'themes' && <ThemeTreeScreen unlocks={skinProgression} selections={themeSelectionMap} onEquip={equipArchiveSkin} onClose={() => setMenuPage('home')} renderPreview={renderThemePreview} />}
+    {skinAchievement && <Pressable style={styles.skinAchievementScrim} onPress={() => setSkinAchievement(null)}><View style={styles.skinAchievementCard}><Text style={styles.menuEyebrow}>CONSTELLATION DISCOVERED</Text><Text style={styles.achievementGlyph}>✦</Text><Text style={styles.menuTitle}>{skinAchievement.name}</Text><Text style={styles.menuSubhead}>{skinAchievement.categoryName} · TIER {skinAchievement.tier}</Text><Text style={styles.menuButtonCopy}>This skin is permanently available in THEMES.</Text><Text style={styles.menuConfirmText}>TAP TO CONTINUE</Text></View></Pressable>}
     </View>
   );
 }
@@ -1189,7 +1384,7 @@ export default function App() {
 type BaseUpgradeKind = 'life' | 'speed' | 'ram' | 'treasure' | 'waldo';
 type UpgradeKind = BaseUpgradeKind | `mutationAffinity:${ContainmentPickupKind}` | `mutationAttraction:${ContainmentPickupKind}`;
 
-function MerchantScreen({ run, baseSettings, skinSelections, skinProgression, freeSkinUnlocks, onBuy, onExpandLifeVault, onInstall, onUnlock, onEquip, onClose, onIncubate, onHireEngi, onUpgradeEngi, onRenameEngi, openedAtClear }: { run: Run; baseSettings: MechanicsSettings; skinSelections: SkinSelections; skinProgression: SkinProgression; freeSkinUnlocks: boolean; onBuy: () => void; onExpandLifeVault: () => void; onInstall: (kind: UpgradeKind) => void; onUnlock: (kind: PowerKind, id: string) => void; onEquip: (kind: PowerKind, id: string) => void; onClose: () => void; onIncubate: () => void; onHireEngi: () => void; onUpgradeEngi: (id: number) => void; onRenameEngi: (id: number, name: string) => void; openedAtClear: boolean }) {
+function MerchantScreen({ run, baseSettings, skinSelections, onBuy, onExpandLifeVault, onInstall, onClose, onIncubate, onHireEngi, onUpgradeEngi, onRenameEngi, openedAtClear }: { run: Run; baseSettings: MechanicsSettings; skinSelections: SkinSelections; onBuy: () => void; onExpandLifeVault: () => void; onInstall: (kind: UpgradeKind) => void; onClose: () => void; onIncubate: () => void; onHireEngi: () => void; onUpgradeEngi: (id: number) => void; onRenameEngi: (id: number, name: string) => void; openedAtClear: boolean }) {
   const [contributedThisVisit, setContributedThisVisit] = useState(false);
   const lifeCapacity = Math.max(run.lives, run.lifeCapacity ?? run.mechanics.lifeStorageBaseCapacity);
   const lifeExpansionCost = lifeStorageUpgradeCost(run);
@@ -1239,8 +1434,8 @@ function MerchantScreen({ run, baseSettings, skinSelections, skinProgression, fr
     <View style={styles.stationBackground}>
       <View style={styles.stationGrid} /><View style={styles.stationBeam} /><MerchantFigure style={styles.figureOne} /><MerchantFigure style={styles.figureTwo} amber /><MerchantFigure style={styles.figureThree} />
       <Text style={styles.stationSign}>WAYFARER EXCHANGE · DOCK 04</Text>
-      <View style={styles.marketHeader}><View><Text style={styles.merchantEyebrow}>RUN-LOCAL TRADE NETWORK</Text><Text style={styles.merchantHeading}>The Merchant</Text><Text style={styles.stationSubhead}>Trade, route reactor power, and research permanent pickup skins.</Text></View><View style={styles.marketWallet}><View style={creditStyles.marketCreditBalance}><CreditSymbol skinId={skinSelections.credit} size={19} /><Text style={styles.walletValue}>{run.credits.toLocaleString()}</Text></View><Text style={styles.walletLabel}>RUN CREDITS</Text><View style={styles.walletDivider} /><Text style={styles.walletValue}>{skinProgression.unlocked ? Object.values(skinProgression.unlocked).reduce((total, ids) => total + (ids?.length ?? 0), 0) : 0}</Text><Text style={styles.walletLabel}>SKINS UNLOCKED</Text></View></View>
-      <View style={styles.stationTicker}><Text style={styles.tickerText}>STAGE {String(run.level).padStart(2, '0')}</Text><Text style={styles.tickerText}>POWER {totalBars}</Text><Text style={styles.tickerText}>AVAILABLE {run.powerBars}</Text><Text style={styles.tickerReset}>PERMANENT SKIN RESEARCH</Text></View>
+      <View style={styles.marketHeader}><View><Text style={styles.merchantEyebrow}>RUN-LOCAL TRADE NETWORK</Text><Text style={styles.merchantHeading}>The Merchant</Text><Text style={styles.stationSubhead}>Trade credits for reactor power, upgrades, and crew support.</Text></View><View style={styles.marketWallet}><View style={creditStyles.marketCreditBalance}><CreditSymbol skinId={skinSelections.credit} size={19} /><Text style={styles.walletValue}>{run.credits.toLocaleString()}</Text></View><Text style={styles.walletLabel}>RUN CREDITS</Text></View></View>
+      <View style={styles.stationTicker}><Text style={styles.tickerText}>STAGE {String(run.level).padStart(2, '0')}</Text><Text style={styles.tickerText}>POWER {totalBars}</Text><Text style={styles.tickerText}>AVAILABLE {run.powerBars}</Text><Text style={styles.tickerReset}>THEMES DISCOVERED IN PLAY</Text></View>
     </View>
     <ScrollView style={styles.marketBody} contentContainerStyle={styles.reactorContent}>
       <View style={styles.bankPanel}>
@@ -1276,9 +1471,6 @@ function MerchantScreen({ run, baseSettings, skinSelections, skinProgression, fr
         return <View key={key} style={styles.moduleCard}><View style={styles.moduleTop}><HudPickupIcon kind={kind} skinId={skinSelections.pickups[kind]} size={38} /><View style={styles.moduleHeading}><Text style={styles.moduleTitle}>{kind.toUpperCase()} · {title}</Text><Text style={styles.moduleLevel}>MODULE LEVEL {String(count).padStart(2, '0')}</Text></View><Text style={styles.moduleBars}>{count}×</Text></View><Text style={styles.moduleEffect}>{effect}</Text><View style={styles.statCompare}><View style={styles.statCell}><Text style={styles.statLabel}>BASE</Text><Text style={styles.statValue}>0%</Text></View><Text style={styles.statArrow}>›</Text><View style={styles.statCell}><Text style={styles.statLabel}>THIS RUN</Text><Text style={styles.statValueLive}>+{bonus.toFixed(0)}% / +60%</Text></View></View><View style={styles.assignmentRow}><Text style={styles.assignmentLabel}>BANK LOAD</Text><View style={styles.assignmentPips}>{Array.from({ length: Math.min(count, 10) }, (_, index) => <View key={index} style={[styles.assignmentPip, styles.assignmentPipGrey]} />)}{Array.from({ length: Math.max(0, 10 - count) }, (_, index) => <View key={`empty-${index}`} style={styles.assignmentPip} />)}</View><Text style={styles.assignmentCount}>{count} BAR{count === 1 ? '' : 'S'}</Text></View><Pressable disabled={run.powerBars < 1 || bonus >= 60} style={[styles.moduleInstall, (run.powerBars < 1 || bonus >= 60) && styles.abilityDisabled]} onPress={() => onInstall(key)}><Text style={styles.moduleInstallText}>{bonus >= 60 ? 'TRACK MAXED · +60%' : run.powerBars ? 'ROUTE 1 AVAILABLE BAR HERE' : 'NO AVAILABLE POWER'}</Text></Pressable></View>;
       }))}</View></>}
       <View style={styles.futureModule}><Text style={styles.futureModuleGlyph}>＋</Text><View style={styles.futureModuleCopy}><Text style={styles.moduleTitle}>OPEN MODULE BAY</Text><Text style={styles.moduleEffect}>Reserved for future pickup types and new upgrade branches.</Text></View><Text style={styles.comingSoon}>STANDBY</Text></View>
-      <View style={styles.skinResearchSection}><View style={styles.areaHeading}><View><Text style={styles.areaEyebrow}>PERMANENT COSMETIC RESEARCH</Text><Text style={styles.areaTitle}>Pickup skin tree</Text></View><Text style={styles.permanentTag}>SAVES BETWEEN RUNS</Text></View><Text style={styles.marketHint}>Unlocks stay in your collection after a run ends. Credits are run-only. Tier placement is randomized and saved; unlock one skin in the prior tier to open the next branch.</Text>
-        {(Object.keys(PICKUP_SKINS) as PowerKind[]).map(kind => <SkinResearchLane key={kind} kind={kind} progression={skinProgression} selectedId={skinSelections.pickups[kind]} credits={run.credits} creditSkin={skinSelections.credit} baseCost={run.mechanics.merchantSkinUnlockBaseCost} multipliers={run.mechanics.merchantSkinTierMultipliers} freeUnlocks={freeSkinUnlocks} onUnlock={onUnlock} onEquip={onEquip} />)}
-      </View>
       <View style={styles.skinResearchSection}>
         <View style={styles.areaHeading}><View><Text style={styles.areaEyebrow}>CREW BAY · RUN-LOCAL</Text><Text style={styles.areaTitle}>Companions</Text></View><Text style={styles.permanentTag}>{run.pets.length} ACTIVE</Text></View>
         <Text style={styles.marketHint}>Engi cocoons need {run.mechanics.petEggIncubationVisits} Merchant visits × {run.mechanics.petEggIncubationInstallment} Credits, then {Math.round(run.mechanics.petEggIncubationDurationMs / 1000)} seconds of active play. Each Engi repairs a wall break once per level. Waldo stays in open territory when deployed and earns credits from gallery paintings.</Text>
@@ -1291,20 +1483,6 @@ function MerchantScreen({ run, baseSettings, skinSelections, skinProgression, fr
     </ScrollView>
     <View style={styles.marketFooter}><View style={styles.marketStatusRow}><View style={styles.statusDot} /><Text style={styles.footerMarketStatus}>MARKET SECURE · {run.credits.toLocaleString()} RUN CREDITS</Text><CreditSymbol skinId={skinSelections.credit} size={13} /></View><Pressable style={styles.shopExit} onPress={onClose}><Text style={styles.shopActionText}>{openedAtClear ? 'RETURN TO CLEARED SECTOR' : 'RETURN TO ACTIVE STAGE'}</Text></Pressable></View>
   </View></View>;
-}
-
-function SkinResearchLane({ kind, progression, selectedId, credits, creditSkin, baseCost, multipliers, freeUnlocks, onUnlock, onEquip }: { kind: PowerKind; progression: SkinProgression; selectedId: string; credits: number; creditSkin: string; baseCost: number; multipliers: MechanicsSettings['merchantSkinTierMultipliers']; freeUnlocks: boolean; onUnlock: (kind: PowerKind, id: string) => void; onEquip: (kind: PowerKind, id: string) => void }) {
-  const names: Record<PowerKind, string> = { life: 'LIFE', speed: 'SPEED', ram: 'RAM', charge: 'CHARGE', treasure: 'TREASURE', merchant: 'MERCHANT TOKEN', bubble: 'COSMIC BUBBLE', waldo: 'WALDO TOKEN', credit: 'CREDIT CACHE', 'engi-egg': 'ENGI COCOON', exit: 'SECTOR BEACON' };
-  const unlocked = progression.unlocked[kind] ?? [];
-  const options = [...PICKUP_SKINS[kind]].sort((a, b) => (progression.tiers[`${kind}:${a.id}`] ?? 0) - (progression.tiers[`${kind}:${b.id}`] ?? 0));
-  const hasTier = (tier: SkinTier) => unlocked.some(id => (progression.tiers[`${kind}:${id}`] ?? 0) === tier);
-  return <View style={styles.skinLane}><View style={styles.skinLaneHeading}><Text style={styles.skinLaneTitle}>{names[kind]}</Text><Text style={styles.skinLanePath}>STARTER → TIER I → TIER II → TIER III</Text></View><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.skinNodeTrack}>{options.map((option, index) => {
-    const isUnlocked = unlocked.includes(option.id); const isEquipped = selectedId === option.id; const tier = isUnlocked && option.id === DEFAULT_SKIN_SELECTIONS.pickups[kind] ? 0 : progression.tiers[`${kind}:${option.id}`] ?? 1;
-    const multiplier = tier === 0 ? 0 : multipliers[`tier${tier}` as 'tier1' | 'tier2' | 'tier3']; const cost = Math.ceil(baseCost * multiplier);
-    const prerequisiteMet = tier <= 1 || hasTier((tier - 1) as SkinTier);
-    const canAfford = freeUnlocks || credits >= cost;
-    return <React.Fragment key={option.id}>{index > 0 && <Text style={styles.treeConnector}>›</Text>}<View style={[styles.skinNode, isEquipped && styles.skinNodeEquipped, !isUnlocked && styles.skinNodeLocked]}><View style={styles.skinNodeTop}><Text style={styles.skinTierTag}>{tier === 0 ? 'STARTER' : `TIER ${['', 'I', 'II', 'III'][tier]}`}</Text>{isUnlocked && <Text style={styles.permanentCheck}>✓</Text>}</View><View style={styles.skinNodePreview}><PowerOrb power={{ id: -31, kind, x: 25, y: 25, vx: 0, vy: 0 }} sx={1} sy={1} skinId={option.id} staticDisplay /></View><Text numberOfLines={1} style={styles.skinNodeName}>{option.name}</Text><Text numberOfLines={2} style={styles.skinNodeDescription}>{option.description}</Text>{isUnlocked ? <Pressable disabled={isEquipped} style={[styles.skinNodeAction, isEquipped && styles.skinNodeActive]} onPress={() => onEquip(kind, option.id)}><Text style={styles.skinNodeActionText}>{isEquipped ? 'EQUIPPED' : 'EQUIP'}</Text></Pressable> : <Pressable disabled={!prerequisiteMet || !canAfford} style={[styles.skinNodeAction, creditStyles.skinNodeActionWithCredit, (!prerequisiteMet || !canAfford) && styles.abilityDisabled]} onPress={() => onUnlock(kind, option.id)}>{!prerequisiteMet ? <Text style={styles.skinNodeActionText}>NEED TIER {tier - 1}</Text> : freeUnlocks ? <Text style={styles.skinNodeActionText}>DEV · UNLOCK</Text> : <><Text style={styles.skinNodeActionText}>UNLOCK · {cost}</Text><CreditSymbol skinId={creditSkin} size={14} /></>}</Pressable>}</View></React.Fragment>;
-  })}</ScrollView></View>;
 }
 
 function MerchantFigure({ style, amber = false }: { style: object; amber?: boolean }) {
@@ -2788,6 +2966,15 @@ const styles = StyleSheet.create({
   bubbleCosmic: { backgroundColor: '#58cde944', borderColor: '#c4fbff', shadowColor: '#58dcff', shadowOpacity: 0.92, shadowRadius: 10, elevation: 5 }, bubblePrismatic: { backgroundColor: '#d06ce955', borderColor: '#fff1ff', shadowColor: '#92fff1', shadowOpacity: 0.9, shadowRadius: 11, elevation: 5 }, bubbleNebula: { backgroundColor: '#8256df55', borderColor: '#decaff', shadowColor: '#b092ff', shadowOpacity: 0.95, shadowRadius: 11, elevation: 5 }, bubbleInner: { width: '58%', height: '58%', borderRadius: 999, backgroundColor: '#32185b55', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }, bubbleNebulaSwirl: { position: 'absolute', width: '130%', height: '45%', borderWidth: 2, borderColor: '#d7fcff99', borderRadius: 999, transform: [{ rotate: '-38deg' }] }, bubbleStar: { color: '#f5ffff', fontSize: 15, fontWeight: '900', textShadowColor: '#d1ffff', textShadowRadius: 6 }, bubbleSheen: { position: 'absolute', width: '30%', height: '88%', borderRadius: 999, backgroundColor: '#ffffff66', transform: [{ rotate: '32deg' }] }, bubbleHighlight: { position: 'absolute', width: '27%', height: '12%', top: '16%', left: '18%', borderRadius: 999, backgroundColor: '#ffffffdd', transform: [{ rotate: '-34deg' }] }, bubbleSparkle: { position: 'absolute', right: '13%', top: '15%' }, bubbleSparkleText: { color: '#f7ffff', fontSize: 9, textShadowColor: '#fff', textShadowRadius: 6 },
   compassNeedle: { position: 'absolute', width: '60%', height: '60%', alignItems: 'center', justifyContent: 'center' },
   burstSkewerRing: { position: 'absolute', width: '86%', height: '86%', borderWidth: 3, borderRadius: 999, borderStyle: 'dashed', shadowOpacity: 1, shadowRadius: 13 }, burstSkewerLine: { position: 'absolute', width: '108%', height: 5, borderRadius: 99, shadowOpacity: 1, shadowRadius: 16, elevation: 10 }, skewerWallFlash: { position: 'absolute', backgroundColor: '#36aaff', borderRadius: 8, shadowColor: '#5adfff', shadowOpacity: 1, shadowRadius: 16, elevation: 12 }, skewerCrackle: { position: 'absolute', width: 18, height: 20, color: '#c9f7ff', fontSize: 20, lineHeight: 20, textAlign: 'center', fontWeight: '900', textShadowColor: '#299aff', textShadowRadius: 11, elevation: 12 }, comboBadge: { position: 'absolute', top: '14%', alignSelf: 'center', color: '#f0fdff', fontSize: 12, fontWeight: '900', letterSpacing: 2, textShadowColor: '#70eaff', textShadowRadius: 12 }, bubbleCredit: { position: 'absolute', width: 22, height: 22, textAlign: 'center', color: '#ffe9a4', fontSize: 16, fontWeight: '900', textShadowColor: '#fff3c1', textShadowRadius: 8 }, bubbleCreditTotal: { position: 'absolute', top: '68%', alignSelf: 'center', color: '#fff3b3', fontSize: 9, fontWeight: '900', letterSpacing: 1, textShadowColor: '#e6ac42', textShadowRadius: 7 },
+  commandScrim: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, zIndex: 90, overflow: 'hidden', backgroundColor: '#050b13' }, commandImageShade: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(3,8,15,0.16)' },
+  commandLayout: { width: '100%', maxWidth: 1800, height: '100%', alignSelf: 'center', flexDirection: 'row', overflow: 'hidden', backgroundColor: 'transparent' },
+  commandRail: { flexDirection: 'column', justifyContent: 'space-between', borderRightWidth: 1, borderColor: '#80c4e046', backgroundColor: 'rgba(3,12,20,0.78)' }, commandRailScroll: { flex: 1, minHeight: 0 }, commandRailContent: { paddingBottom: 7, gap: 7 }, bridgeBrandBlock: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }, bridgeBrandGlyph: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#73e9d599', backgroundColor: '#102b35bb', shadowColor: '#73e9d5', shadowOpacity: 0.35, shadowRadius: 10 }, bridgeBrandGlyphText: { color: '#d6fff6', fontSize: 22 },
+  commandBrand: { color: '#eef4fb', fontSize: 23, fontWeight: '900', letterSpacing: -0.5, marginTop: 3 }, commandBrandCompact: { fontSize: 18 }, commandSubBrand: { color: '#8bb7c3', fontSize: 7, fontWeight: '900', letterSpacing: 1.7, marginTop: 2 }, commandSectionLabel: { color: '#9ab3c4', fontSize: 7, fontWeight: '900', letterSpacing: 1.4, marginBottom: 1 }, bridgeSectionLabel: { marginTop: 2 },
+  bridgeRailAction: { minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 8, paddingVertical: 5, borderWidth: 1, borderColor: '#68cbb459', borderRadius: 6, backgroundColor: 'rgba(8,28,37,0.82)' }, bridgeRailResume: { minHeight: 43, borderColor: '#72efda', backgroundColor: 'rgba(13,52,51,0.88)' }, bridgeRailNew: { borderColor: '#d7a95777', backgroundColor: 'rgba(35,29,18,0.86)' }, bridgeRailDisabled: { opacity: 0.56 }, bridgeRailGlyph: { width: 17, color: '#8af4df', fontSize: 13, textAlign: 'center' }, bridgeRailCopy: { flex: 1, minWidth: 0 }, bridgeRailTitle: { color: '#e7f3f5', fontSize: 7, fontWeight: '900', letterSpacing: 0.55 }, bridgeRailDetail: { color: '#94adba', fontSize: 6, marginTop: 2 }, bridgeRailWarning: { color: '#f4cd79', fontSize: 7, lineHeight: 10 }, bridgePauseLink: { minHeight: 27, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 7, borderWidth: 1, borderColor: '#6885a15c', borderRadius: 5, backgroundColor: '#0b192788' }, bridgePauseGlyph: { color: '#c3d8e8', fontSize: 10, fontWeight: '900' }, bridgePauseText: { color: '#a6c0d1', fontSize: 6, fontWeight: '900', letterSpacing: 0.55 }, bridgeReadoutGroup: { gap: 4, marginTop: 2 }, bridgeReadout: { paddingHorizontal: 8, paddingVertical: 5, borderWidth: 1, borderColor: '#7fa5b534', borderRadius: 5, backgroundColor: 'rgba(5,17,26,0.68)' }, bridgeReadoutHeading: { flexDirection: 'row', alignItems: 'center', gap: 5 }, bridgeReadoutGlyph: { color: '#80e7db', fontSize: 9, width: 11, textAlign: 'center' }, bridgeReadoutLabel: { color: '#809eae', fontSize: 5, fontWeight: '900', letterSpacing: 0.8 }, bridgeReadoutValue: { color: '#d6e7ed', fontSize: 8, fontWeight: '900', letterSpacing: 0.45, marginTop: 2 }, commandFooterRow: { minHeight: 18, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 2 }, commandFooter: { color: '#89aaa9', fontSize: 6, fontWeight: '900', letterSpacing: 0.9 },
+  commandMain: { flex: 1, minWidth: 0, paddingHorizontal: 24, paddingVertical: 16, justifyContent: 'space-between' }, commandMainCompact: { paddingHorizontal: 10, paddingVertical: 8 }, bridgeWelcome: { minHeight: 45, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, bridgeWelcomeTitle: { color: '#eff7ff', fontSize: 23, fontWeight: '300', letterSpacing: 1.7, marginTop: 3, textShadowColor: '#112d43', textShadowRadius: 14 }, bridgeWelcomeTitleCompact: { fontSize: 16, letterSpacing: 1.1 }, bridgeReady: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#8dd9cf61', backgroundColor: '#071923aa' }, bridgeReadyText: { color: '#b3e9df', fontSize: 6, fontWeight: '900', letterSpacing: 0.9 }, bridgePreviewRegion: { flex: 1, minHeight: 120, width: '100%', alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 3, overflow: 'hidden' }, bridgeMiniFrame: { alignSelf: 'center', overflow: 'hidden', borderWidth: 1, borderColor: '#86e8dbbb', borderRadius: 7, backgroundColor: '#061322', shadowColor: '#71e4db', shadowOpacity: 0.38, shadowRadius: 14, elevation: 8 }, bridgeMiniTint: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(3,14,25,0.28)' }, bridgeMiniClaim: { position: 'absolute', backgroundColor: 'rgba(62,215,187,0.2)', borderWidth: 0.5, borderColor: '#65ecd244' }, bridgeMiniWall: { position: 'absolute', backgroundColor: '#72f2d6', shadowColor: '#69eed4', shadowOpacity: 0.9, shadowRadius: 5, elevation: 3 }, bridgeMiniBall: { position: 'absolute', borderWidth: 1, borderColor: '#ecf7ff', backgroundColor: '#90a7be', shadowColor: '#c8eaff', shadowOpacity: 0.95, shadowRadius: 5, elevation: 4 }, bridgeMiniPickup: { position: 'absolute', width: 5, height: 5, borderRadius: 4, marginLeft: -2.5, marginTop: -2.5, shadowColor: '#ffe4a8', shadowOpacity: 0.9, shadowRadius: 4, elevation: 3 }, bridgeMiniScan: { position: 'absolute', top: 0, left: 0, right: 0, height: 1, backgroundColor: '#a9fff1aa', shadowColor: '#5af1dc', shadowOpacity: 1, shadowRadius: 6 }, bridgeMiniTop: { position: 'absolute', top: 0, left: 0, right: 0, minHeight: 30, paddingHorizontal: 8, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(4,13,22,0.67)' }, bridgeMiniEyebrow: { color: '#8cb8c3', fontSize: 5, fontWeight: '900', letterSpacing: 1 }, bridgeMiniStage: { color: '#f0f7fa', fontSize: 9, fontWeight: '900', marginTop: 1 }, bridgeMiniPercent: { color: '#82eddb', fontSize: 10, fontWeight: '900' }, bridgeMiniBottom: { position: 'absolute', left: 0, right: 0, bottom: 0, minHeight: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: 'rgba(4,13,22,0.74)' }, bridgeMiniResume: { color: '#cbfff1', fontSize: 6, fontWeight: '900', letterSpacing: 0.8 }, bridgeMiniReadouts: { color: '#9cb5c5', fontSize: 5, fontWeight: '800', letterSpacing: 0.4 }, bridgeMiniPulse: { position: 'absolute', top: 6, right: 7 }, bridgePulse: { width: 6, height: 6, borderRadius: 99, shadowOpacity: 0.92, shadowRadius: 5, elevation: 4 },
+  bridgeArtifactDock: { minHeight: 88, paddingTop: 5, paddingBottom: 2 }, bridgeDockHeading: { color: '#9bb9c7', fontSize: 6, fontWeight: '900', letterSpacing: 1, marginBottom: 5 }, bridgeArtifactRow: { width: '100%', flexDirection: 'row', gap: 7 }, bridgeArtifact: { flex: 1, minWidth: 62, minHeight: 58, justifyContent: 'center', paddingHorizontal: 8, paddingVertical: 5, borderWidth: 1, borderRadius: 5, backgroundColor: 'rgba(4,15,23,0.78)' }, bridgeArtifactHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 1 }, bridgeArtifactGlyph: { fontSize: 15, fontWeight: '900', textShadowRadius: 8 }, bridgeArtifactTitle: { color: '#e8f1f4', fontSize: 7, fontWeight: '900', letterSpacing: 0.8 }, bridgeArtifactDetail: { color: '#93a8b4', fontSize: 5, fontWeight: '700', letterSpacing: 0.4, marginTop: 2 },
+  commandTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 }, commandHeadline: { color: '#f0f5fb', fontSize: 29, fontWeight: '900', letterSpacing: 1.3, marginTop: 8 }, commandStageBadge: { minWidth: 92, padding: 11, borderWidth: 1, borderColor: '#315667', borderRadius: 10, backgroundColor: '#0d202d', alignItems: 'center' }, commandStageLabel: { color: '#7f9aaa', fontSize: 7, fontWeight: '900', letterSpacing: 1 }, commandStageValue: { color: '#6cebd1', fontSize: 24, fontWeight: '900', marginTop: 2 }, commandDescription: { color: '#91a6b5', fontSize: 11, lineHeight: 17, marginTop: 13, marginBottom: 16, maxWidth: 590 }, commandActions: { width: '100%', maxWidth: 700, gap: 8 }, commandResume: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, borderWidth: 1, borderColor: '#57dabb', borderRadius: 11, backgroundColor: '#103a38' }, commandAction: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 13, paddingHorizontal: 14, borderWidth: 1, borderColor: '#263e4e', borderRadius: 10, backgroundColor: '#0b1a27' }, commandNewRun: { borderColor: '#b78c4f', backgroundColor: '#211e17' }, commandActionWarn: { borderColor: '#e4ba63', backgroundColor: '#292315' }, commandActionGlyph: { width: 22, color: '#72e9d1', fontSize: 17, textAlign: 'center' }, commandActionTitle: { color: '#e7eff6', fontSize: 9, fontWeight: '900', letterSpacing: 0.8 }, commandActionDetail: { color: '#8da2b2', fontSize: 8, marginTop: 4 }, commandChevron: { marginLeft: 'auto', color: '#71909f', fontSize: 22 }, commandStatusRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 19, maxWidth: 700 }, commandStatus: { minWidth: 112, paddingHorizontal: 11, paddingVertical: 9, borderWidth: 1, borderColor: '#1f3948', borderRadius: 8, backgroundColor: '#091722' }, commandStatusLabel: { color: '#718b9a', fontSize: 7, fontWeight: '900', letterSpacing: 1 }, commandStatusValue: { color: '#d7e3ec', fontSize: 9, fontWeight: '900', marginTop: 4, letterSpacing: 0.5 },
+  mainMenuScrim: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, zIndex: 90, backgroundColor: 'rgba(3,8,15,0.88)', alignItems: 'center', justifyContent: 'center', padding: 16 }, mainMenuPanel: { width: '100%', maxWidth: 620, maxHeight: '94%', padding: 24, borderWidth: 1, borderColor: '#315469', borderRadius: 18, backgroundColor: '#081521ee' }, scorePanel: { width: '100%', maxWidth: 760, maxHeight: '92%', padding: 22, borderWidth: 1, borderColor: '#315469', borderRadius: 18, backgroundColor: '#081521' }, menuPanelHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, menuEyebrow: { color: '#64e8cc', fontSize: 9, fontWeight: '900', letterSpacing: 2 }, menuTitle: { color: '#f1f6ff', fontSize: 32, fontWeight: '900', letterSpacing: 1, marginTop: 3 }, menuSubhead: { color: '#a3b5c7', fontSize: 12, lineHeight: 18, marginTop: 7, marginBottom: 14 }, menuPrimary: { minHeight: 49, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#5be0c1', marginTop: 7, padding: 12 }, menuPrimaryText: { color: '#07151a', fontSize: 12, fontWeight: '900', letterSpacing: 1.2, textAlign: 'center' }, menuButton: { padding: 12, marginTop: 7, borderRadius: 10, borderWidth: 1, borderColor: '#344b5c', backgroundColor: '#0d1d2a' }, menuButtonTitle: { color: '#e8f0f7', fontSize: 10, fontWeight: '900', letterSpacing: 1 }, menuButtonCopy: { color: '#91a6b6', fontSize: 9, lineHeight: 14, marginTop: 4 }, menuConfirmText: { color: '#f1c96e', fontSize: 9, fontWeight: '900', marginTop: 9, letterSpacing: 1 }, menuGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }, menuTile: { width: '48%', minHeight: 88, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#283d4e', backgroundColor: '#0c1b29' }, menuTileGlyph: { color: '#68e8d0', fontSize: 20, fontWeight: '900', marginBottom: 4 }, menuWarning: { color: '#efc979', fontSize: 10, lineHeight: 15, marginTop: 8, textAlign: 'center' }, menuBack: { paddingHorizontal: 13, paddingVertical: 9, borderRadius: 8, borderWidth: 1, borderColor: '#365263' }, menuBackText: { color: '#70e8d1', fontSize: 9, fontWeight: '900', letterSpacing: 1 }, menuEmpty: { color: '#92a8b9', fontSize: 12, padding: 22, textAlign: 'center' }, menuScoreCard: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 8, padding: 10, borderWidth: 1, borderColor: '#22394a', borderRadius: 10, backgroundColor: '#0c1b29' }, menuScoreRank: { width: 33, height: 33, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: '#103c39' }, menuScoreRankText: { color: '#74f2da', fontWeight: '900' }, scoreMain: { flex: 1 }, scoreLevel: { color: '#e7eff6', fontSize: 10, fontWeight: '900', letterSpacing: 0.8 }, scoreDetails: { color: '#8fa4b3', fontSize: 8, marginTop: 4 }, scoreClaim: { color: '#edc96f', fontSize: 11, fontWeight: '900' }, modeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginTop: 9 }, modeCard: { flex: 1, minWidth: 140, padding: 14, borderRadius: 10, borderWidth: 1, borderColor: '#2a4052', backgroundColor: '#0c1b29' }, modeCardActive: { borderColor: '#5be0c1', backgroundColor: '#0d2a2a' }, modeTitle: { color: '#cad5df', fontSize: 12, fontWeight: '900', letterSpacing: 1 }, modeTitleActive: { color: '#70f1d5' }, skinAchievementScrim: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, zIndex: 110, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(2,8,14,0.78)', padding: 18 }, skinAchievementCard: { width: '100%', maxWidth: 390, alignItems: 'center', padding: 25, borderRadius: 17, borderWidth: 1, borderColor: '#e6c56f', backgroundColor: '#101b29', shadowColor: '#67eed2', shadowOpacity: 0.5, shadowRadius: 22 }, achievementGlyph: { color: '#f1d57d', fontSize: 48, marginTop: 14, textShadowColor: '#57efd4', textShadowRadius: 18 }, skinDiscoveryLabel: { color: '#f1d57d', backgroundColor: '#1d1b13', borderWidth: 1, borderColor: '#86713d', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, fontSize: 8, fontWeight: '900', letterSpacing: 0.55 },
 });
 
 
