@@ -14,10 +14,10 @@ const SETTINGS_KEY = 'trap-game-dev-settings-v1';
 const PROFILES_KEY = 'trap-game-dev-profiles-v1';
 const SKINS_KEY = 'trap-game-skin-selections-v1';
 const PICTURE_LIBRARY_KEY = 'trap-game-picture-library-v1';
+const BRIDGE_VISTA_LIBRARY_KEY = 'trap-game-bridge-vista-library-v1';
 const WALDO_LIBRARY_KEY = 'trap-game-waldo-library-v1';
 const SKIN_UNLOCKS_V2_KEY = 'trap-game-skin-unlocks-v2';
 const MANUAL_SAVE_KEY = 'trap-game-manual-save-v1';
-const COMMAND_BRIDGE_ART = require('./assets/bridge-command-full.png');
 const CREDIT_SYMBOL_ART: Record<string, number> = {
   sunshard: require('./assets/credits/sunshard.png'),
   'circuit-chit': require('./assets/credits/circuit-chit.png'),
@@ -27,6 +27,9 @@ const GENERATED_PICTURE_BACKDROPS = [
   require('./assets/picture-events/astral-nebula.jpg'), require('./assets/picture-events/ringworld-horizon.jpg'), require('./assets/picture-events/stellar-clouds.jpg'),
   require('./assets/picture-events/alpine-lake.jpg'), require('./assets/picture-events/red-rock-canyon.jpg'), require('./assets/picture-events/alien-coast.jpg'),
   require('./assets/picture-events/misty-pines.jpg'), require('./assets/picture-events/bioluminescent-forest.jpg'), require('./assets/picture-events/autumn-woods.jpg'),
+];
+const BRIDGE_SCENIC_VIEWS: ImageSourcePropType[] = [
+  require('./assets/picture-events/astral-nebula.jpg'), require('./assets/picture-events/ringworld-horizon.jpg'), require('./assets/picture-events/stellar-clouds.jpg'),
 ];
 const FULL_STAGE_IMAGE_STYLE = { position: 'absolute' as const, left: 0, top: 0, width: '100%' as const, height: '100%' as const };
 const FULL_BOARD_ART_STYLE = { ...FULL_STAGE_IMAGE_STYLE, overflow: 'hidden' as const };
@@ -104,6 +107,7 @@ const BOARD_H = 1100;
 const CLAIM_SWATCHES = ['#071019', '#17372f', '#25203e', '#40202c', '#45515e'];
 type Gesture = { x: number; y: number };
 type TuningProfile = { name: string; settings: MechanicsSettings; skins?: SkinSelections };
+type BridgeVistaEntry = { id: string; name: string; uri: string; fileName?: string };
 type SkinProgression = SkinUnlocks;
 
 function discoveryGroup(category: string): string {
@@ -262,15 +266,92 @@ function BridgePulse({ delay = 0, color = '#75f4dc' }: { delay?: number; color?:
   return <Animated.View style={[styles.bridgePulse, { backgroundColor: color, shadowColor: color, opacity: pulse }]} />;
 }
 
-function BridgeStagePreview({ run, hasActiveRun, simulationRunning, pictureSource, defaultBackground, onPress }: {
+const BRIDGE_INTERIOR_ART = require('./assets/bridge-command-interior.png');
+
+function BridgeInterior() {
+  const [frame, setFrame] = useState({ width: 0, height: 0 });
+  const imageAspect = 1672 / 941;
+  const imageWidth = Math.min(frame.width, frame.height * imageAspect);
+  const imageHeight = imageWidth / imageAspect;
+  return <View pointerEvents="none" style={StyleSheet.absoluteFill} onLayout={event => {
+    const { width, height } = event.nativeEvent.layout;
+    setFrame(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height });
+  }}>
+    {imageWidth > 0 && imageHeight > 0 && <Image source={BRIDGE_INTERIOR_ART} resizeMode="stretch" style={{ position: 'absolute', width: imageWidth, height: imageHeight, left: (frame.width - imageWidth) / 2, top: (frame.height - imageHeight) / 2 }} />}
+  </View>;
+}
+
+// Exterior art is rendered on the exact same full-image canvas as the cockpit
+// cutout. The transparent window pixels in BridgeInterior are the sole clip
+// boundary, so no second photograph can peek through around a smaller viewport.
+function BridgeExterior({ source, event }: { source?: ImageSourcePropType; event?: { kind: 'picture'; seed: number } | { kind: 'waldo'; seed: number; waldoX: number; waldoY: number; found: boolean } }) {
+  const [frame, setFrame] = useState({ width: 0, height: 0 });
+  const [fade] = useState(() => new Animated.Value(0));
+  const [drift] = useState(() => new Animated.Value(0));
+  const imageAspect = 1672 / 941;
+  const imageWidth = Math.min(frame.width, frame.height * imageAspect);
+  const imageHeight = imageWidth / imageAspect;
+  useEffect(() => {
+    fade.setValue(0);
+    const animation = Animated.timing(fade, { toValue: 1, duration: 1100, useNativeDriver: true });
+    animation.start();
+    return () => animation.stop();
+  }, [fade, source, event?.kind, event?.seed]);
+  useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(drift, { toValue: 1, duration: 14000, useNativeDriver: true }),
+      Animated.delay(350),
+      Animated.timing(drift, { toValue: 0, duration: 1, useNativeDriver: true }),
+      Animated.delay(1800),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, [drift]);
+  const craftX = drift.interpolate({ inputRange: [0, 1], outputRange: [-22, 35] });
+  const craftY = drift.interpolate({ inputRange: [0, 1], outputRange: [8, -7] });
+  const craftOpacity = drift.interpolate({ inputRange: [0, 0.08, 0.88, 1], outputRange: [0, 0.75, 0.75, 0] });
+  return <View pointerEvents="none" style={StyleSheet.absoluteFill} onLayout={event => {
+    const { width, height } = event.nativeEvent.layout;
+    setFrame(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height });
+  }}>
+    {imageWidth > 0 && imageHeight > 0 && <Animated.View style={{ position: 'absolute', width: imageWidth, height: imageHeight, left: (frame.width - imageWidth) / 2, top: (frame.height - imageHeight) / 2, opacity: fade, overflow: 'hidden' }}>
+      {event?.kind === 'waldo'
+        ? <WaldoArtwork seed={event.seed} width={imageWidth} height={imageHeight} waldoX={event.waldoX} waldoY={event.waldoY} found={event.found} />
+        : event?.kind === 'picture' && !source
+          ? <PictureArtwork seed={event.seed} width={imageWidth} height={imageHeight} />
+        : source ? <Image source={source} resizeMode="cover" style={{ position: 'absolute', left: 0, top: 0, width: imageWidth, height: imageHeight }} /> : null}
+      <View pointerEvents="none" style={styles.bridgeExteriorWindowDecor}>
+        <View style={styles.bridgeExteriorGlint} />
+        <Animated.View style={[styles.bridgeExteriorCraft, { opacity: craftOpacity, transform: [{ translateX: craftX }, { translateY: craftY }] }]}><Text style={styles.bridgeExteriorCraftText}>⌁</Text></Animated.View>
+      </View>
+    </Animated.View>}
+  </View>;
+}
+
+function BridgeStagePreview({ run, hasActiveRun, simulationRunning, defaultBackground, simulationBackground, visualSkins, backgroundTint = '#071525', backgroundId, onPress, presentation = 'mini', containerStyle, onSurfaceLayout, onTouchStart, onTouchEnd, onTouchCancel, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onPointerLeave }: {
   run: Run;
   hasActiveRun: boolean;
   simulationRunning: boolean;
-  pictureSource?: ImageSourcePropType;
   defaultBackground?: ImageSourcePropType;
+  simulationBackground?: ImageSourcePropType;
+  visualSkins?: SkinSelections;
+  backgroundTint?: string;
+  backgroundId?: string;
   onPress: () => void;
+  presentation?: 'mini' | 'window';
+  containerStyle?: any;
+  onSurfaceLayout?: (width: number, height: number, rect?: { x: number; y: number; width: number; height: number }) => void;
+  onTouchStart?: (event: any) => void;
+  onTouchEnd?: (event: any) => void;
+  onTouchCancel?: (event: any) => void;
+  onPointerDown?: (event: any) => void;
+  onPointerMove?: (event: any) => void;
+  onPointerUp?: (event: any) => void;
+  onPointerCancel?: (event: any) => void;
+  onPointerLeave?: (event: any) => void;
 }) {
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  const surfaceRef = useRef<View>(null);
   const [scan] = useState(() => new Animated.Value(0));
   const claimedRects = React.useMemo(() => {
     const rects: { id: string; x: number; y: number; width: number }[] = [];
@@ -293,33 +374,63 @@ function BridgeStagePreview({ run, hasActiveRun, simulationRunning, pictureSourc
     ]));
     loop.start(); return () => loop.stop();
   }, [scan]);
-  const aspect = Math.max(1.2, Math.min(2.35, run.boardWidth / Math.max(1, run.boardHeight)));
+  const aspect = presentation === 'window' ? viewport.width / Math.max(1, viewport.height) : Math.max(1.2, Math.min(2.35, run.boardWidth / Math.max(1, run.boardHeight)));
   // Keep the preview compact and dock it to the bridge console instead of
   // letting it dominate the panoramic window.
-  const boardWidth = Math.min(viewport.width * 0.46, viewport.height * 0.3 * aspect);
-  const boardHeight = boardWidth / aspect;
+  const boardWidth = presentation === 'window' ? viewport.width : Math.min(viewport.width * 0.94, viewport.height * 0.72 * aspect);
+  const boardHeight = presentation === 'window' ? viewport.height : boardWidth / aspect;
   const scanY = scan.interpolate({ inputRange: [0, 1], outputRange: [-10, Math.max(1, boardHeight)] });
-  const activeBackground = run.pictureEvent ? pictureSource : defaultBackground;
-  return <View style={styles.bridgePreviewRegion} onLayout={event => {
+  // Picture-event art belongs outside the ship. Keep the embedded stage
+  // display focused on the actual board and its selected background skin.
+  const activeBackground = presentation === 'window' && run.pictureEvent && !run.pictureEvent.isWaldo ? simulationBackground : defaultBackground;
+  const sx = boardWidth / run.boardWidth;
+  const sy = boardHeight / run.boardHeight;
+  const ballSkin = BALL_SKINS.find(option => option.id === visualSkins?.ball) ?? BALL_SKINS[0];
+  return <View style={[presentation === 'window' ? styles.bridgeWindowPreviewRegion : styles.bridgePreviewRegionDocked, containerStyle]} onLayout={event => {
     const { width, height } = event.nativeEvent.layout;
     setViewport(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height });
   }}>
-    {boardWidth > 0 && boardHeight > 0 && <Pressable accessibilityRole="button" accessibilityLabel={hasActiveRun ? `Resume active run, stage ${run.level}` : 'Start a new run'} onPress={onPress} style={[styles.bridgeMiniFrame, { width: boardWidth, height: boardHeight }]}>
-      {activeBackground && <Image source={activeBackground} resizeMode={run.pictureEvent ? 'stretch' : 'cover'} style={StyleSheet.absoluteFill} />}
-      <View pointerEvents="none" style={styles.bridgeMiniTint} />
-      {claimedRects.map(rect => <View key={`claim-${rect.id}`} pointerEvents="none" style={[styles.bridgeMiniClaim, { left: `${rect.x / run.gridCols * 100}%`, top: `${rect.y / run.gridRows * 100}%`, width: `${rect.width / run.gridCols * 100}%`, height: `${100 / run.gridRows}%` }]} />)}
-      {run.walls.map(wall => <View key={`wall-${wall.id}`} pointerEvents="none" style={[styles.bridgeMiniWall, wall.axis === 'vertical'
-        ? { left: `${wall.at / run.boardWidth * 100}%`, top: `${wall.low / run.boardHeight * 100}%`, width: wall.active ? 2 : 1.5, height: `${Math.max(0.5, (wall.high - wall.low) / run.boardHeight * 100)}%` }
-        : { left: `${wall.low / run.boardWidth * 100}%`, top: `${wall.at / run.boardHeight * 100}%`, width: `${Math.max(0.5, (wall.high - wall.low) / run.boardWidth * 100)}%`, height: wall.active ? 2 : 1.5 }]} />)}
-      {run.powerups.map((powerup, index) => <View key={`pickup-${powerup.id}`} pointerEvents="none" style={[styles.bridgeMiniPickup, { left: `${powerup.x / run.boardWidth * 100}%`, top: `${powerup.y / run.boardHeight * 100}%`, backgroundColor: powerup.kind === 'exit' ? '#fff0a1' : index % 2 ? '#edb65f' : '#78e9d1' }]} />)}
-      {run.balls.map(ball => {
-        const diameter = Math.max(4, Math.min(10, 2 * ball.r / run.boardWidth * boardWidth));
-        return <View key={`ball-${ball.id}`} pointerEvents="none" style={[styles.bridgeMiniBall, { width: diameter, height: diameter, borderRadius: diameter / 2, left: `${ball.x / run.boardWidth * 100}%`, top: `${ball.y / run.boardHeight * 100}%`, marginLeft: -diameter / 2, marginTop: -diameter / 2 }]} />;
-      })}
-      <Animated.View pointerEvents="none" style={[styles.bridgeMiniScan, { transform: [{ translateY: scanY }] }]} />
-      <View pointerEvents="none" style={styles.bridgeMiniTop}><View><Text style={styles.bridgeMiniEyebrow}>{simulationRunning ? 'LIVE SECTOR FEED' : 'SAVED SECTOR VIEW'}</Text><Text style={styles.bridgeMiniStage}>STAGE {String(run.level).padStart(2, '0')}</Text></View><Text style={styles.bridgeMiniPercent}>{run.claimed.toFixed(1)}%</Text></View>
-      <View pointerEvents="none" style={styles.bridgeMiniBottom}><Text style={styles.bridgeMiniResume}>{hasActiveRun ? 'TAP TO RESUME ACTIVE RUN' : 'TAP TO LAUNCH A NEW SECTOR'}</Text><Text style={styles.bridgeMiniReadouts}>{run.balls.length} BALLS  ·  {run.credits.toLocaleString()} CREDITS</Text></View>
-      <View pointerEvents="none" style={styles.bridgeMiniPulse}><BridgePulse delay={180} /></View>
+    {boardWidth > 0 && boardHeight > 0 && <Pressable ref={surfaceRef} accessibilityRole="button" accessibilityLabel={presentation === 'window' ? `Live playable game board, stage ${run.level}` : hasActiveRun ? `Expand active run, stage ${run.level}` : 'Start a new run'} onPress={presentation === 'mini' ? onPress : undefined} onLayout={event => {
+      const { width, height } = event.nativeEvent.layout;
+      if (presentation !== 'window' || !onSurfaceLayout) return;
+      requestAnimationFrame(() => surfaceRef.current?.measureInWindow((x, y, measuredWidth, measuredHeight) => onSurfaceLayout(width, height, { x, y, width: measuredWidth, height: measuredHeight })));
+    }} onTouchStart={presentation === 'window' ? onTouchStart : undefined} onTouchEnd={presentation === 'window' ? onTouchEnd : undefined} onTouchCancel={presentation === 'window' ? onTouchCancel : undefined}
+      {...(Platform.OS === 'web' && presentation === 'window' ? { onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onPointerLeave } : {})}
+      style={[styles.bridgeMiniFrame, presentation === 'window' && styles.bridgeWindowFrame, presentation === 'window' && { backgroundColor: backgroundTint }, { width: boardWidth, height: boardHeight }]}>
+      {activeBackground && <Image source={activeBackground} resizeMode={run.pictureEvent && !run.pictureEvent.isWaldo ? 'stretch' : 'cover'} style={{ position: 'absolute', left: 0, top: 0, width: boardWidth, height: boardHeight, opacity: presentation === 'window' && !run.pictureEvent ? 0.58 : 1 }} />}
+      {presentation === 'mini' ? <>
+        <View pointerEvents="none" style={styles.bridgeMiniTint} />
+        {claimedRects.map(rect => <View key={`claim-${rect.id}`} pointerEvents="none" style={[styles.bridgeMiniClaim, { left: `${rect.x / run.gridCols * 100}%`, top: `${rect.y / run.gridRows * 100}%`, width: `${rect.width / run.gridCols * 100}%`, height: `${100 / run.gridRows}%` }]} />)}
+        {run.walls.map(wall => <View key={`wall-${wall.id}`} pointerEvents="none" style={[styles.bridgeMiniWall, wall.axis === 'vertical'
+          ? { left: `${wall.at / run.boardWidth * 100}%`, top: `${wall.low / run.boardHeight * 100}%`, width: wall.active ? 2 : 1.5, height: `${Math.max(0.5, (wall.high - wall.low) / run.boardHeight * 100)}%` }
+          : { left: `${wall.low / run.boardWidth * 100}%`, top: `${wall.at / run.boardHeight * 100}%`, width: `${Math.max(0.5, (wall.high - wall.low) / run.boardWidth * 100)}%`, height: wall.active ? 2 : 1.5 }]} />)}
+        {run.powerups.map((powerup, index) => <View key={`pickup-${powerup.id}`} pointerEvents="none" style={[styles.bridgeMiniPickup, { left: `${powerup.x / run.boardWidth * 100}%`, top: `${powerup.y / run.boardHeight * 100}%`, backgroundColor: powerup.kind === 'exit' ? '#fff0a1' : index % 2 ? '#edb65f' : '#78e9d1' }]} />)}
+        {run.balls.map(ball => {
+          const diameter = Math.max(4, Math.min(10, 2 * ball.r / run.boardWidth * boardWidth));
+          return <View key={`ball-${ball.id}`} pointerEvents="none" style={[styles.bridgeMiniBall, { width: diameter, height: diameter, borderRadius: diameter / 2, left: `${ball.x / run.boardWidth * 100}%`, top: `${ball.y / run.boardHeight * 100}%`, marginLeft: -diameter / 2, marginTop: -diameter / 2 }]} />;
+        })}
+      </> : <>
+        {run.pictureEvent && run.claimMask && Array.from({ length: run.gridRows }, (_, y) => {
+          let x = 0; const masks = [] as React.ReactNode[];
+          while (x < run.gridCols) {
+            if (run.claimMask[y * run.gridCols + x]) { x++; continue; }
+            const start = x; while (x < run.gridCols && !run.claimMask[y * run.gridCols + x]) x++;
+            masks.push(<View key={`open-${y}-${start}`} pointerEvents="none" style={{ position: 'absolute', left: `${start / run.gridCols * 100}%`, top: `${y / run.gridRows * 100}%`, width: `${(x - start) / run.gridCols * 100}%`, height: `${100 / run.gridRows}%`, backgroundColor: backgroundTint }} />);
+          }
+          return masks;
+        })}
+        {run.pictureEvent?.isWaldo && <WaldoArtwork seed={run.pictureEvent.seed} width={boardWidth} height={boardHeight} waldoX={run.pictureEvent.waldoX ?? 0.5} waldoY={run.pictureEvent.waldoY ?? 0.5} found={!!run.pictureEvent.waldoFound} />}
+        {!run.pictureEvent && backgroundId && <ArenaBackgroundEffects id={backgroundId} />}
+        {!run.pictureEvent && claimedRects.map(rect => <View key={`claim-${rect.id}`} pointerEvents="none" style={[styles.claimedCell, { backgroundColor: run.mechanics.claimedColor, opacity: run.mechanics.claimedFillOpacity, left: rect.x * run.boardWidth / run.gridCols * sx, top: rect.y * run.boardHeight / run.gridRows * sy, width: rect.width * run.boardWidth / run.gridCols * sx, height: run.boardHeight / run.gridRows * sy }]} />)}
+        {run.walls.map(wall => <WallView key={`wall-${wall.id}`} wall={wall} sx={sx} sy={sy} mutation={run.containmentMutations?.find(box => box.active && box.wallIds.includes(wall.id))} elapsedMs={run.elapsedMs} />)}
+        {run.balls.map(ball => <BallArtwork key={`ball-${ball.id}`} skin={ballSkin} diameter={2 * ball.r * Math.min(sx, sy)} left={ball.x * sx - ball.r * Math.min(sx, sy)} top={ball.y * sy - ball.r * Math.min(sx, sy)} rammed={ball.rammed} modifier={ball.modifier} extraModifiers={ball.modifiers?.length ?? 0} drifting={ball.drifting} skimming={ball.skimmerWallId !== undefined} />)}
+        {run.pets.map(pet => <View key={`pet-${pet.id}`} pointerEvents="none" style={[styles.deployedEngi, !pet.deployed && styles.roamingPet, { left: pet.x * sx - 20, top: pet.y * sy - 22 }]}>{pet.species === 'waldo' ? <WaldoPetArtwork pet={pet} size={40} /> : <EngiPetArtwork skinId={visualSkins?.engiPet ?? DEFAULT_SKIN_SELECTIONS.engiPet} task={pet.task as any} size={40} />}</View>)}
+        {run.powerups.map(powerup => <PowerOrb key={`pickup-${powerup.id}`} power={powerup} sx={sx} sy={sy} skinId={powerup.skinId ?? visualSkins?.pickups[powerup.kind] ?? PICKUP_SKINS[powerup.kind][0].id} creditBaseAmount={run.mechanics.creditPickupBaseAmount} />)}
+      </>}
+      {presentation === 'mini' && <Animated.View pointerEvents="none" style={[styles.bridgeMiniScan, { transform: [{ translateY: scanY }] }]} />}
+      {presentation === 'mini' && <View pointerEvents="none" style={styles.bridgeMiniTop}><View><Text style={styles.bridgeMiniEyebrow}>{simulationRunning ? 'LIVE SECTOR FEED' : 'SAVED SECTOR VIEW'}</Text><Text style={styles.bridgeMiniStage}>STAGE {String(run.level).padStart(2, '0')}</Text></View><Text style={styles.bridgeMiniPercent}>{run.claimed.toFixed(1)}%</Text></View>}
+      {presentation === 'mini' && <View pointerEvents="none" style={styles.bridgeMiniBottom}><Text style={styles.bridgeMiniResume}>{hasActiveRun ? 'TAP TO OPEN LIVE SECTOR' : 'TAP TO LAUNCH A NEW SECTOR'}</Text><Text style={styles.bridgeMiniReadouts}>{run.balls.length} BALLS  ·  {run.credits.toLocaleString()} CREDITS</Text></View>}
+      {presentation === 'mini' && <View pointerEvents="none" style={styles.bridgeMiniPulse}><BridgePulse delay={180} /></View>}
     </Pressable>}
   </View>;
 }
@@ -327,7 +438,7 @@ function BridgeStagePreview({ run, hasActiveRun, simulationRunning, pictureSourc
 function BridgeArtifact({ title, detail, glyph, color = '#78ead4', onPress }: {
   title: string; detail: string; glyph: string; color?: string; onPress: () => void;
 }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={`${title}: ${detail}`} onPress={onPress} style={[styles.bridgeArtifact, { borderColor: `${color}77` }]}>
+  return <Pressable accessibilityRole="button" accessibilityLabel={`${title}: ${detail}`} onPress={onPress} style={[styles.bridgeArtifactConsole, { borderColor: `${color}77` }]}>
     <View style={styles.bridgeArtifactHead}><Text style={[styles.bridgeArtifactGlyph, { color, textShadowColor: color }]}>{glyph}</Text><BridgePulse color={color} /></View>
     <Text style={styles.bridgeArtifactTitle}>{title}</Text><Text numberOfLines={1} style={styles.bridgeArtifactDetail}>{detail}</Text>
   </Pressable>;
@@ -404,7 +515,10 @@ export default function App() {
   const [skinProgression, setSkinProgression] = useState<SkinProgression>(() => defaultSkinUnlocks());
   const skinProgressionRef = useRef(skinProgression);
   const [menuPage, setMenuPage] = useState<'home' | 'themes' | 'scores' | 'settings' | null>('home');
+  const [bridgeSimView, setBridgeSimView] = useState<'mini' | 'window' | 'fullscreen'>('mini');
+  const [bridgeCanvasSize, setBridgeCanvasSize] = useState({ width: 0, height: 0 });
   const [bridgeRailVisible, setBridgeRailVisible] = useState(true);
+  const [bridgeVistaIndex, setBridgeVistaIndex] = useState(0);
   const [manualSave, setManualSave] = useState<Run | null>(null);
   const [confirmOverwriteSave, setConfirmOverwriteSave] = useState(false);
   const [confirmNewRun, setConfirmNewRun] = useState(false);
@@ -425,6 +539,10 @@ export default function App() {
   const [pictureLibrary, setPictureLibraryState] = useState<PictureLibraryEntry[]>([]);
   const pictureLibraryRef = useRef(pictureLibrary);
   const [pictureLibraryNotice, setPictureLibraryNotice] = useState('Saved scenes are reused on future Picture levels. Import your own image files here too.');
+  const [bridgeVistaLibrary, setBridgeVistaLibrary] = useState<BridgeVistaEntry[]>([]);
+  const [selectedBridgeVistaId, setSelectedBridgeVistaId] = useState<string | null>(null);
+  const [bridgeVistaNotice, setBridgeVistaNotice] = useState('Import a photo to pin it outside the bridge windows. Auto restores rotating scenery.');
+  const [bridgeVistaOpen, setBridgeVistaOpen] = useState(false);
   const [waldoLibrary, setWaldoLibraryState] = useState<WaldoLibraryEntry[]>([]);
   const waldoLibraryRef = useRef(waldoLibrary);
   const [waldoLibraryNotice, setWaldoLibraryNotice] = useState('Generated Waldo puzzles saved here can appear only in future Waldo events.');
@@ -432,7 +550,7 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [save, boardScores, settingsSave, profilesSave, skinsSave, pictureLibrarySave, waldoLibrarySave, skinUnlocksSave, legacySkinUnlocksSave, manualSaveData] = await Promise.all([AsyncStorage.getItem(SAVE_KEY), AsyncStorage.getItem(`${SAVE_KEY}-scores`), AsyncStorage.getItem(SETTINGS_KEY), AsyncStorage.getItem(PROFILES_KEY), AsyncStorage.getItem(SKINS_KEY), AsyncStorage.getItem(PICTURE_LIBRARY_KEY), AsyncStorage.getItem(WALDO_LIBRARY_KEY), AsyncStorage.getItem(SKIN_UNLOCKS_V2_KEY), AsyncStorage.getItem('trap-game-skin-unlocks-v1'), AsyncStorage.getItem(MANUAL_SAVE_KEY)]);
+        const [save, boardScores, settingsSave, profilesSave, skinsSave, pictureLibrarySave, bridgeVistaSave, waldoLibrarySave, skinUnlocksSave, legacySkinUnlocksSave, manualSaveData] = await Promise.all([AsyncStorage.getItem(SAVE_KEY), AsyncStorage.getItem(`${SAVE_KEY}-scores`), AsyncStorage.getItem(SETTINGS_KEY), AsyncStorage.getItem(PROFILES_KEY), AsyncStorage.getItem(SKINS_KEY), AsyncStorage.getItem(PICTURE_LIBRARY_KEY), AsyncStorage.getItem(BRIDGE_VISTA_LIBRARY_KEY), AsyncStorage.getItem(WALDO_LIBRARY_KEY), AsyncStorage.getItem(SKIN_UNLOCKS_V2_KEY), AsyncStorage.getItem('trap-game-skin-unlocks-v1'), AsyncStorage.getItem(MANUAL_SAVE_KEY)]);
         if (settingsSave) {
           const rawSettings = JSON.parse(settingsSave) as Partial<MechanicsSettings>; const legacyStorageSettings = rawSettings.resourceStorageUpgradeBaseCost === undefined; const savedSettings = normalizeMechanicsSettings(rawSettings); if (legacyStorageSettings) { if (savedSettings.overflowCreditValues.speed === 0) savedSettings.overflowCreditValues.speed = DEFAULT_MECHANICS.overflowCreditValues.speed; if (savedSettings.overflowCreditValues.ram === 0) savedSettings.overflowCreditValues.ram = DEFAULT_MECHANICS.overflowCreditValues.ram; }
           setTuning(savedSettings);
@@ -464,6 +582,7 @@ export default function App() {
         skinProgressionRef.current = progression;
         setSkinProgression(progression);
         if (pictureLibrarySave) { const entries = JSON.parse(pictureLibrarySave) as PictureLibraryEntry[]; pictureLibraryRef.current = entries; setPictureLibraryState(entries); setPictureLibrary(entries); }
+        if (bridgeVistaSave) { const savedVista = JSON.parse(bridgeVistaSave) as { entries?: BridgeVistaEntry[]; selectedId?: string | null }; const entries = Array.isArray(savedVista) ? savedVista as unknown as BridgeVistaEntry[] : savedVista.entries ?? []; setBridgeVistaLibrary(entries); setSelectedBridgeVistaId(savedVista.selectedId && entries.some(entry => entry.id === savedVista.selectedId) ? savedVista.selectedId : null); }
         if (waldoLibrarySave) { const entries = JSON.parse(waldoLibrarySave) as WaldoLibraryEntry[]; waldoLibraryRef.current = entries; setWaldoLibraryState(entries); setWaldoLibrary(entries); }
         if (save) { const parsed = JSON.parse(save) as Run; const legacyStorageRun = parsed.speedCapacityBonus === undefined; parsed.speedCharges ??= 0; parsed.ramCharges ??= 0; parsed.chargeCharges ??= 0; parsed.chargeCapacityBonus ??= 0; parsed.chargeCapacityPurchases ??= 0; parsed.overflowProcessingUpgradePurchases ??= 0; parsed.levelClearBubbleTimerMs ??= 0; parsed.levelClearBubbleAccumulatorMs ??= 0; parsed.levelClearAnimationRemainingMs ??= 0; parsed.levelEvent ??= 'none'; parsed.levelEventBannerUntilMs ??= 0; parsed.containmentMutations ??= []; parsed.containmentMutationScanRemainingMs ??= 0; parsed.chargeReadyUntil ??= null; parsed.speedCapacityBonus ??= 0; parsed.speedCapacityPurchases ??= parsed.speedCapacityBonus; parsed.ramCapacityBonus ??= 0; parsed.ramCapacityPurchases ??= parsed.ramCapacityBonus; parsed.waldoEventPending ??= false; parsed.mechanics = normalizeMechanicsSettings(parsed.mechanics); parsed.skinDiscovery ??= null; parsed.totalTerritoryClaimed ??= 0; parsed.ballsDestroyed ??= 0; parsed.ballsContained ??= 0; parsed.pickupsCaptured ??= 0; parsed.containedBallIds ??= []; parsed.containedCountedThisLevel ??= false; if (legacyStorageRun) { if (parsed.mechanics.overflowCreditValues.speed === 0) parsed.mechanics.overflowCreditValues.speed = DEFAULT_MECHANICS.overflowCreditValues.speed; if (parsed.mechanics.overflowCreditValues.ram === 0) parsed.mechanics.overflowCreditValues.ram = DEFAULT_MECHANICS.overflowCreditValues.ram; } parsed.lifeCapacity = Math.max(parsed.lives, parsed.lifeCapacity ?? parsed.mechanics.lifeStorageBaseCapacity); parsed.lifeCapacityPurchases ??= Math.max(0, parsed.lifeCapacity - parsed.mechanics.lifeStorageBaseCapacity); parsed.overflowJobs ??= []; parsed.overflowSuccessChance = Math.max(0, Math.min(100, parsed.overflowSuccessChance ?? parsed.mechanics.overflowBaseSuccessChance)); parsed.overflowUpgradePurchases ??= Math.max(0, Math.floor((parsed.overflowSuccessChance - parsed.mechanics.overflowBaseSuccessChance) / Math.max(1, parsed.mechanics.overflowUpgradeChanceIncrease))); parsed.waldoEligible ??= Math.random() >= parsed.mechanics.waldoIneligibleChance; parsed.merchantTokens ??= 0; parsed.credits ??= 0; parsed.powerBars ??= 0; parsed.powerBarsPurchased ??= 0; parsed.merchantUpgrades ??= { life: 0, speed: 0, ram: 0, treasure: 0, waldo: 0 }; parsed.merchantUpgrades.waldo ??= 0; for (const kind of Object.keys(DEFAULT_MECHANICS.containmentMutationPickupEnabled)) { parsed.merchantUpgrades[`mutationAffinity:${kind}`] ??= 0; parsed.merchantUpgrades[`mutationAttraction:${kind}`] ??= 0; } parsed.petEggs ??= 0; parsed.petEggVisitProgress ??= 0; parsed.pets ??= []; parsed.pets = parsed.pets.map(pet => ({ ...pet, species: pet.species ?? 'engi', paintings: pet.paintings ?? [] })); parsed.petIncubations ??= []; parsed.isotypesContained ??= false; parsed.isotypesNoticeUntilMs ??= 0; parsed.petNotice ??= null; parsed.petNoticeUntilMs ??= 0; parsed.levelClearPending ??= false; parsed.speedReadyUntil ??= null; parsed.captureEvents ??= []; parsed.wallBreakEvents ??= []; parsed.territoryGainEvents ??= []; parsed.creditGainEvents ??= []; parsed.treasureEligible ??= Math.random() < MECHANICS.treasureLevelEligibilityChance; parsed.treasureHuntPending ??= false; parsed.treasureHunt ??= null; if (parsed.treasureHunt) parsed.treasureHunt.revealed ??= false; parsed.pictureEvent ??= null; parsed.boardWidth ??= BOARD_W; parsed.boardHeight ??= 1100; parsed.gridCols ??= 48; parsed.gridRows ??= 72; parsed.walls = parsed.walls.map(w => ({ ...w, speedMultiplier: w.speedMultiplier ?? 1 })); parsed.powerups = (parsed.powerups ?? []).map(p => ({ ...p, skinId: p.kind === 'engi-egg' ? p.skinId ?? randomEngiCocoonSkin() : p.skinId, despawnAtMs: p.despawnAtMs ?? powerupDespawnAt(p.kind, parsed.elapsedMs ?? 0, parsed.mechanics) })); if (parsed.levelClearPending && !parsed.powerups.some(p => p.kind === 'exit')) parsed.powerups.push({ id: parsed.nextId++, kind: 'exit', x: parsed.boardWidth * 0.5, y: parsed.boardHeight * 0.5, vx: 0, vy: 0 }); if (!parsed.ended) { setMechanicsSettings(parsed.mechanics); const layout = boardLayoutFor(stageSizeRef.current.width, stageSizeRef.current.height); const restored = layout.displayWidth ? resizeRunBoard(parsed, layout.worldWidth, layout.worldHeight) : parsed; const capacitySafe = enforceChargeCapacities(restored); runRef.current = capacitySafe; setRun(capacitySafe); setHasSave(true); } }
         if (manualSaveData) setManualSave(JSON.parse(manualSaveData) as Run);
@@ -486,6 +605,7 @@ export default function App() {
     setRun(updated);
   }, [activeTab, loaded, tuning]);
   useEffect(() => { pictureLibraryRef.current = pictureLibrary; setPictureLibrary(pictureLibrary); if (loaded) AsyncStorage.setItem(PICTURE_LIBRARY_KEY, JSON.stringify(pictureLibrary)).catch(() => {}); }, [loaded, pictureLibrary]);
+  useEffect(() => { if (loaded) AsyncStorage.setItem(BRIDGE_VISTA_LIBRARY_KEY, JSON.stringify({ entries: bridgeVistaLibrary, selectedId: selectedBridgeVistaId })).catch(() => {}); }, [loaded, bridgeVistaLibrary, selectedBridgeVistaId]);
   useEffect(() => { waldoLibraryRef.current = waldoLibrary; setWaldoLibrary(waldoLibrary); if (loaded) AsyncStorage.setItem(WALDO_LIBRARY_KEY, JSON.stringify(waldoLibrary)).catch(() => {}); }, [loaded, waldoLibrary]);
   useEffect(() => { skinSelectionsRef.current = skinSelections; }, [skinSelections]);
   useEffect(() => { if (loaded) AsyncStorage.setItem(SKINS_KEY, JSON.stringify(skinSelections)).catch(() => {}); }, [loaded, skinSelections]);
@@ -568,7 +688,7 @@ export default function App() {
     setMechanicsSettings(runTuning);
     const layout = boardLayoutFor(stageSize.width, stageSize.height);
     const fresh = attachSkinDiscovery(newRun(1, layout.worldWidth, layout.worldHeight), skinProgressionRef.current);
-    runRef.current = fresh; setRun(fresh); setHasSave(true); savedRef.current = false; void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(fresh)); queuedWalls.current = []; setQueuedWallPreview([]); setPaused(false); setLevelClearAnimation(null); setMenuPage(null); setActiveTab('game'); setRunning(true);
+    runRef.current = fresh; setRun(fresh); setHasSave(true); savedRef.current = false; void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(fresh)); queuedWalls.current = []; setQueuedWallPreview([]); setPaused(false); setLevelClearAnimation(null); setMenuPage(null); setActiveTab('game'); setBridgeSimView('fullscreen'); setRunning(true);
     setNotice('Complete walls to claim regions without balls');
   };
   const saveActiveRunToSlot = async () => {
@@ -579,10 +699,22 @@ export default function App() {
   const loadManualRun = () => {
     if (!manualSave) return;
     const restored = { ...manualSave, mechanics: normalizeMechanicsSettings(manualSave.mechanics), skinDiscovery: manualSave.skinDiscovery ?? null, totalTerritoryClaimed: manualSave.totalTerritoryClaimed ?? 0, ballsDestroyed: manualSave.ballsDestroyed ?? 0, ballsContained: manualSave.ballsContained ?? 0, pickupsCaptured: manualSave.pickupsCaptured ?? 0, containedBallIds: manualSave.containedBallIds ?? [], containedCountedThisLevel: manualSave.containedCountedThisLevel ?? false };
-    setMechanicsSettings(restored.mechanics); runRef.current = restored; setRun(restored); setHasSave(true); savedRef.current = false; void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(restored)); setMenuPage(null); setActiveTab('game'); setPaused(false); setRunning(!restored.ended); setNotice('Manual run save loaded');
+    setMechanicsSettings(restored.mechanics); runRef.current = restored; setRun(restored); setHasSave(true); savedRef.current = false; void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(restored)); setMenuPage(null); setActiveTab('game'); setBridgeSimView('fullscreen'); setPaused(false); setRunning(!restored.ended); setNotice('Manual run save loaded');
   };
-  const openMainMenu = (page: 'home' | 'themes' | 'scores' | 'settings' = 'home') => { setMerchantOpen(false); setMenuPage(page); setConfirmOverwriteSave(false); };
-  const resume = () => { setMenuPage(null); setActiveTab('game'); setPaused(false); setRunning(!runRef.current.ended); setNotice(runRef.current.ended ? 'Run ended · start a new run to continue' : 'Run resumed'); };
+  const openMainMenu = (page: 'home' | 'themes' | 'scores' | 'settings' = 'home') => { setMerchantOpen(false); setMenuPage(page); setBridgeSimView('mini'); setConfirmOverwriteSave(false); };
+  const resume = () => { setMenuPage(null); setActiveTab('game'); setBridgeSimView('fullscreen'); setPaused(false); setRunning(!runRef.current.ended); setNotice(runRef.current.ended ? 'Run ended · start a new run to continue' : 'Run resumed'); };
+  const openSimulationWindow = () => {
+    if (!hasSave || runRef.current.ended) {
+      startFresh();
+      setMenuPage('home');
+      setBridgeSimView('window');
+      return;
+    }
+    setMenuPage('home'); setActiveTab('game'); setBridgeSimView('window'); setPaused(false); setRunning(true); setNotice('Live sector displayed on the bridge');
+  };
+  const minimizeSimulation = () => { setMenuPage('home'); setActiveTab('game'); setBridgeSimView('mini'); };
+  const fullscreenSimulation = () => { setMenuPage(null); setActiveTab('game'); setBridgeSimView('fullscreen'); };
+  const showSimulationInWindow = () => { setMenuPage('home'); setActiveTab('game'); setBridgeSimView('window'); };
   const togglePause = useCallback(() => {
     if (running) { setRunning(false); setPaused(true); setRamArmed(false); setNotice('Draw a wall now to queue it for resume'); return; }
     if (!paused || runRef.current.ended) return;
@@ -769,6 +901,45 @@ export default function App() {
       setPictureLibraryNotice(error instanceof Error ? `Could not import image: ${error.message}` : 'Could not import that image.');
     }
   };
+  const importBridgeVista = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: ['image/png', 'image/jpeg', 'image/webp'], copyToCacheDirectory: true, base64: Platform.OS === 'web', multiple: false });
+      if (result.canceled || !result.assets.length) return;
+      const asset = result.assets[0];
+      const id = `vista-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      let uri = asset.uri;
+      let fileName: string | undefined;
+      if (Platform.OS === 'web') {
+        if (!asset.base64) { setBridgeVistaNotice('The browser could not read that image. Try a PNG or JPEG.'); return; }
+        const storedSize = bridgeVistaLibrary.reduce((sum, entry) => sum + (entry.uri.startsWith('data:') ? entry.uri.length : 0), 0);
+        if (asset.base64.length > 1_000_000 || storedSize + asset.base64.length > 2_000_000) {
+          setBridgeVistaNotice('That photo is too large for browser storage. Use an image under about 750 KB; the gallery stores about 1.5 MB total.'); return;
+        }
+        uri = `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}`;
+      } else {
+        const directory = new Directory(Paths.document, 'ContainmentBridgeVistaLibrary');
+        if (!directory.exists) directory.create({ idempotent: true, intermediates: true });
+        const extension = asset.name.split('.').pop()?.replace(/[^a-z0-9]/gi, '').toLowerCase() || 'img';
+        fileName = `${id}.${extension}`;
+        const destination = new File(directory, fileName);
+        await new File(asset.uri).copy(destination);
+        uri = destination.uri;
+      }
+      const entry = { id, name: asset.name.replace(/\.[^.]+$/, ''), uri, fileName };
+      setBridgeVistaLibrary(old => [...old, entry]);
+      setSelectedBridgeVistaId(id);
+      setBridgeVistaNotice(`“${entry.name}” is now pinned outside the windows. Choose AUTO to resume rotation.`);
+    } catch (error) {
+      setBridgeVistaNotice(error instanceof Error ? `Could not import photo: ${error.message}` : 'Could not import that photo.');
+    }
+  };
+  const removeBridgeVista = (entry: BridgeVistaEntry) => {
+    if (Platform.OS !== 'web' && entry.id.startsWith('vista-')) {
+      try { if (entry.fileName) { const file = new File(new Directory(Paths.document, 'ContainmentBridgeVistaLibrary'), entry.fileName); if (file.exists) file.delete(); } } catch { /* Keep the archive usable if a photo file has already gone missing. */ }
+    }
+    setBridgeVistaLibrary(old => old.filter(item => item.id !== entry.id));
+    if (selectedBridgeVistaId === entry.id) setSelectedBridgeVistaId(null);
+  };
   const handleStageLayout = (width: number, height: number) => {
     stageSizeRef.current = { width, height };
     setStageSize({ width, height });
@@ -881,11 +1052,36 @@ export default function App() {
   const uiHeight = Platform.OS === 'web' ? viewport.height : nativeDimensions.height;
   const compactBridge = uiWidth < 920 || uiHeight < 650;
   const portraitBridge = uiHeight > uiWidth;
+  const bridgeArtAspect = 1672 / 941;
+  const bridgeArtWidth = bridgeCanvasSize.width > 0 && bridgeCanvasSize.height > 0 ? Math.min(bridgeCanvasSize.width, bridgeCanvasSize.height * bridgeArtAspect) : 0;
+  const bridgeArtHeight = bridgeArtWidth / bridgeArtAspect;
+  const bridgeWindowBounds = bridgeArtWidth > 0 ? {
+    // This inset matches the red guide: keep the playable screen inside the
+    // central console-sized area, leaving the surrounding windshield glass
+    // clear so the exterior vista remains visible through its corners.
+    left: (bridgeCanvasSize.width - bridgeArtWidth) / 2 + bridgeArtWidth * 0.124,
+    top: (bridgeCanvasSize.height - bridgeArtHeight) / 2 + bridgeArtHeight * 0.167,
+    width: bridgeArtWidth * 0.762,
+    height: bridgeArtHeight * 0.534,
+  } : undefined;
   const bridgePictureSource: ImageSourcePropType | undefined = run.pictureEvent?.isWaldo ? undefined
     : pictureEntry?.uri ? { uri: pictureEntry.uri }
       : (pictureEntry?.generatedBackdropId ?? run.pictureEvent?.generatedBackdropId) !== undefined
         ? GENERATED_PICTURE_BACKDROPS[(pictureEntry?.generatedBackdropId ?? run.pictureEvent?.generatedBackdropId ?? 0) % GENERATED_PICTURE_BACKDROPS.length]
         : undefined;
+  const bridgeEventDisplay = run.pictureEvent && !run.pictureEvent.isWaldo
+    ? { kind: 'picture' as const, seed: run.pictureEvent.seed }
+    : undefined;
+  const bridgeHasPictureOverride = !!bridgeEventDisplay;
+  const pinnedBridgeVista = bridgeVistaLibrary.find(entry => entry.id === selectedBridgeVistaId);
+  useEffect(() => {
+    if (menuPage !== 'home' || bridgeHasPictureOverride || selectedBridgeVistaId || bridgeSimView === 'window') return;
+    const timer = setInterval(() => setBridgeVistaIndex(index => (index + 1) % BRIDGE_SCENIC_VIEWS.length), 18000);
+    return () => clearInterval(timer);
+  }, [menuPage, bridgeHasPictureOverride, selectedBridgeVistaId, bridgeSimView]);
+  const bridgeExteriorSource: ImageSourcePropType | undefined = bridgeHasPictureOverride
+    ? (bridgeEventDisplay?.kind === 'picture' ? bridgePictureSource : undefined)
+    : pinnedBridgeVista ? { uri: pinnedBridgeVista.uri } : BRIDGE_SCENIC_VIEWS[bridgeVistaIndex];
   const claimRects = useMemo(() => {
     const cols = run.gridCols, rows = run.gridRows, rects: { key: string; x: number; y: number; width: number }[] = [];
     for (let y = 0; y < rows; y++) {
@@ -982,6 +1178,7 @@ export default function App() {
       </View>
       <View style={[styles.tabBar, Platform.OS === 'web' && styles.tabBarWeb, isPhoneLandscape && styles.phoneTabBar]}>
         <Pressable onPress={() => openMainMenu('home')} style={[styles.tabButton, menuPage !== null && styles.tabSelected]}><Text style={[styles.tabText, menuPage !== null && styles.tabTextSelected]}>HOME</Text></Pressable>
+        {activeTab === 'game' && bridgeSimView === 'fullscreen' && hasSave && <Pressable accessibilityRole="button" onPress={showSimulationInWindow} style={styles.tabButton}><Text style={styles.tabText}>BRIDGE VIEW</Text></Pressable>}
         <Pressable onPress={() => { setMenuPage(null); setActiveTab('game'); }} style={[styles.tabButton, activeTab === 'game' && styles.tabSelected]}><Text style={[styles.tabText, activeTab === 'game' && styles.tabTextSelected]}>GAME</Text></Pressable>
         <Pressable onPress={() => { setMenuPage(null); setRunning(false); setPaused(true); setActiveTab('developer'); }} style={[styles.tabButton, activeTab === 'developer' && styles.tabSelected]}><Text style={[styles.tabText, activeTab === 'developer' && styles.tabTextSelected]}>DEVELOPER</Text></Pressable>
         {Platform.OS === 'web' && <Pressable onPress={() => setDeveloperOverlay(value => !value)} style={[styles.tabButton, developerOverlay && styles.tabSelected]}><Text style={[styles.tabText, developerOverlay && styles.tabTextSelected]}>DEV OVERLAY {developerOverlay ? 'ON' : 'OFF'}</Text></Pressable>}
@@ -991,7 +1188,7 @@ export default function App() {
         {hasSave && !run.ended && !run.levelClearPending && <Pressable style={styles.secondaryButton} onPress={resume}><Text style={styles.secondaryText}>RESUME RUN</Text></Pressable>}
         <Pressable style={styles.primaryButton} onPress={startFresh}><Text style={styles.primaryText}>{run.ended || hasSave ? 'NEW RUN' : 'START RUN'}</Text></Pressable>
       </View>}
-      {activeTab === 'game' ? (isPhonePortrait ? <View style={styles.rotatePrompt}><Text style={styles.rotateGlyph}>↻</Text><Text style={styles.rotateTitle}>ROTATE DEVICE</Text><Text style={styles.rotateCopy}>Containment is designed to play in landscape.</Text></View> : <View style={[Platform.OS === 'web' ? styles.webGameContent : { flex: 1 }, isPhoneLandscape && styles.phoneGameContent]}>
+      {activeTab === 'game' ? (bridgeSimView === 'window' ? null : isPhonePortrait ? <View style={styles.rotatePrompt}><Text style={styles.rotateGlyph}>↻</Text><Text style={styles.rotateTitle}>ROTATE DEVICE</Text><Text style={styles.rotateCopy}>Containment is designed to play in landscape.</Text></View> : <View style={[Platform.OS === 'web' ? styles.webGameContent : { flex: 1 }, isPhoneLandscape && styles.phoneGameContent]}>
       <View style={[styles.hud, Platform.OS === 'web' && styles.hudWeb, isPhoneLandscape && styles.phoneHud]}>
         <View style={Platform.OS === 'web' ? styles.stageFocus : undefined}><Text style={styles.hudLabel}>STAGE</Text><Text style={styles.hudValue}>{String(run.level).padStart(2, '0')}</Text></View>
         <View style={styles.eventBadges}>
@@ -1335,10 +1532,24 @@ export default function App() {
       </>}
     {activeTab === 'game' && merchantOpen && <MerchantScreen run={run} baseSettings={tuning} skinSelections={skinSelections} openedAtClear={merchantOpenedAtClear} onBuy={buyPowerBar} onExpandLifeVault={expandLifeVault} onInstall={installPowerBar} onClose={closeMerchant} onIncubate={beginEngiIncubation} onHireEngi={purchaseEngi} onUpgradeEngi={upgradeEngiPet} onRenameEngi={renameEngiPet} />}
     {levelClearAnimation && <LevelClearTransition key={levelClearAnimation.id} event={levelClearAnimation} onDone={() => setLevelClearAnimation(current => current?.id === levelClearAnimation.id ? null : current)} />}
-    {menuPage === 'home' && <View style={styles.commandScrim}>
-      <Image source={COMMAND_BRIDGE_ART} resizeMode="contain" style={StyleSheet.absoluteFill} />
+    {menuPage === 'home' && <View style={styles.commandScrim} onLayout={event => {
+      const { width, height } = event.nativeEvent.layout;
+      setBridgeCanvasSize(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height });
+    }}>
+      {(bridgeExteriorSource || bridgeEventDisplay) && <BridgeExterior source={bridgeExteriorSource} event={bridgeEventDisplay} />}
+      {bridgeSimView === 'window' && bridgeWindowBounds && <BridgeStagePreview run={run} hasActiveRun={hasSave && !run.ended} simulationRunning={running} defaultBackground={activeBackground.asset ?? undefined} simulationBackground={bridgePictureSource} visualSkins={visualSkins} backgroundTint={tint} backgroundId={activeBackground.id} onPress={fullscreenSimulation} presentation="window" containerStyle={bridgeWindowBounds}
+        onSurfaceLayout={(width, height, rect) => { handleStageLayout(width, height); setBoard(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height }); if (rect) boardScreenRect.current = rect; }}
+        onTouchStart={event => collectTouches(event, 'start')} onTouchEnd={event => collectTouches(event, 'end')} onTouchCancel={event => collectTouches(event, 'cancel')}
+        onPointerDown={event => { if (event.nativeEvent.pointerType === 'mouse') setMouseCursor({ x: event.nativeEvent.offsetX ?? 0, y: event.nativeEvent.offsetY ?? 0, down: true }); pointerGesture(event, 'start'); }}
+        onPointerMove={event => { if (event.nativeEvent.pointerType === 'mouse') setMouseCursor({ x: event.nativeEvent.offsetX ?? 0, y: event.nativeEvent.offsetY ?? 0, down: mouseCursor?.down ?? false }); }}
+        onPointerUp={event => { if (event.nativeEvent.pointerType === 'mouse') setMouseCursor(point => point ? { ...point, down: false } : null); pointerGesture(event, 'end'); }}
+        onPointerCancel={event => { setMouseCursor(null); pointerGesture(event, 'cancel'); }} onPointerLeave={() => setMouseCursor(null)} />}
+      <BridgeInterior />
       <View pointerEvents="none" style={styles.commandImageShade} />
-      <View style={[styles.commandLayout, { flexDirection: portraitBridge ? 'column' : 'row' }]}>
+      {bridgeSimView === 'window' && bridgeWindowBounds && <View pointerEvents="box-none" style={[styles.bridgeWindowControls, { left: bridgeWindowBounds.left, top: bridgeWindowBounds.top, width: bridgeWindowBounds.width, height: bridgeWindowBounds.height }]}>
+        <View style={styles.bridgeWindowControlBar}><Text style={styles.bridgeWindowLiveLabel}>{running ? 'LIVE SECTOR' : 'SECTOR PAUSED'} · STAGE {String(run.level).padStart(2, '0')}</Text><View style={styles.bridgeWindowControlButtons}><Pressable accessibilityRole="button" accessibilityLabel="Minimize simulation to bridge console" onPress={minimizeSimulation} style={styles.bridgeWindowControl}><Text style={styles.bridgeWindowControlGlyph}>−</Text><Text style={styles.bridgeWindowControlText}>MINIMIZE</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Expand simulation to full screen" onPress={fullscreenSimulation} style={[styles.bridgeWindowControl, styles.bridgeWindowZoom]}><Text style={styles.bridgeWindowControlGlyph}>⤢</Text><Text style={styles.bridgeWindowControlText}>FULL SCREEN</Text></Pressable></View></View>
+      </View>}
+      <View pointerEvents="box-none" style={[styles.commandLayout, { flexDirection: portraitBridge ? 'column' : 'row' }]}>
         {bridgeRailVisible && <View style={[styles.commandRail, { width: portraitBridge ? '100%' : uiWidth < 620 ? 166 : uiWidth < 920 ? 205 : 258, maxHeight: portraitBridge ? '48%' : undefined, paddingHorizontal: compactBridge ? 11 : 19, paddingVertical: compactBridge ? 10 : 18 }]}>
           <ScrollView style={styles.commandRailScroll} contentContainerStyle={styles.commandRailContent} showsVerticalScrollIndicator={false}>
             <View style={styles.bridgeBrandBlock}><View style={styles.bridgeBrandGlyph}><Text style={styles.bridgeBrandGlyphText}>✧</Text></View><View><Text style={styles.menuEyebrow}>TRAP / SURVIVAL</Text><Text style={[styles.commandBrand, compactBridge && styles.commandBrandCompact]}>Containment</Text><Text style={styles.commandSubBrand}>STARSHIP COMMAND</Text></View></View>
@@ -1357,10 +1568,10 @@ export default function App() {
           </ScrollView>
           <View style={styles.commandFooterRow}><BridgePulse delay={450} color="#ffc879" /><Text style={styles.commandFooter}>FLIGHT SYSTEMS ONLINE</Text></View>
         </View>}
-        <View style={[styles.commandMain, compactBridge && styles.commandMainCompact]}>
-          <View style={styles.bridgeWelcome}><View><Text style={styles.menuEyebrow}>COMMAND BRIDGE · DEEP SPACE</Text><Text style={[styles.bridgeWelcomeTitle, compactBridge && styles.bridgeWelcomeTitleCompact]}>Welcome aboard</Text></View><View style={styles.bridgeReady}><BridgePulse delay={240} /><Text style={styles.bridgeReadyText}>{running ? 'SECTOR LIVE' : paused ? 'SECTOR PAUSED' : 'SYSTEMS READY'}</Text></View></View>
-          <BridgeStagePreview run={run} hasActiveRun={hasSave && !run.ended} simulationRunning={running} pictureSource={bridgePictureSource} defaultBackground={activeBackground.asset ?? undefined} onPress={hasSave && !run.ended ? resume : startFresh} />
-          <View style={styles.bridgeArtifactDock}>
+        <View pointerEvents="box-none" style={[styles.commandMain, compactBridge && styles.commandMainCompact]}>
+          <View style={styles.bridgeWelcome}><View><Text style={styles.menuEyebrow}>COMMAND BRIDGE · DEEP SPACE</Text><Text style={[styles.bridgeWelcomeTitle, compactBridge && styles.bridgeWelcomeTitleCompact]}>Welcome aboard</Text></View><View style={styles.bridgeWelcomeActions}><Pressable style={styles.bridgeVistaTrigger} onPress={() => setBridgeVistaOpen(true)}><Text style={styles.bridgeVistaTriggerText}>VISTA · {bridgeEventDisplay ? 'EVENT' : pinnedBridgeVista ? 'PINNED' : 'AUTO'}</Text></Pressable><View style={styles.bridgeReady}><BridgePulse delay={240} /><Text style={styles.bridgeReadyText}>{running ? 'SECTOR LIVE' : paused ? 'SECTOR PAUSED' : 'SYSTEMS READY'}</Text></View></View></View>
+          {bridgeSimView === 'mini' && <BridgeStagePreview run={run} hasActiveRun={hasSave && !run.ended} simulationRunning={running} defaultBackground={activeBackground.asset ?? undefined} onPress={openSimulationWindow} />}
+          <View style={[styles.bridgeArtifactDock, styles.bridgeArtifactDockConsole, compactBridge && styles.bridgeArtifactDockConsoleCompact]}>
             <Text style={styles.bridgeDockHeading}>SHIP SYSTEMS · SELECT A CONSOLE</Text>
             <View style={styles.bridgeArtifactRow}>
               <BridgeArtifact title="THEMES" detail="SKIN CONSTELLATIONS" glyph="✦" color="#75e8db" onPress={() => setMenuPage('themes')} />
@@ -1373,6 +1584,16 @@ export default function App() {
         </View>
       </View>
     </View>}
+    {bridgeVistaOpen && <View style={styles.bridgeVistaScrim}><View style={styles.bridgeVistaPanel}>
+      <View style={styles.menuPanelHeader}><View><Text style={styles.menuEyebrow}>COMMAND BRIDGE · EXTERIOR</Text><Text style={styles.bridgeVistaTitle}>Vista archive</Text></View><Pressable style={styles.menuBack} onPress={() => setBridgeVistaOpen(false)}><Text style={styles.menuBackText}>CLOSE</Text></Pressable></View>
+      <Text style={styles.menuSubhead}>Choose what appears beyond the glass. Picture and Waldo event scenes temporarily take priority; your pinned vista returns afterward.</Text>
+      <View style={styles.bridgeVistaActions}><Pressable style={[styles.bridgeVistaAction, !selectedBridgeVistaId && styles.bridgeVistaActionSelected]} onPress={() => { setSelectedBridgeVistaId(null); setBridgeVistaNotice('Automatic rotation is active. Picture and Waldo event scenes still take priority.'); }}><Text style={styles.bridgeVistaActionTitle}>AUTO ROTATION</Text><Text style={styles.bridgeVistaActionCopy}>Cycle through the built-in scenic views</Text></Pressable><Pressable style={styles.bridgeVistaAction} onPress={() => void importBridgeVista()}><Text style={styles.bridgeVistaActionTitle}>＋ IMPORT PHOTO</Text><Text style={styles.bridgeVistaActionCopy}>Add PNG, JPEG, or WebP to this archive</Text></Pressable></View>
+      <Text style={styles.bridgeVistaNotice}>{bridgeVistaNotice}</Text>
+      <ScrollView style={styles.bridgeVistaGalleryScroll} contentContainerStyle={styles.bridgeVistaGallery}>
+        {bridgeVistaLibrary.map(entry => <View key={entry.id} style={[styles.bridgeVistaCard, selectedBridgeVistaId === entry.id && styles.bridgeVistaCardSelected]}><Pressable style={styles.bridgeVistaChoose} onPress={() => { setSelectedBridgeVistaId(entry.id); setBridgeVistaNotice(`“${entry.name}” is pinned outside the bridge windows.`); }}><Image source={{ uri: entry.uri }} style={styles.bridgeVistaThumb} resizeMode="cover" /><Text numberOfLines={1} style={styles.bridgeVistaName}>{entry.name}</Text><Text style={styles.bridgeVistaStatus}>{selectedBridgeVistaId === entry.id ? 'PINNED' : 'SELECT TO PIN'}</Text></Pressable><Pressable style={styles.bridgeVistaRemove} onPress={() => removeBridgeVista(entry)}><Text style={styles.deleteText}>REMOVE</Text></Pressable></View>)}
+        {!bridgeVistaLibrary.length && <Text style={styles.menuEmpty}>No uploaded photos yet. Import an image to add a personal exterior view.</Text>}
+      </ScrollView>
+    </View></View>}
     {menuPage === 'scores' && <View style={styles.mainMenuScrim}><View style={styles.scorePanel}><View style={styles.menuPanelHeader}><View><Text style={styles.menuEyebrow}>RUN ARCHIVE · TOP FIVE</Text><Text style={styles.menuTitle}>Scores</Text></View><Pressable style={styles.menuBack} onPress={() => setMenuPage('home')}><Text style={styles.menuBackText}>HOME</Text></Pressable></View><Text style={styles.menuSubhead}>Ranked by Score (currently the level reached), then by total balls contained.</Text>{scores.length ? scores.map((entry, index) => <View key={`${entry.timestamp}-${index}`} style={styles.menuScoreCard}><View style={styles.menuScoreRank}><Text style={styles.menuScoreRankText}>{String(index + 1).padStart(2, '0')}</Text></View><View style={styles.scoreMain}><Text style={styles.scoreLevel}>SCORE {entry.score} · STAGE {String(entry.level).padStart(2, '0')}</Text><Text style={styles.scoreDetails}>{entry.totalTerritoryClaimed.toFixed(1)}% total claimed · {entry.ballsContained} balls contained · {entry.ballsDestroyed} destroyed · {entry.pickupsCaptured} pickups</Text></View><Text style={styles.scoreClaim}>{entry.claimed.toFixed(1)}%</Text></View>) : <Text style={styles.menuEmpty}>No completed runs yet. Scores are recorded when a run ends.</Text>}</View></View>}
     {menuPage === 'settings' && <View style={styles.mainMenuScrim}><View style={styles.scorePanel}><View style={styles.menuPanelHeader}><View><Text style={styles.menuEyebrow}>PLAYER SETTINGS</Text><Text style={styles.menuTitle}>Play mode</Text></View><Pressable style={styles.menuBack} onPress={() => setMenuPage('home')}><Text style={styles.menuBackText}>HOME</Text></Pressable></View><Text style={styles.menuSubhead}>Choose the baseline rules for your next run. Active runs keep their saved settings.</Text><View style={styles.modeRow}>{(['easy', 'normal', 'hard'] as const).map(mode => { const active = mode === 'easy' ? tuning.easyMode : mode === 'hard' ? tuning.hardMode : !tuning.easyMode && !tuning.hardMode; return <Pressable key={mode} style={[styles.modeCard, active && styles.modeCardActive]} onPress={() => setTuning(old => ({ ...old, easyMode: mode === 'easy', hardMode: mode === 'hard' }))}><Text style={[styles.modeTitle, active && styles.modeTitleActive]}>{mode.toUpperCase()}</Text><Text style={styles.menuButtonCopy}>{mode === 'easy' ? 'Balls added between levels only.' : mode === 'normal' ? 'A chance to add a ball after capture.' : 'Additional ball on every completed wall.'}</Text></Pressable>; })}</View></View></View>}
     {menuPage === 'themes' && <ThemeTreeScreen unlocks={skinProgression} selections={themeSelectionMap} onEquip={equipArchiveSkin} onClose={() => setMenuPage('home')} renderPreview={renderThemePreview} />}
@@ -2967,13 +3188,18 @@ const styles = StyleSheet.create({
   compassNeedle: { position: 'absolute', width: '60%', height: '60%', alignItems: 'center', justifyContent: 'center' },
   burstSkewerRing: { position: 'absolute', width: '86%', height: '86%', borderWidth: 3, borderRadius: 999, borderStyle: 'dashed', shadowOpacity: 1, shadowRadius: 13 }, burstSkewerLine: { position: 'absolute', width: '108%', height: 5, borderRadius: 99, shadowOpacity: 1, shadowRadius: 16, elevation: 10 }, skewerWallFlash: { position: 'absolute', backgroundColor: '#36aaff', borderRadius: 8, shadowColor: '#5adfff', shadowOpacity: 1, shadowRadius: 16, elevation: 12 }, skewerCrackle: { position: 'absolute', width: 18, height: 20, color: '#c9f7ff', fontSize: 20, lineHeight: 20, textAlign: 'center', fontWeight: '900', textShadowColor: '#299aff', textShadowRadius: 11, elevation: 12 }, comboBadge: { position: 'absolute', top: '14%', alignSelf: 'center', color: '#f0fdff', fontSize: 12, fontWeight: '900', letterSpacing: 2, textShadowColor: '#70eaff', textShadowRadius: 12 }, bubbleCredit: { position: 'absolute', width: 22, height: 22, textAlign: 'center', color: '#ffe9a4', fontSize: 16, fontWeight: '900', textShadowColor: '#fff3c1', textShadowRadius: 8 }, bubbleCreditTotal: { position: 'absolute', top: '68%', alignSelf: 'center', color: '#fff3b3', fontSize: 9, fontWeight: '900', letterSpacing: 1, textShadowColor: '#e6ac42', textShadowRadius: 7 },
   commandScrim: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, zIndex: 90, overflow: 'hidden', backgroundColor: '#050b13' }, commandImageShade: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(3,8,15,0.16)' },
+  bridgeExteriorWindowDecor: { ...StyleSheet.absoluteFill }, bridgeExteriorGlint: { position: 'absolute', left: '64%', top: '25%', width: 5, height: 5, borderRadius: 9, backgroundColor: '#fff6d4', shadowColor: '#b9edff', shadowOpacity: 1, shadowRadius: 11, elevation: 5 }, bridgeExteriorCraft: { position: 'absolute', left: '34%', top: '38%', width: 15, height: 15, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: 'rgba(5,18,35,0.5)' }, bridgeExteriorCraftText: { color: '#c4edff', fontSize: 10, textShadowColor: '#62ceff', textShadowRadius: 9 },
   commandLayout: { width: '100%', maxWidth: 1800, height: '100%', alignSelf: 'center', flexDirection: 'row', overflow: 'hidden', backgroundColor: 'transparent' },
   commandRail: { flexDirection: 'column', justifyContent: 'space-between', borderRightWidth: 1, borderColor: '#80c4e046', backgroundColor: 'rgba(3,12,20,0.78)' }, commandRailScroll: { flex: 1, minHeight: 0 }, commandRailContent: { paddingBottom: 7, gap: 7 }, bridgeBrandBlock: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }, bridgeBrandGlyph: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#73e9d599', backgroundColor: '#102b35bb', shadowColor: '#73e9d5', shadowOpacity: 0.35, shadowRadius: 10 }, bridgeBrandGlyphText: { color: '#d6fff6', fontSize: 22 },
   commandBrand: { color: '#eef4fb', fontSize: 23, fontWeight: '900', letterSpacing: -0.5, marginTop: 3 }, commandBrandCompact: { fontSize: 18 }, commandSubBrand: { color: '#8bb7c3', fontSize: 7, fontWeight: '900', letterSpacing: 1.7, marginTop: 2 }, commandSectionLabel: { color: '#9ab3c4', fontSize: 7, fontWeight: '900', letterSpacing: 1.4, marginBottom: 1 }, bridgeSectionLabel: { marginTop: 2 },
   bridgeRailAction: { minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 8, paddingVertical: 5, borderWidth: 1, borderColor: '#68cbb459', borderRadius: 6, backgroundColor: 'rgba(8,28,37,0.82)' }, bridgeRailResume: { minHeight: 43, borderColor: '#72efda', backgroundColor: 'rgba(13,52,51,0.88)' }, bridgeRailNew: { borderColor: '#d7a95777', backgroundColor: 'rgba(35,29,18,0.86)' }, bridgeRailDisabled: { opacity: 0.56 }, bridgeRailGlyph: { width: 17, color: '#8af4df', fontSize: 13, textAlign: 'center' }, bridgeRailCopy: { flex: 1, minWidth: 0 }, bridgeRailTitle: { color: '#e7f3f5', fontSize: 7, fontWeight: '900', letterSpacing: 0.55 }, bridgeRailDetail: { color: '#94adba', fontSize: 6, marginTop: 2 }, bridgeRailWarning: { color: '#f4cd79', fontSize: 7, lineHeight: 10 }, bridgePauseLink: { minHeight: 27, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 7, borderWidth: 1, borderColor: '#6885a15c', borderRadius: 5, backgroundColor: '#0b192788' }, bridgePauseGlyph: { color: '#c3d8e8', fontSize: 10, fontWeight: '900' }, bridgePauseText: { color: '#a6c0d1', fontSize: 6, fontWeight: '900', letterSpacing: 0.55 }, bridgeReadoutGroup: { gap: 4, marginTop: 2 }, bridgeReadout: { paddingHorizontal: 8, paddingVertical: 5, borderWidth: 1, borderColor: '#7fa5b534', borderRadius: 5, backgroundColor: 'rgba(5,17,26,0.68)' }, bridgeReadoutHeading: { flexDirection: 'row', alignItems: 'center', gap: 5 }, bridgeReadoutGlyph: { color: '#80e7db', fontSize: 9, width: 11, textAlign: 'center' }, bridgeReadoutLabel: { color: '#809eae', fontSize: 5, fontWeight: '900', letterSpacing: 0.8 }, bridgeReadoutValue: { color: '#d6e7ed', fontSize: 8, fontWeight: '900', letterSpacing: 0.45, marginTop: 2 }, commandFooterRow: { minHeight: 18, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 2 }, commandFooter: { color: '#89aaa9', fontSize: 6, fontWeight: '900', letterSpacing: 0.9 },
-  commandMain: { flex: 1, minWidth: 0, paddingHorizontal: 24, paddingVertical: 16, justifyContent: 'space-between' }, commandMainCompact: { paddingHorizontal: 10, paddingVertical: 8 }, bridgeWelcome: { minHeight: 45, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, bridgeWelcomeTitle: { color: '#eff7ff', fontSize: 23, fontWeight: '300', letterSpacing: 1.7, marginTop: 3, textShadowColor: '#112d43', textShadowRadius: 14 }, bridgeWelcomeTitleCompact: { fontSize: 16, letterSpacing: 1.1 }, bridgeReady: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#8dd9cf61', backgroundColor: '#071923aa' }, bridgeReadyText: { color: '#b3e9df', fontSize: 6, fontWeight: '900', letterSpacing: 0.9 }, bridgePreviewRegion: { flex: 1, minHeight: 120, width: '100%', alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 3, overflow: 'hidden' }, bridgeMiniFrame: { alignSelf: 'center', overflow: 'hidden', borderWidth: 1, borderColor: '#86e8dbbb', borderRadius: 7, backgroundColor: '#061322', shadowColor: '#71e4db', shadowOpacity: 0.38, shadowRadius: 14, elevation: 8 }, bridgeMiniTint: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(3,14,25,0.28)' }, bridgeMiniClaim: { position: 'absolute', backgroundColor: 'rgba(62,215,187,0.2)', borderWidth: 0.5, borderColor: '#65ecd244' }, bridgeMiniWall: { position: 'absolute', backgroundColor: '#72f2d6', shadowColor: '#69eed4', shadowOpacity: 0.9, shadowRadius: 5, elevation: 3 }, bridgeMiniBall: { position: 'absolute', borderWidth: 1, borderColor: '#ecf7ff', backgroundColor: '#90a7be', shadowColor: '#c8eaff', shadowOpacity: 0.95, shadowRadius: 5, elevation: 4 }, bridgeMiniPickup: { position: 'absolute', width: 5, height: 5, borderRadius: 4, marginLeft: -2.5, marginTop: -2.5, shadowColor: '#ffe4a8', shadowOpacity: 0.9, shadowRadius: 4, elevation: 3 }, bridgeMiniScan: { position: 'absolute', top: 0, left: 0, right: 0, height: 1, backgroundColor: '#a9fff1aa', shadowColor: '#5af1dc', shadowOpacity: 1, shadowRadius: 6 }, bridgeMiniTop: { position: 'absolute', top: 0, left: 0, right: 0, minHeight: 30, paddingHorizontal: 8, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(4,13,22,0.67)' }, bridgeMiniEyebrow: { color: '#8cb8c3', fontSize: 5, fontWeight: '900', letterSpacing: 1 }, bridgeMiniStage: { color: '#f0f7fa', fontSize: 9, fontWeight: '900', marginTop: 1 }, bridgeMiniPercent: { color: '#82eddb', fontSize: 10, fontWeight: '900' }, bridgeMiniBottom: { position: 'absolute', left: 0, right: 0, bottom: 0, minHeight: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: 'rgba(4,13,22,0.74)' }, bridgeMiniResume: { color: '#cbfff1', fontSize: 6, fontWeight: '900', letterSpacing: 0.8 }, bridgeMiniReadouts: { color: '#9cb5c5', fontSize: 5, fontWeight: '800', letterSpacing: 0.4 }, bridgeMiniPulse: { position: 'absolute', top: 6, right: 7 }, bridgePulse: { width: 6, height: 6, borderRadius: 99, shadowOpacity: 0.92, shadowRadius: 5, elevation: 4 },
+  commandMain: { flex: 1, minWidth: 0, paddingHorizontal: 24, paddingVertical: 16, justifyContent: 'space-between' }, commandMainCompact: { paddingHorizontal: 10, paddingVertical: 8 }, bridgeWelcome: { minHeight: 45, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, bridgeWelcomeActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 7, flexWrap: 'wrap' }, bridgeVistaTrigger: { paddingHorizontal: 9, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#84c7f866', backgroundColor: '#071923cc' }, bridgeVistaTriggerText: { color: '#b8e4ff', fontSize: 6, fontWeight: '900', letterSpacing: 0.7 }, bridgeWelcomeTitle: { color: '#eff7ff', fontSize: 23, fontWeight: '300', letterSpacing: 1.7, marginTop: 3, textShadowColor: '#112d43', textShadowRadius: 14 }, bridgeWelcomeTitleCompact: { fontSize: 16, letterSpacing: 1.1 }, bridgeReady: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#8dd9cf61', backgroundColor: '#071923aa' }, bridgeReadyText: { color: '#b3e9df', fontSize: 6, fontWeight: '900', letterSpacing: 0.9 }, bridgePreviewRegion: { flex: 1, minHeight: 120, width: '100%', alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 3, overflow: 'hidden' }, bridgeWindowPreviewRegion: { position: 'absolute', overflow: 'hidden', backgroundColor: '#061322' }, bridgeMiniFrame: { alignSelf: 'center', overflow: 'hidden', borderWidth: 1, borderColor: '#86e8dbbb', borderRadius: 7, backgroundColor: '#061322', shadowColor: '#71e4db', shadowOpacity: 0.38, shadowRadius: 14, elevation: 8 }, bridgeWindowFrame: { alignSelf: 'stretch', borderWidth: 0, borderRadius: 0, shadowOpacity: 0, elevation: 0 }, bridgeWindowMiniBottom: { minHeight: 20, backgroundColor: 'rgba(4,13,22,0.78)' }, bridgeMiniTint: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(3,14,25,0.28)' }, bridgeMiniClaim: { position: 'absolute', backgroundColor: 'rgba(62,215,187,0.2)', borderWidth: 0.5, borderColor: '#65ecd244' }, bridgeMiniWall: { position: 'absolute', backgroundColor: '#72f2d6', shadowColor: '#69eed4', shadowOpacity: 0.9, shadowRadius: 5, elevation: 3 }, bridgeMiniBall: { position: 'absolute', borderWidth: 1, borderColor: '#ecf7ff', backgroundColor: '#90a7be', shadowColor: '#c8eaff', shadowOpacity: 0.95, shadowRadius: 5, elevation: 4 }, bridgeMiniPickup: { position: 'absolute', width: 5, height: 5, borderRadius: 4, marginLeft: -2.5, marginTop: -2.5, shadowColor: '#ffe4a8', shadowOpacity: 0.9, shadowRadius: 4, elevation: 3 }, bridgeMiniScan: { position: 'absolute', top: 0, left: 0, right: 0, height: 1, backgroundColor: '#a9fff1aa', shadowColor: '#5af1dc', shadowOpacity: 1, shadowRadius: 6 }, bridgeMiniTop: { position: 'absolute', top: 0, left: 0, right: 0, minHeight: 30, paddingHorizontal: 8, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(4,13,22,0.67)' }, bridgeMiniEyebrow: { color: '#8cb8c3', fontSize: 5, fontWeight: '900', letterSpacing: 1 }, bridgeMiniStage: { color: '#f0f7fa', fontSize: 9, fontWeight: '900', marginTop: 1 }, bridgeMiniPercent: { color: '#82eddb', fontSize: 10, fontWeight: '900' }, bridgeMiniBottom: { position: 'absolute', left: 0, right: 0, bottom: 0, minHeight: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: 'rgba(4,13,22,0.74)' }, bridgeMiniResume: { color: '#cbfff1', fontSize: 6, fontWeight: '900', letterSpacing: 0.8 }, bridgeMiniReadouts: { color: '#9cb5c5', fontSize: 5, fontWeight: '800', letterSpacing: 0.4 }, bridgeMiniPulse: { position: 'absolute', top: 6, right: 7 }, bridgePulse: { width: 6, height: 6, borderRadius: 99, shadowOpacity: 0.92, shadowRadius: 5, elevation: 4 },
+  bridgePreviewRegionDocked: { position: 'absolute', right: 0, bottom: '10%', width: '27%', height: '28%', minWidth: 145, minHeight: 100, maxWidth: 390, alignItems: 'flex-end', justifyContent: 'flex-end', overflow: 'visible' },
+  bridgeArtifactDockConsole: { width: '68%', alignSelf: 'flex-start', minHeight: 82, paddingHorizontal: 8, paddingTop: 8, paddingBottom: 6, borderTopWidth: 1, borderColor: 'rgba(164,205,218,0.25)', backgroundColor: 'rgba(3,12,21,0.55)' }, bridgeArtifactDockConsoleCompact: { width: '65%', minHeight: 72, paddingHorizontal: 3 }, bridgeArtifactConsole: { flex: 1, minWidth: 50, minHeight: 54, justifyContent: 'center', paddingHorizontal: 7, paddingVertical: 4, borderWidth: 1, borderRadius: 3, borderBottomWidth: 3, backgroundColor: 'rgba(3,13,22,0.83)', shadowColor: '#79dfff', shadowOpacity: 0.12, shadowRadius: 7, elevation: 3 },
   bridgeArtifactDock: { minHeight: 88, paddingTop: 5, paddingBottom: 2 }, bridgeDockHeading: { color: '#9bb9c7', fontSize: 6, fontWeight: '900', letterSpacing: 1, marginBottom: 5 }, bridgeArtifactRow: { width: '100%', flexDirection: 'row', gap: 7 }, bridgeArtifact: { flex: 1, minWidth: 62, minHeight: 58, justifyContent: 'center', paddingHorizontal: 8, paddingVertical: 5, borderWidth: 1, borderRadius: 5, backgroundColor: 'rgba(4,15,23,0.78)' }, bridgeArtifactHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 1 }, bridgeArtifactGlyph: { fontSize: 15, fontWeight: '900', textShadowRadius: 8 }, bridgeArtifactTitle: { color: '#e8f1f4', fontSize: 7, fontWeight: '900', letterSpacing: 0.8 }, bridgeArtifactDetail: { color: '#93a8b4', fontSize: 5, fontWeight: '700', letterSpacing: 0.4, marginTop: 2 },
   commandTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 }, commandHeadline: { color: '#f0f5fb', fontSize: 29, fontWeight: '900', letterSpacing: 1.3, marginTop: 8 }, commandStageBadge: { minWidth: 92, padding: 11, borderWidth: 1, borderColor: '#315667', borderRadius: 10, backgroundColor: '#0d202d', alignItems: 'center' }, commandStageLabel: { color: '#7f9aaa', fontSize: 7, fontWeight: '900', letterSpacing: 1 }, commandStageValue: { color: '#6cebd1', fontSize: 24, fontWeight: '900', marginTop: 2 }, commandDescription: { color: '#91a6b5', fontSize: 11, lineHeight: 17, marginTop: 13, marginBottom: 16, maxWidth: 590 }, commandActions: { width: '100%', maxWidth: 700, gap: 8 }, commandResume: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, borderWidth: 1, borderColor: '#57dabb', borderRadius: 11, backgroundColor: '#103a38' }, commandAction: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 13, paddingHorizontal: 14, borderWidth: 1, borderColor: '#263e4e', borderRadius: 10, backgroundColor: '#0b1a27' }, commandNewRun: { borderColor: '#b78c4f', backgroundColor: '#211e17' }, commandActionWarn: { borderColor: '#e4ba63', backgroundColor: '#292315' }, commandActionGlyph: { width: 22, color: '#72e9d1', fontSize: 17, textAlign: 'center' }, commandActionTitle: { color: '#e7eff6', fontSize: 9, fontWeight: '900', letterSpacing: 0.8 }, commandActionDetail: { color: '#8da2b2', fontSize: 8, marginTop: 4 }, commandChevron: { marginLeft: 'auto', color: '#71909f', fontSize: 22 }, commandStatusRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 19, maxWidth: 700 }, commandStatus: { minWidth: 112, paddingHorizontal: 11, paddingVertical: 9, borderWidth: 1, borderColor: '#1f3948', borderRadius: 8, backgroundColor: '#091722' }, commandStatusLabel: { color: '#718b9a', fontSize: 7, fontWeight: '900', letterSpacing: 1 }, commandStatusValue: { color: '#d7e3ec', fontSize: 9, fontWeight: '900', marginTop: 4, letterSpacing: 0.5 },
+  bridgeWindowControls: { position: 'absolute', zIndex: 8 }, bridgeWindowControlBar: { position: 'absolute', top: 7, right: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, minHeight: 30, paddingHorizontal: 9, paddingVertical: 4, borderWidth: 1, borderColor: '#73dfd277', borderRadius: 8, backgroundColor: 'rgba(3,12,21,0.84)' }, bridgeWindowLiveLabel: { color: '#b5fff0', fontSize: 7, fontWeight: '900', letterSpacing: 0.65 }, bridgeWindowControlButtons: { flexDirection: 'row', alignItems: 'center', gap: 5 }, bridgeWindowControl: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 6, paddingVertical: 4, borderWidth: 1, borderColor: '#527182', borderRadius: 5, backgroundColor: '#102434' }, bridgeWindowZoom: { borderColor: '#58d8bd', backgroundColor: '#10342e' }, bridgeWindowControlGlyph: { color: '#dffbf5', fontSize: 11, fontWeight: '900' }, bridgeWindowControlText: { color: '#dffbf5', fontSize: 6, fontWeight: '900', letterSpacing: 0.4 },
+  bridgeVistaScrim: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, zIndex: 120, alignItems: 'center', justifyContent: 'center', padding: 14, backgroundColor: 'rgba(2,8,14,0.78)' }, bridgeVistaPanel: { width: '100%', maxWidth: 680, maxHeight: '92%', padding: 18, borderWidth: 1, borderColor: '#5ca99e', borderRadius: 14, backgroundColor: '#071521f5', shadowColor: '#69eed4', shadowOpacity: 0.25, shadowRadius: 20 }, bridgeVistaTitle: { color: '#eff7ff', fontSize: 24, fontWeight: '900', letterSpacing: 0.6, marginTop: 3 }, bridgeVistaActions: { flexDirection: 'row', gap: 8, marginBottom: 8 }, bridgeVistaAction: { flex: 1, minWidth: 130, padding: 11, borderWidth: 1, borderColor: '#345367', borderRadius: 9, backgroundColor: '#0c202d' }, bridgeVistaActionSelected: { borderColor: '#65e5cd', backgroundColor: '#0e302d' }, bridgeVistaActionTitle: { color: '#b8f3e8', fontSize: 9, fontWeight: '900', letterSpacing: 0.7 }, bridgeVistaActionCopy: { color: '#8fa8b7', fontSize: 8, marginTop: 4 }, bridgeVistaNotice: { color: '#f3cd83', fontSize: 9, lineHeight: 14, marginVertical: 7 }, bridgeVistaGalleryScroll: { flexGrow: 0, minHeight: 80 }, bridgeVistaGallery: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 3 }, bridgeVistaCard: { width: 142, padding: 7, borderWidth: 1, borderColor: '#294354', borderRadius: 8, backgroundColor: '#0b1d2a' }, bridgeVistaCardSelected: { borderColor: '#72ead3', backgroundColor: '#0b2929' }, bridgeVistaChoose: { gap: 4 }, bridgeVistaThumb: { width: '100%', height: 74, borderRadius: 5, backgroundColor: '#102333' }, bridgeVistaName: { color: '#e0eef3', fontSize: 9, fontWeight: '800' }, bridgeVistaStatus: { color: '#6fe4cd', fontSize: 7, fontWeight: '900', letterSpacing: 0.6 }, bridgeVistaRemove: { alignSelf: 'flex-end', paddingTop: 6 },
   mainMenuScrim: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, zIndex: 90, backgroundColor: 'rgba(3,8,15,0.88)', alignItems: 'center', justifyContent: 'center', padding: 16 }, mainMenuPanel: { width: '100%', maxWidth: 620, maxHeight: '94%', padding: 24, borderWidth: 1, borderColor: '#315469', borderRadius: 18, backgroundColor: '#081521ee' }, scorePanel: { width: '100%', maxWidth: 760, maxHeight: '92%', padding: 22, borderWidth: 1, borderColor: '#315469', borderRadius: 18, backgroundColor: '#081521' }, menuPanelHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, menuEyebrow: { color: '#64e8cc', fontSize: 9, fontWeight: '900', letterSpacing: 2 }, menuTitle: { color: '#f1f6ff', fontSize: 32, fontWeight: '900', letterSpacing: 1, marginTop: 3 }, menuSubhead: { color: '#a3b5c7', fontSize: 12, lineHeight: 18, marginTop: 7, marginBottom: 14 }, menuPrimary: { minHeight: 49, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#5be0c1', marginTop: 7, padding: 12 }, menuPrimaryText: { color: '#07151a', fontSize: 12, fontWeight: '900', letterSpacing: 1.2, textAlign: 'center' }, menuButton: { padding: 12, marginTop: 7, borderRadius: 10, borderWidth: 1, borderColor: '#344b5c', backgroundColor: '#0d1d2a' }, menuButtonTitle: { color: '#e8f0f7', fontSize: 10, fontWeight: '900', letterSpacing: 1 }, menuButtonCopy: { color: '#91a6b6', fontSize: 9, lineHeight: 14, marginTop: 4 }, menuConfirmText: { color: '#f1c96e', fontSize: 9, fontWeight: '900', marginTop: 9, letterSpacing: 1 }, menuGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }, menuTile: { width: '48%', minHeight: 88, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#283d4e', backgroundColor: '#0c1b29' }, menuTileGlyph: { color: '#68e8d0', fontSize: 20, fontWeight: '900', marginBottom: 4 }, menuWarning: { color: '#efc979', fontSize: 10, lineHeight: 15, marginTop: 8, textAlign: 'center' }, menuBack: { paddingHorizontal: 13, paddingVertical: 9, borderRadius: 8, borderWidth: 1, borderColor: '#365263' }, menuBackText: { color: '#70e8d1', fontSize: 9, fontWeight: '900', letterSpacing: 1 }, menuEmpty: { color: '#92a8b9', fontSize: 12, padding: 22, textAlign: 'center' }, menuScoreCard: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 8, padding: 10, borderWidth: 1, borderColor: '#22394a', borderRadius: 10, backgroundColor: '#0c1b29' }, menuScoreRank: { width: 33, height: 33, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: '#103c39' }, menuScoreRankText: { color: '#74f2da', fontWeight: '900' }, scoreMain: { flex: 1 }, scoreLevel: { color: '#e7eff6', fontSize: 10, fontWeight: '900', letterSpacing: 0.8 }, scoreDetails: { color: '#8fa4b3', fontSize: 8, marginTop: 4 }, scoreClaim: { color: '#edc96f', fontSize: 11, fontWeight: '900' }, modeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginTop: 9 }, modeCard: { flex: 1, minWidth: 140, padding: 14, borderRadius: 10, borderWidth: 1, borderColor: '#2a4052', backgroundColor: '#0c1b29' }, modeCardActive: { borderColor: '#5be0c1', backgroundColor: '#0d2a2a' }, modeTitle: { color: '#cad5df', fontSize: 12, fontWeight: '900', letterSpacing: 1 }, modeTitleActive: { color: '#70f1d5' }, skinAchievementScrim: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, zIndex: 110, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(2,8,14,0.78)', padding: 18 }, skinAchievementCard: { width: '100%', maxWidth: 390, alignItems: 'center', padding: 25, borderRadius: 17, borderWidth: 1, borderColor: '#e6c56f', backgroundColor: '#101b29', shadowColor: '#67eed2', shadowOpacity: 0.5, shadowRadius: 22 }, achievementGlyph: { color: '#f1d57d', fontSize: 48, marginTop: 14, textShadowColor: '#57efd4', textShadowRadius: 18 }, skinDiscoveryLabel: { color: '#f1d57d', backgroundColor: '#1d1b13', borderWidth: 1, borderColor: '#86713d', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, fontSize: 8, fontWeight: '900', letterSpacing: 0.55 },
 });
 
