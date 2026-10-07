@@ -46,6 +46,8 @@ export type MechanicsSettings = {
 
 export type BallModifier = 'splitter' | 'skimmer' | 'drifter' | 'anchor' | 'phase';
 export type ContainmentPickupKind = 'life' | 'speed' | 'ram' | 'charge' | 'treasure' | 'merchant' | 'credit' | 'engi-egg';
+export const CONTAINMENT_MUTATION_COLOR = '#f2d37a';
+export function containmentMutationColor(_kind: ContainmentPickupKind) { return CONTAINMENT_MUTATION_COLOR; }
 export type ContainmentMutation = { key: string; wallIds: number[]; bounds: { left: number; right: number; top: number; bottom: number }; rollAtMs: number; rolled: boolean; active: boolean; kind?: ContainmentPickupKind; style?: 'chromatic' | 'vines'; color?: string; startedAtMs?: number; decayQueued?: boolean };
 /** Reusable shorthand for modifiers periodically applied for a random duration. Chance is per second and dt-adjusted in the sim tick. */
 export type PeriodicModifierRule = { chancePerSecond: number; durationMinSeconds: number; durationMaxSeconds: number };
@@ -103,7 +105,7 @@ export const DEFAULT_MECHANICS: MechanicsSettings = {
   lifeStorageBaseCapacity: 5, lifeStorageUpgradeBaseCost: 35, lifeStorageCostIncreasePercent: 35,
   resourceStorageUpgradeBaseCost: 25, resourceStorageCostIncreasePercent: 35,
   overflowCreditValues: { life: 5, speed: 5, ram: 5, charge: 5, treasure: 0, merchant: 0, bubble: 0, waldo: 0, credit: 0, 'engi-egg': 0, exit: 0 }, overflowProcessingMs: 6000, overflowBaseSuccessChance: 50, overflowUpgradeBaseCost: 25, overflowUpgradeChanceIncrease: 5, overflowUpgradeCostIncreasePercent: 35, overflowProcessingUpgradeBaseCost: 25, overflowProcessingUpgradeCostIncreasePercent: 35, overflowProcessingReductionPercent: 5, overflowProcessingMinimumMs: 1000, levelClearBubbleRatePerSecond: 3, levelClearBubbleDurationMs: 3000, levelClearAnimationDurationMs: 3400,
-  containmentMutationChance: 0.05, containmentMutationDelayMinSeconds: 10, containmentMutationDelayMaxSeconds: 30, containmentMutationDecayChance: 0.1, containmentMutationBaseSpawnChance: 0.15,
+  containmentMutationChance: 0.25, containmentMutationDelayMinSeconds: 10, containmentMutationDelayMaxSeconds: 30, containmentMutationDecayChance: 0.1, containmentMutationBaseSpawnChance: 0.15,
   containmentMutationPickupEnabled: { life: true, speed: true, ram: true, charge: true, treasure: true, merchant: true, credit: true, 'engi-egg': true },
   eliminationEventChance: 0.05, driftSwarmEventChance: 0.05, driftSwarmBannerDurationMs: 3000, eliminationChargeSpawnChance: 0.4, driftSwarmVariationMin: 0.65, driftSwarmVariationMax: 1.5,
   skinDiscoveryChance: 0.02, skinDiscoveryCategoryWeights: { background: 1, ball: 1, 'credit-symbol': 1, pet: 1, 'pickup:life': 1, 'pickup:speed': 1, 'pickup:ram': 1, 'pickup:charge': 1, 'pickup:treasure': 1, 'pickup:merchant': 1, 'pickup:bubble': 1, 'pickup:waldo': 1, 'pickup:credit': 1, 'pickup:engi-egg': 1, 'pickup:exit': 1 }, skinDiscoveryClaimBonusPercent: {}, skinDiscoveryRequiresIsotypes: {},
@@ -175,7 +177,7 @@ export type CompanionPet = { id: number; species: 'engi' | 'waldo'; name: string
 export type PetIncubation = { id: number; species: 'engi'; progressMs: number; durationMs: number; nameSeed: number; skinId: string };
 export type PowerUp = { id: number; x: number; y: number; vx: number; vy: number; kind: PowerKind; skinId?: string; phaseChest?: boolean; levelClearBubble?: boolean; bounceCredits?: number; despawnAtMs?: number; despawnOpacity?: number };
 export type SkeweredWall = Pick<Wall, 'axis' | 'at' | 'low' | 'high'>;
-export type CaptureEvent = { id: number; x: number; y: number; kind: PowerKind | 'explosion' | 'chargeBallBreak' | 'phaseRupture' | 'phaseChestBreak' | 'ramBlast' | 'jackpot' | 'merchantBreak' | 'anchorBreak' | 'combo' | 'bubbleLost' | 'creditLost' | 'overflowFailed' | 'waldoFound' | 'petRepair' | 'petLost' | 'petHatched' | 'engiEggBreak'; skinId?: string; skewered?: boolean; skeweredAxis?: Wall['axis']; skeweredWall?: SkeweredWall; amount?: number; amountY?: number; comboCount?: number };
+export type CaptureEvent = { id: number; x: number; y: number; kind: PowerKind | 'explosion' | 'chargeBallBreak' | 'chargeWallBreak' | 'phaseRupture' | 'phaseChestBreak' | 'ramBlast' | 'jackpot' | 'merchantBreak' | 'anchorBreak' | 'combo' | 'bubbleLost' | 'creditLost' | 'overflowFailed' | 'waldoFound' | 'petRepair' | 'petLost' | 'petHatched' | 'engiEggBreak'; skinId?: string; skewered?: boolean; skeweredAxis?: Wall['axis']; skeweredWall?: SkeweredWall; amount?: number; amountY?: number; comboCount?: number };
 export type WallBreakEvent = { id: number; x: number; y: number; style: string; axis?: Wall['axis']; at?: number; low?: number; high?: number };
 export type TerritoryGainEvent = { id: number; x: number; y: number; percent: number; wallX?: number; wallY?: number; areaX?: number; areaY?: number };
 export type CreditGainEvent = { id: number; x: number; y: number; amount: number };
@@ -539,6 +541,7 @@ export function deployEngi(run: Run, petId: number, x: number, y: number, deploy
   const target = run.pets.find(pet => pet.id === petId);
   if (!target) return run;
   const safeX = Math.max(14, Math.min(run.boardWidth - 14, x)), safeY = Math.max(14, Math.min(run.boardHeight - 14, y));
+  if (deployed && overlapsClaimed(run, safeX, safeY, 13, run.boardWidth, run.boardHeight)) return run;
   return { ...run, pets: run.pets.map(pet => pet.id === petId ? { ...pet, deployed, x: safeX, y: safeY, vx: deployed ? 30 : 0, vy: 0 } : pet) };
 }
 
@@ -562,6 +565,12 @@ function advancePetIncubations(run: Run, dt: number) {
 
 function advancePetBodies(run: Run, dt: number, width: number, height: number) {
   const dtSeconds = dt / 1000;
+  const visibleThreats = (pet: CompanionPet) => run.balls
+    .filter(ball => !run.walls.some(wall => !wall.active && (wall.axis === 'vertical'
+      ? (pet.x - wall.at) * (ball.x - wall.at) < 0 && pet.y + (ball.y - pet.y) * ((wall.at - pet.x) / (ball.x - pet.x || 1)) >= wall.low && pet.y + (ball.y - pet.y) * ((wall.at - pet.x) / (ball.x - pet.x || 1)) <= wall.high
+      : (pet.y - wall.at) * (ball.y - wall.at) < 0 && pet.x + (ball.x - pet.x) * ((wall.at - pet.y) / (ball.y - pet.y || 1)) >= wall.low && pet.x + (ball.x - pet.x) * ((wall.at - pet.y) / (ball.y - pet.y || 1)) <= wall.high)))
+    .map(ball => ({ ball, distance: Math.hypot(ball.x - pet.x, ball.y - pet.y) }))
+    .sort((a, b) => a.distance - b.distance)[0];
   const pets: CompanionPet[] = [];
   for (const original of run.pets) {
     let pet = { ...original };
@@ -573,6 +582,12 @@ function advancePetBodies(run: Run, dt: number, width: number, height: number) {
         const speed = randomBetween(18, 38);
         pet.vx = Math.cos(angle) * speed; pet.vy = Math.sin(angle) * speed;
         pet.taskUntilMs = run.elapsedMs + randomBetween(2600, 5600);
+      }
+      const threat = visibleThreats(pet);
+      if (threat && threat.distance < 230) {
+        const fleeSpeed = 48, threatX = (pet.x - threat.ball.x) / Math.max(1, threat.distance), threatY = (pet.y - threat.ball.y) / Math.max(1, threat.distance);
+        pet.vx = pet.vx * 0.35 + threatX * fleeSpeed * 0.65;
+        pet.vy = pet.vy * 0.35 + threatY * fleeSpeed * 0.65;
       }
       let nextX = pet.x + pet.vx * dtSeconds, nextY = pet.y + pet.vy * dtSeconds;
       const edge = 20;
@@ -600,6 +615,11 @@ function advancePetBodies(run: Run, dt: number, width: number, height: number) {
     }
     if (pet.deployed) {
       const r = 13;
+      const threat = visibleThreats(pet);
+      if (threat && threat.distance < 210) {
+        pet.vx += Math.sign(pet.x - threat.ball.x || (pet.id % 2 ? 1 : -1)) * 115 * dtSeconds;
+        pet.vx = Math.max(-88, Math.min(88, pet.vx));
+      }
       const previousY = pet.y;
       let nextX = pet.x + pet.vx * dtSeconds;
       let nextY = pet.y + pet.vy * dtSeconds + 0.5 * 460 * dtSeconds * dtSeconds;
@@ -793,9 +813,9 @@ export function everyBallHasItsOwnRegion(run: Run, width: number, height: number
   return run.balls.length > 0 && isolatedBallIds(run, width, height).length === run.balls.length;
 }
 
-/** Finds open rectangular enclosures made by exactly four solid player walls. */
+/** Finds fully player-walled regions containing one metal ball and no other ball. */
 function findContainmentBoxes(run: Run, width: number, height: number) {
-  if (run.balls.length < 2) return [] as { key: string; wallIds: number[]; bounds: ContainmentMutation['bounds'] }[];
+  if (run.balls.length === 0) return [] as { key: string; wallIds: number[]; bounds: ContainmentMutation['bounds'] }[];
   const cols = run.gridCols || 48, rows = run.gridRows || 72, stepX = width / cols, stepY = height / rows;
   const barriers = buildWallBarrierGrid(run.walls.filter(wall => !wall.active), width, height, cols, rows, 'edge-tolerance');
   const solidWalls = run.walls.filter(wall => !wall.active), labels = new Int32Array(cols * rows), queue = new Int32Array(cols * rows);
@@ -810,37 +830,47 @@ function findContainmentBoxes(run: Run, width: number, height: number) {
       ? wall.axis === 'vertical' && Math.abs(wall.at - edge) < stepX * 0.7 && along >= wall.low - stepY * 0.5 && along <= wall.high + stepY * 0.5
       : wall.axis === 'horizontal' && Math.abs(wall.at - edge) < stepY * 0.7 && along >= wall.low - stepX * 0.5 && along <= wall.high + stepX * 0.5);
   };
-  const regions: { label: number; wallIds: Set<number>; touchesEdge: boolean; left: number; right: number; top: number; bottom: number }[] = [];
+  const regions: { label: number; wallIds: Set<number>; fullyWallEnclosed: boolean; left: number; right: number; top: number; bottom: number }[] = [];
   for (let start = 0; start < labels.length; start++) {
     if (labels[start] || run.claimMask[start]) continue;
-    const label = ++nextLabel; let head = 0, tail = 0, touchesEdge = false;
+    const label = ++nextLabel; let head = 0, tail = 0, fullyWallEnclosed = true;
     let left = cols, right = 0, top = rows, bottom = 0;
     const wallIds = new Set<number>(); labels[start] = label; queue[tail++] = start;
     while (head < tail) {
       const index = queue[head++], x = index % cols, y = Math.floor(index / cols);
       left = Math.min(left, x); right = Math.max(right, x); top = Math.min(top, y); bottom = Math.max(bottom, y);
       for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]] as const) {
-        if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) { touchesEdge = true; continue; }
+        if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) { fullyWallEnclosed = false; continue; }
         const next = ny * cols + nx;
-        if (run.claimMask[next]) continue;
-        if (blocked(x, y, nx, ny)) { const wall = wallAtBoundary(x, y, nx, ny); if (wall) wallIds.add(wall.id); continue; }
+        if (blocked(x, y, nx, ny)) { const wall = wallAtBoundary(x, y, nx, ny); if (wall) wallIds.add(wall.id); else fullyWallEnclosed = false; continue; }
+        if (run.claimMask[next]) { fullyWallEnclosed = false; continue; }
         if (!labels[next]) { labels[next] = label; queue[tail++] = next; }
       }
     }
-    regions.push({ label, wallIds, touchesEdge, left, right, top, bottom });
+    regions.push({ label, wallIds, fullyWallEnclosed, left, right, top, bottom });
   }
   const occupiedLabels = run.balls.map(ball => {
     const col = Math.max(0, Math.min(cols - 1, Math.floor(ball.x / width * cols)));
     const row = Math.max(0, Math.min(rows - 1, Math.floor(ball.y / height * rows)));
     return labels[row * cols + col];
   });
-  if (occupiedLabels.every(label => label > 0) && new Set(occupiedLabels).size === occupiedLabels.length) return [];
   const countByLabel = new Map<number, number>();
   for (const label of occupiedLabels) countByLabel.set(label, (countByLabel.get(label) ?? 0) + 1);
-  return regions.filter(region => !region.touchesEdge && region.wallIds.size === 4 && countByLabel.get(region.label) === 1).map(region => {
+  return regions.filter(region => region.fullyWallEnclosed && region.wallIds.size > 0 && countByLabel.get(region.label) === 1).map(region => {
     const wallIds = [...region.wallIds].sort((a, b) => a - b);
-    return { key: wallIds.join(':'), wallIds, bounds: { left: region.left / cols, right: (region.right + 1) / cols, top: region.top / rows, bottom: (region.bottom + 1) / rows } };
+    const ball = run.balls[occupiedLabels.findIndex(label => label === region.label)];
+    return { key: wallIds.length ? wallIds.join(':') : `ball:${ball.id}`, wallIds, bounds: { left: region.left / cols, right: (region.right + 1) / cols, top: region.top / rows, bottom: (region.bottom + 1) / rows } };
   });
+}
+
+/** Developer verification: activate a real qualifying enclosure, bypassing only its random wait/chance roll. */
+export function testContainmentMutation(run: Run): Run {
+  const regions = findContainmentBoxes(run, run.boardWidth, run.boardHeight);
+  const eligibleKind = rollContainmentMutationKind(run);
+  const region = regions[0];
+  if (!region || !eligibleKind) return run;
+  const box: ContainmentMutation = { ...region, rollAtMs: run.elapsedMs, rolled: true, active: true, kind: eligibleKind, style: 'chromatic', color: containmentMutationColor(eligibleKind), startedAtMs: run.elapsedMs };
+  return { ...run, containmentMutations: [...(run.containmentMutations ?? []).filter(existing => existing.key !== region.key), box] };
 }
 
 function containmentMutationUpgrade(run: Run, kind: ContainmentPickupKind, branch: 'mutationAffinity' | 'mutationAttraction') {
@@ -887,8 +917,7 @@ function refreshContainmentMutations(run: Run, width: number, height: number, dt
     // A box gets one roll only, and the enclosure must still meet the rule when the timer ends.
     if (!current.has(box.key) || Math.random() >= run.mechanics.containmentMutationChance) { boxes[index] = { ...box, rolled: true }; continue; }
     const kind = rollContainmentMutationKind(run);
-    const colors = ['#ff62a6', '#ffb347', '#9d8cff', '#69cfff', '#86ef8d', '#f5e85c'];
-    boxes[index] = kind ? { ...box, rolled: true, active: true, kind, style: Math.random() < 0.5 ? 'chromatic' : 'vines', color: colors[Math.floor(Math.random() * colors.length)], startedAtMs: run.elapsedMs } : { ...box, rolled: true };
+    boxes[index] = kind ? { ...box, rolled: true, active: true, kind, style: 'chromatic', color: containmentMutationColor(kind), startedAtMs: run.elapsedMs } : { ...box, rolled: true };
   }
   run.containmentMutations = boxes;
 }
@@ -968,6 +997,64 @@ function buildWallBarrierGrid(walls: Wall[], width: number, height: number, cols
   return { vertical, horizontal };
 }
 
+/** Reopens only the claimed component directly exposed by a solid-wall breach. */
+function unclaimTerritoryAtBreaches(run: Run, width: number, height: number, breaches: { wall: Wall; low: number; high: number }[]): Run {
+  const solidBreaches = breaches.filter(breach => !breach.wall.active && breach.high > breach.low);
+  if (!solidBreaches.length || !run.claimMask?.length) return run;
+  const cols = run.gridCols || 48, rows = run.gridRows || 72;
+  const stepX = width / cols, stepY = height / rows;
+  const claimed = run.claimMask;
+  const barriers = buildWallBarrierGrid(run.walls.filter(wall => !wall.active), width, height, cols, rows, 'cell-centers');
+  const blocked = (x1: number, y1: number, x2: number, y2: number) => x1 !== x2
+    ? !!barriers.vertical[y1 * (cols - 1) + Math.min(x1, x2)]
+    : !!barriers.horizontal[Math.min(y1, y2) * cols + x1];
+  const seeds = new Set<number>();
+  const seedPair = (x1: number, y1: number, x2: number, y2: number) => {
+    if (x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0 || x1 >= cols || x2 >= cols || y1 >= rows || y2 >= rows || blocked(x1, y1, x2, y2)) return;
+    const first = y1 * cols + x1, second = y2 * cols + x2;
+    if (claimed[first]) seeds.add(first);
+    if (claimed[second]) seeds.add(second);
+  };
+  for (const { wall, low, high } of solidBreaches) {
+    if (wall.axis === 'vertical') {
+      const firstEdge = Math.max(1, Math.ceil(wall.at / stepX - 0.5));
+      const lastEdge = Math.min(cols - 1, Math.floor(wall.at / stepX + 0.5));
+      for (let edge = firstEdge; edge <= lastEdge; edge++) for (let row = 0; row < rows; row++) {
+        const y = (row + 0.5) * stepY;
+        if (y >= low - stepY * 0.5 && y <= high + stepY * 0.5) seedPair(edge - 1, row, edge, row);
+      }
+    } else {
+      const firstEdge = Math.max(1, Math.ceil(wall.at / stepY - 0.5));
+      const lastEdge = Math.min(rows - 1, Math.floor(wall.at / stepY + 0.5));
+      for (let edge = firstEdge; edge <= lastEdge; edge++) for (let col = 0; col < cols; col++) {
+        const x = (col + 0.5) * stepX;
+        if (x >= low - stepX * 0.5 && x <= high + stepX * 0.5) seedPair(col, edge - 1, col, edge);
+      }
+    }
+  }
+  if (!seeds.size) return run;
+  const affected = new Uint8Array(cols * rows), queue = new Int32Array(cols * rows);
+  let head = 0, tail = 0;
+  for (const seed of seeds) { affected[seed] = 1; queue[tail++] = seed; }
+  while (head < tail) {
+    const index = queue[head++], x = index % cols, y = Math.floor(index / cols);
+    for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]] as const) {
+      if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+      const next = ny * cols + nx;
+      if (affected[next] || !claimed[next] || blocked(x, y, nx, ny)) continue;
+      affected[next] = 1; queue[tail++] = next;
+    }
+  }
+  let reclaimed = 0;
+  const claimMask = Array.from(claimed, (value, index) => {
+    if (value && affected[index]) { reclaimed++; return 0; }
+    return value;
+  });
+  if (!reclaimed) return run;
+  const claimedCells = claimMask.reduce((sum, value) => sum + value, 0);
+  return { ...run, claimMask, claimed: claimedCells / claimMask.length * 100 };
+}
+
 /** Places one capture-spawned ball in the largest currently open component. */
 function spawnCaptureBall(run: Run, width: number, height: number): Run {
   const cols = run.gridCols || 48, rows = run.gridRows || 72;
@@ -1036,6 +1123,13 @@ export function claimEmptyRegions(run: Run, width: number, height: number, addit
   for (const b of run.balls) {
     const x = Math.max(0, Math.min(cols - 1, Math.floor(b.x / width * cols)));
     const y = Math.max(0, Math.min(rows - 1, Math.floor(b.y / height * rows)));
+    const i = cell(x, y);
+    if (!seen[i]) { seen[i] = 1; queue[tail++] = i; }
+  }
+  // Deployed companions are protected occupants too: a cell containing a pet stays open.
+  for (const pet of run.pets.filter(candidate => candidate.deployed)) {
+    const x = Math.max(0, Math.min(cols - 1, Math.floor(pet.x / width * cols)));
+    const y = Math.max(0, Math.min(rows - 1, Math.floor(pet.y / height * rows)));
     const i = cell(x, y);
     if (!seen[i]) { seen[i] = 1; queue[tail++] = i; }
   }
@@ -1250,7 +1344,11 @@ export function activateSpeed(run: Run): Run {
 export function activateCharge(run: Run, skinId: string): Run {
   if (run.chargeCharges <= 0 || (run.chargeReadyUntil !== null && run.chargeReadyUntil > run.elapsedMs)) return run;
   const active = run.walls.filter(wall => wall.active).sort((a, b) => b.id - a.id)[0];
-  if (active) return { ...run, chargeCharges: run.chargeCharges - 1, walls: run.walls.map(wall => wall.id === active.id ? { ...wall, chargeWall: true, chargeSkinId: skinId } : wall) };
+  if (active) {
+    const x = active.axis === 'vertical' ? active.at : (active.low + active.high) / 2;
+    const y = active.axis === 'horizontal' ? active.at : (active.low + active.high) / 2;
+    return { ...run, chargeCharges: run.chargeCharges - 1, walls: run.walls.filter(wall => wall.id !== active.id).map(wall => ({ ...wall, connections: wall.connections.filter(id => id !== active.id) })), captureEvents: [...run.captureEvents, { id: run.nextId, x, y, kind: 'chargeWallBreak', skinId }], nextId: run.nextId + 1 };
+  }
   return { ...run, chargeCharges: run.chargeCharges - 1, chargeReadyUntil: run.elapsedMs + 6000, chargeReadySkinId: skinId };
 }
 
@@ -1535,6 +1633,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
   const repairedWalls = new Set<number>();
   const breakPoints: { x: number; y: number; axis: Wall['axis']; at: number; low: number; high: number }[] = [];
   const anchorCuts = new Map<number, { wall: Wall; low: number; high: number }>();
+  const rammedWallSections: { wall: Wall; low: number; high: number }[] = [];
   const anchorUsed = new Set<number>();
   for (const b of run.balls) {
     if (ballHasModifier(b, 'drifter')) {
@@ -1566,7 +1665,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
     } else b.skimmerRemainingMs = (b.skimmerRemainingMs ?? 0) - dt;
     const oldX = b.x, oldY = b.y;
     let nextX = b.x + b.vx * dt / 1000, nextY = b.y + b.vy * dt / 1000;
-    let skimmerFinished = false;
+    let skimmerFinished = false, skimmerBrokeWall = false;
     if (skimmingWall?.axis === 'vertical') {
       nextX = skimmingWall.at + (oldX < skimmingWall.at ? -b.r - 2 : b.r + 2);
       const along = oldY + b.vy * dt / 1000;
@@ -1578,6 +1677,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
         if (high - low > Math.max(3, b.r * 0.35)) {
           anchorCuts.set(skimmingWall.id, { wall: skimmingWall, low, high });
           breakPoints.push({ x: nextX, y: nextY, axis: skimmingWall.axis, at: skimmingWall.at, low, high });
+          skimmerBrokeWall = true;
         }
       } else nextY = along;
     }
@@ -1592,6 +1692,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
         if (high - low > Math.max(3, b.r * 0.35)) {
           anchorCuts.set(skimmingWall.id, { wall: skimmingWall, low, high });
           breakPoints.push({ x: nextX, y: nextY, axis: skimmingWall.axis, at: skimmingWall.at, low, high });
+          skimmerBrokeWall = true;
         }
       } else nextX = along;
     }
@@ -1602,8 +1703,14 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
     if (!ballHasModifier(b, 'phase') && overlapsClaimed(run, nextX, nextY, b.r, width, height)) { nextY = oldY; b.vy *= -1; }
     b.x = nextX; b.y = nextY;
     if (skimmerFinished) {
+      const resumeVx = b.skimmerResumeVx ?? b.vx, resumeVy = b.skimmerResumeVy ?? b.vy;
+      const legacySkimmerExpiry = b.modifier === 'skimmer';
+      if (skimmerBrokeWall) {
+        Object.assign(b, removeBallModifier(b, 'skimmer'));
+        if (legacySkimmerExpiry) b.modifierExpiresAtMs = undefined;
+      }
       b.skimmerWallId = undefined; b.skimmerRemainingMs = undefined; b.skimmerStartAlong = undefined;
-      b.vx = b.skimmerResumeVx ?? b.vx; b.vy = b.skimmerResumeVy ?? b.vy;
+      b.vx = resumeVx; b.vy = resumeVy;
       b.skimmerResumeVx = undefined; b.skimmerResumeVy = undefined;
       continue;
     }
@@ -1615,6 +1722,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
       if (!pointOnWall(w, b.x, b.y, b.r)) continue;
       if (b.rammed) {
         if (w.active) breakPoints.push({ x: b.x, y: b.y, axis: w.axis, at: w.at, low: w.low, high: w.high });
+        else rammedWallSections.push({ wall: w, low: w.low, high: w.high });
         run.walls = run.walls.filter(candidate => candidate.id !== w.id).map(candidate => ({ ...candidate, connections: candidate.connections.filter(id => id !== w.id) }));
         b.rammed = false;
       }
@@ -1677,7 +1785,11 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
       }
       else if (ballHasModifier(b, 'skimmer') && !w.active && b.skimmerWallId === undefined) {
         const speed = Math.max(run.mechanics.ballSpeedMin, Math.hypot(b.vx, b.vy));
-        b.skimmerWallId = w.id; b.skimmerRemainingMs = run.mechanics.ballModifiers.skimmer.glideDurationMs ?? 900; b.skimmerStartAlong = w.axis === 'vertical' ? b.y : b.x;
+        const along = w.axis === 'vertical' ? b.y : b.x;
+        const endpoint = w.axis === 'vertical' ? (b.vy >= 0 ? w.high : w.low) : (b.vx >= 0 ? w.high : w.low);
+        const alongSpeed = Math.max(run.mechanics.ballSpeedMin, Math.abs(w.axis === 'vertical' ? b.vy : b.vx));
+        const timeToEndpoint = Math.abs(endpoint - along) / alongSpeed * 1000 + 180;
+        b.skimmerWallId = w.id; b.skimmerRemainingMs = Math.max(run.mechanics.ballModifiers.skimmer.glideDurationMs ?? 900, timeToEndpoint); b.skimmerStartAlong = along;
         b.skimmerResumeVx = w.axis === 'vertical' ? (oldX < w.at ? -1 : 1) * Math.abs(b.vx || speed) : b.vx;
         b.skimmerResumeVy = w.axis === 'horizontal' ? (oldY < w.at ? -1 : 1) * Math.abs(b.vy || speed) : b.vy;
         if (w.axis === 'vertical') { b.vx = 0; b.vy = b.vy === 0 ? speed : Math.sign(b.vy) * speed; }
@@ -1725,33 +1837,6 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
       if (!vertical.connections.includes(horizontal.id)) vertical.connections.push(horizontal.id);
       if (!horizontal.connections.includes(vertical.id)) horizontal.connections.push(vertical.id);
     }
-    const cols = run.gridCols, rows = run.gridRows;
-    const reachable = new Uint8Array(cols * rows), queue: number[] = [];
-    const barriers = buildWallBarrierGrid(run.walls.filter(wall => !wall.active), width, height, cols, rows, 'cell-centers');
-    const canCross = (from: number, to: number) => {
-      const fromX = from % cols, toX = to % cols;
-      if (fromX !== toX) return !barriers.vertical[Math.floor(from / cols) * (cols - 1) + Math.min(fromX, toX)];
-      return !barriers.horizontal[Math.min(Math.floor(from / cols), Math.floor(to / cols)) * cols + fromX];
-    };
-    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) if (x === 0 || y === 0 || x === cols - 1 || y === rows - 1) {
-      const index = y * cols + x;
-      if (!reachable[index]) { reachable[index] = 1; queue.push(index); }
-    }
-    for (let head = 0; head < queue.length; head++) {
-      const index = queue[head], x = index % cols, y = Math.floor(index / cols);
-      for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
-        if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
-        const neighbor = ny * cols + nx;
-        if (reachable[neighbor] || !canCross(index, neighbor)) continue;
-        reachable[neighbor] = 1; queue.push(neighbor);
-      }
-    }
-    let reclaimed = 0;
-    run.claimMask = run.claimMask.map((claimed, index) => {
-      if (claimed && reachable[index]) { reclaimed++; return 0; }
-      return claimed;
-    });
-    if (reclaimed) run.claimed = Math.max(0, run.claimed - reclaimed / (cols * rows) * 100);
   }
   const brokenNetwork = new Set(broken);
   const pendingBroken = [...broken];
@@ -1770,6 +1855,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
     run.lives -= broken.size;
     if (run.lives <= 0) run.ended = true;
   }
+  run = unclaimTerritoryAtBreaches(run, width, height, [...anchorCuts.values(), ...rammedWallSections]);
   if (breakPoints.length) {
     run.wallBreakEvents = breakPoints.map((point, index) => ({ id: run.nextId + index, ...point, style: run.mechanics.wallBreakStyle ?? 'glass-shards' }));
     run.nextId += run.wallBreakEvents.length;

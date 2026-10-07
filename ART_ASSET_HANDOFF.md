@@ -13,6 +13,13 @@ Use this as the inventory for brainstorming and generating replacement or altern
 - Design freely. The IDs and slots below identify where an asset attaches; they are not visual constraints. Related idle and event animations for a selected skin should share a coherent theme.
 - Output path suggestion: `assets/art/<category>/<stable-id>/`. Name files `<stable-id>_<slot>[_NN].png`, e.g. `vital-seed_idle.png`, `vital-seed_capture_01.png`.
 
+## Command bridge layering contract
+
+- `assets/bridge-command-foreground.png` is the transparent foreground cutout aligned to the bridge's 1672×941 design canvas. Preserve that canvas and keep every window opening transparent when preparing updated interior art.
+- The bridge panorama is an independent exterior layer behind the cutout. One selected photo spans the center and both side panes; automatic rotation is populated from built-in scenery plus the user's uploaded vista library. Do not bake a specific vista into replacement interior art.
+- The playable board occupies the center viewing area only. Side panes continue to show the exterior. Game Picture events belong to the game board and must not override the menu's exterior vista.
+- Interactive consoles, interior animations, and future room props belong on separate foreground/UI layers so they can animate without changing window masks or exterior alignment.
+
 ## Integrated concept art
 
 Selected concepts from the recent graphics pass are now used by gameplay and Developer previews. The 4×4 transparent source atlases are preserved as `assets/selected-skins-atlas.png` and `assets/selected-skins-atlas-2.png`; individual cells are sliced under `assets/skins/selected/` and `assets/skins/selected-2/`. `scripts/slice-skin-atlas.cjs` reproduces those slices. Credit symbols use `assets/credits/`, and the full-board procedural-event backgrounds use `assets/backgrounds/`.

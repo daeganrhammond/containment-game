@@ -4,7 +4,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Image, ImageSourcePropType, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
-import { activateCharge, activateSpeed, Ball, BallModifier, CaptureEvent, chargeCapacity, chargeStorageUpgradeCost, CompanionPet, ContainmentPickupKind, CreditGainEvent, DEFAULT_MECHANICS, deployEngi, engiUpgradeCost, enforceChargeCapacities, getMechanicsSettings, hireEngi, lifeStorageUpgradeCost, MechanicsSettings, MECHANICS, merchantPowerBarCost as getMerchantPowerBarCost, newRun, OverflowJob, OverflowResult, overflowProcessingUpgradeCost, overflowRefineryUpgradeCost, PictureLibraryEntry, PowerKind, PowerUp, powerupCollisionRadius, powerupDespawnAt, randomBetween, randomEngiCocoonSkin, ramAt, startEngiIncubation, tapPickupAt, resizeRunBoard, Run, ScoreEntry, setMechanicsSettings, setPictureLibrary, setWaldoLibrary, startWall, stepRun, TerritoryGainEvent, upgradeEngi, WaldoLibraryEntry, Wall, WallBreakEvent } from './mechanics';
+import { activateCharge, activateSpeed, Ball, BallModifier, CaptureEvent, chargeCapacity, chargeStorageUpgradeCost, CompanionPet, ContainmentPickupKind, CONTAINMENT_MUTATION_COLOR, containmentMutationColor, CreditGainEvent, DEFAULT_MECHANICS, deployEngi, engiUpgradeCost, enforceChargeCapacities, getMechanicsSettings, hireEngi, lifeStorageUpgradeCost, MechanicsSettings, MECHANICS, merchantPowerBarCost as getMerchantPowerBarCost, newRun, OverflowJob, OverflowResult, overflowProcessingUpgradeCost, overflowRefineryUpgradeCost, PictureLibraryEntry, PowerKind, PowerUp, powerupCollisionRadius, powerupDespawnAt, randomBetween, randomEngiCocoonSkin, ramAt, startEngiIncubation, tapPickupAt, resizeRunBoard, Run, ScoreEntry, setMechanicsSettings, setPictureLibrary, setWaldoLibrary, startWall, stepRun, TerritoryGainEvent, testContainmentMutation, upgradeEngi, WaldoLibraryEntry, Wall, WallBreakEvent } from './mechanics';
 import { BACKGROUND_SKINS, BALL_SKINS, CREDIT_SKINS, DEFAULT_SKIN_SELECTIONS, ENGI_PET_SKINS, LEVEL_CLEAR_ANIMATIONS, normalizeSkinSelections, PICKUP_SKINS, SkinOption, SkinSelections, CaptureAnimation } from './skins';
 import { defaultSkinUnlocks, normalizeSkinUnlocks, reachableSkin, SKIN_ARCHIVE, SKIN_CATEGORY_KEYS, SKIN_DEFAULTS, SkinArchiveNode, SkinUnlocks } from './themeCatalog';
 import { ThemeTreeScreen } from './ThemeTreeScreen';
@@ -31,6 +31,11 @@ const GENERATED_PICTURE_BACKDROPS = [
 const BRIDGE_SCENIC_VIEWS: ImageSourcePropType[] = [
   require('./assets/picture-events/astral-nebula.jpg'), require('./assets/picture-events/ringworld-horizon.jpg'), require('./assets/picture-events/stellar-clouds.jpg'),
 ];
+const BRIDGE_ART_SIZE = { width: 1672, height: 941 };
+const BRIDGE_ART_ASPECT = BRIDGE_ART_SIZE.width / BRIDGE_ART_SIZE.height;
+// Coordinates use the bridge art's normalized canvas so viewport resizing cannot
+// move the playable board under the sloped lower window frame.
+const BRIDGE_BOARD_VIEW = { left: 0.124, top: 0.167, width: 0.762, height: 0.47 };
 const FULL_STAGE_IMAGE_STYLE = { position: 'absolute' as const, left: 0, top: 0, width: '100%' as const, height: '100%' as const };
 const FULL_BOARD_ART_STYLE = { ...FULL_STAGE_IMAGE_STYLE, overflow: 'hidden' as const };
 const SELECTED_BALL_ART: Record<string, number> = {
@@ -182,7 +187,7 @@ function normalizeMechanicsSettings(settings: Partial<MechanicsSettings> | undef
     levelClearBubbleRatePerSecond: settings?.levelClearBubbleRatePerSecond ?? DEFAULT_MECHANICS.levelClearBubbleRatePerSecond,
     levelClearBubbleDurationMs: settings?.levelClearBubbleDurationMs ?? DEFAULT_MECHANICS.levelClearBubbleDurationMs,
     levelClearAnimationDurationMs: Math.max(500, settings?.levelClearAnimationDurationMs ?? DEFAULT_MECHANICS.levelClearAnimationDurationMs),
-    containmentMutationChance: Math.max(0, Math.min(1, settings?.containmentMutationChance ?? DEFAULT_MECHANICS.containmentMutationChance)),
+    containmentMutationChance: Math.max(0, Math.min(1, settings?.containmentMutationChance === 0.05 ? DEFAULT_MECHANICS.containmentMutationChance : settings?.containmentMutationChance ?? DEFAULT_MECHANICS.containmentMutationChance)),
     containmentMutationDelayMinSeconds: Math.max(0, settings?.containmentMutationDelayMinSeconds ?? DEFAULT_MECHANICS.containmentMutationDelayMinSeconds),
     containmentMutationDelayMaxSeconds: Math.max(settings?.containmentMutationDelayMinSeconds ?? DEFAULT_MECHANICS.containmentMutationDelayMinSeconds, settings?.containmentMutationDelayMaxSeconds ?? DEFAULT_MECHANICS.containmentMutationDelayMaxSeconds),
     containmentMutationDecayChance: Math.max(0, Math.min(1, settings?.containmentMutationDecayChance ?? DEFAULT_MECHANICS.containmentMutationDecayChance)),
@@ -266,11 +271,12 @@ function BridgePulse({ delay = 0, color = '#75f4dc' }: { delay?: number; color?:
   return <Animated.View style={[styles.bridgePulse, { backgroundColor: color, shadowColor: color, opacity: pulse }]} />;
 }
 
-const BRIDGE_INTERIOR_ART = require('./assets/bridge-command-interior.png');
+// Transparent foreground cutout: the glass is no longer baked to the default vista.
+const BRIDGE_INTERIOR_ART = require('./assets/bridge-command-foreground.png');
 
 function BridgeInterior() {
   const [frame, setFrame] = useState({ width: 0, height: 0 });
-  const imageAspect = 1672 / 941;
+  const imageAspect = BRIDGE_ART_ASPECT;
   const imageWidth = Math.min(frame.width, frame.height * imageAspect);
   const imageHeight = imageWidth / imageAspect;
   return <View pointerEvents="none" style={StyleSheet.absoluteFill} onLayout={event => {
@@ -284,11 +290,11 @@ function BridgeInterior() {
 // Exterior art is rendered on the exact same full-image canvas as the cockpit
 // cutout. The transparent window pixels in BridgeInterior are the sole clip
 // boundary, so no second photograph can peek through around a smaller viewport.
-function BridgeExterior({ source, event }: { source?: ImageSourcePropType; event?: { kind: 'picture'; seed: number } | { kind: 'waldo'; seed: number; waldoX: number; waldoY: number; found: boolean } }) {
+function BridgeExterior({ source }: { source: ImageSourcePropType }) {
   const [frame, setFrame] = useState({ width: 0, height: 0 });
   const [fade] = useState(() => new Animated.Value(0));
   const [drift] = useState(() => new Animated.Value(0));
-  const imageAspect = 1672 / 941;
+  const imageAspect = BRIDGE_ART_ASPECT;
   const imageWidth = Math.min(frame.width, frame.height * imageAspect);
   const imageHeight = imageWidth / imageAspect;
   useEffect(() => {
@@ -296,7 +302,7 @@ function BridgeExterior({ source, event }: { source?: ImageSourcePropType; event
     const animation = Animated.timing(fade, { toValue: 1, duration: 1100, useNativeDriver: true });
     animation.start();
     return () => animation.stop();
-  }, [fade, source, event?.kind, event?.seed]);
+  }, [fade, source]);
   useEffect(() => {
     const loop = Animated.loop(Animated.sequence([
       Animated.timing(drift, { toValue: 1, duration: 14000, useNativeDriver: true }),
@@ -315,11 +321,7 @@ function BridgeExterior({ source, event }: { source?: ImageSourcePropType; event
     setFrame(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height });
   }}>
     {imageWidth > 0 && imageHeight > 0 && <Animated.View style={{ position: 'absolute', width: imageWidth, height: imageHeight, left: (frame.width - imageWidth) / 2, top: (frame.height - imageHeight) / 2, opacity: fade, overflow: 'hidden' }}>
-      {event?.kind === 'waldo'
-        ? <WaldoArtwork seed={event.seed} width={imageWidth} height={imageHeight} waldoX={event.waldoX} waldoY={event.waldoY} found={event.found} />
-        : event?.kind === 'picture' && !source
-          ? <PictureArtwork seed={event.seed} width={imageWidth} height={imageHeight} />
-        : source ? <Image source={source} resizeMode="cover" style={{ position: 'absolute', left: 0, top: 0, width: imageWidth, height: imageHeight }} /> : null}
+      <Image source={source} resizeMode="cover" style={{ position: 'absolute', left: 0, top: 0, width: imageWidth, height: imageHeight }} />
       <View pointerEvents="none" style={styles.bridgeExteriorWindowDecor}>
         <View style={styles.bridgeExteriorGlint} />
         <Animated.View style={[styles.bridgeExteriorCraft, { opacity: craftOpacity, transform: [{ translateX: craftX }, { translateY: craftY }] }]}><Text style={styles.bridgeExteriorCraftText}>⌁</Text></Animated.View>
@@ -422,9 +424,9 @@ function BridgeStagePreview({ run, hasActiveRun, simulationRunning, defaultBackg
         {run.pictureEvent?.isWaldo && <WaldoArtwork seed={run.pictureEvent.seed} width={boardWidth} height={boardHeight} waldoX={run.pictureEvent.waldoX ?? 0.5} waldoY={run.pictureEvent.waldoY ?? 0.5} found={!!run.pictureEvent.waldoFound} />}
         {!run.pictureEvent && backgroundId && <ArenaBackgroundEffects id={backgroundId} />}
         {!run.pictureEvent && claimedRects.map(rect => <View key={`claim-${rect.id}`} pointerEvents="none" style={[styles.claimedCell, { backgroundColor: run.mechanics.claimedColor, opacity: run.mechanics.claimedFillOpacity, left: rect.x * run.boardWidth / run.gridCols * sx, top: rect.y * run.boardHeight / run.gridRows * sy, width: rect.width * run.boardWidth / run.gridCols * sx, height: run.boardHeight / run.gridRows * sy }]} />)}
-        {run.walls.map(wall => <WallView key={`wall-${wall.id}`} wall={wall} sx={sx} sy={sy} mutation={run.containmentMutations?.find(box => box.active && box.wallIds.includes(wall.id))} elapsedMs={run.elapsedMs} />)}
+        {run.walls.map(wall => <WallView key={`wall-${wall.id}`} wall={wall} sx={sx} sy={sy} mutation={run.containmentMutations?.find(box => box.active && box.wallIds.includes(wall.id))} />)}
         {run.balls.map(ball => <BallArtwork key={`ball-${ball.id}`} skin={ballSkin} diameter={2 * ball.r * Math.min(sx, sy)} left={ball.x * sx - ball.r * Math.min(sx, sy)} top={ball.y * sy - ball.r * Math.min(sx, sy)} rammed={ball.rammed} modifier={ball.modifier} extraModifiers={ball.modifiers?.length ?? 0} drifting={ball.drifting} skimming={ball.skimmerWallId !== undefined} />)}
-        {run.pets.map(pet => <View key={`pet-${pet.id}`} pointerEvents="none" style={[styles.deployedEngi, !pet.deployed && styles.roamingPet, { left: pet.x * sx - 20, top: pet.y * sy - 22 }]}>{pet.species === 'waldo' ? <WaldoPetArtwork pet={pet} size={40} /> : <EngiPetArtwork skinId={visualSkins?.engiPet ?? DEFAULT_SKIN_SELECTIONS.engiPet} task={pet.task as any} size={40} />}</View>)}
+        {run.pets.map(pet => <View key={`pet-${pet.id}`} pointerEvents="none" style={[styles.deployedEngi, !pet.deployed && styles.roamingPet, { left: pet.x * sx - 20, top: pet.y * sy - 22 }]}>{pet.species === 'waldo' ? <WaldoPetArtwork pet={pet} size={40} /> : <EngiPetArtwork skinId={visualSkins?.engiPet ?? DEFAULT_SKIN_SELECTIONS.engiPet} task={pet.task as any} size={40} moving={Math.hypot(pet.vx, pet.vy) > 12} direction={pet.vx < 0 ? -1 : 1} />}</View>)}
         {run.powerups.map(powerup => <PowerOrb key={`pickup-${powerup.id}`} power={powerup} sx={sx} sy={sy} skinId={powerup.skinId ?? visualSkins?.pickups[powerup.kind] ?? PICKUP_SKINS[powerup.kind][0].id} creditBaseAmount={run.mechanics.creditPickupBaseAmount} />)}
       </>}
       {presentation === 'mini' && <Animated.View pointerEvents="none" style={[styles.bridgeMiniScan, { transform: [{ translateY: scanY }] }]} />}
@@ -444,7 +446,7 @@ function BridgeArtifact({ title, detail, glyph, color = '#78ead4', onPress }: {
   </Pressable>;
 }
 function attachCaptureSkins(events: CaptureEvent[], selections: SkinSelections, discovery: Run['skinDiscovery'] = null) {
-  return events.map(event => ({ ...event, skinId: discovery?.category === `pickup:${event.kind}` ? discovery.skinId : event.skinId ?? (event.kind === 'jackpot' ? selections.pickups.treasure : event.kind === 'chargeBallBreak' ? selections.pickups.charge : event.kind === 'ramBlast' ? selections.pickups.ram : event.kind === 'merchantBreak' ? selections.pickups.merchant : event.kind === 'bubbleLost' ? selections.pickups.bubble : event.kind === 'creditLost' ? selections.pickups.credit : event.kind === 'engiEggBreak' ? selections.pickups['engi-egg'] : event.kind === 'explosion' || event.kind === 'overflowFailed' || event.kind === 'phaseRupture' || event.kind === 'phaseChestBreak' || event.kind === 'anchorBreak' || event.kind === 'combo' || event.kind === 'waldoFound' || event.kind === 'petRepair' || event.kind === 'petLost' || event.kind === 'petHatched' ? undefined : selections.pickups[event.kind]) }));
+  return events.map(event => ({ ...event, skinId: discovery?.category === `pickup:${event.kind}` ? discovery.skinId : event.skinId ?? (event.kind === 'jackpot' ? selections.pickups.treasure : event.kind === 'chargeBallBreak' || event.kind === 'chargeWallBreak' ? selections.pickups.charge : event.kind === 'ramBlast' ? selections.pickups.ram : event.kind === 'merchantBreak' ? selections.pickups.merchant : event.kind === 'bubbleLost' ? selections.pickups.bubble : event.kind === 'creditLost' ? selections.pickups.credit : event.kind === 'engiEggBreak' ? selections.pickups['engi-egg'] : event.kind === 'explosion' || event.kind === 'overflowFailed' || event.kind === 'phaseRupture' || event.kind === 'phaseChestBreak' || event.kind === 'anchorBreak' || event.kind === 'combo' || event.kind === 'waldoFound' || event.kind === 'petRepair' || event.kind === 'petLost' || event.kind === 'petHatched' ? undefined : selections.pickups[event.kind]) }));
 }
 
 export default function App() {
@@ -1052,36 +1054,32 @@ export default function App() {
   const uiHeight = Platform.OS === 'web' ? viewport.height : nativeDimensions.height;
   const compactBridge = uiWidth < 920 || uiHeight < 650;
   const portraitBridge = uiHeight > uiWidth;
-  const bridgeArtAspect = 1672 / 941;
-  const bridgeArtWidth = bridgeCanvasSize.width > 0 && bridgeCanvasSize.height > 0 ? Math.min(bridgeCanvasSize.width, bridgeCanvasSize.height * bridgeArtAspect) : 0;
-  const bridgeArtHeight = bridgeArtWidth / bridgeArtAspect;
+  const bridgeArtWidth = bridgeCanvasSize.width > 0 && bridgeCanvasSize.height > 0 ? Math.min(bridgeCanvasSize.width, bridgeCanvasSize.height * BRIDGE_ART_ASPECT) : 0;
+  const bridgeArtHeight = bridgeArtWidth / BRIDGE_ART_ASPECT;
   const bridgeWindowBounds = bridgeArtWidth > 0 ? {
-    // This inset matches the red guide: keep the playable screen inside the
-    // central console-sized area, leaving the surrounding windshield glass
-    // clear so the exterior vista remains visible through its corners.
-    left: (bridgeCanvasSize.width - bridgeArtWidth) / 2 + bridgeArtWidth * 0.124,
-    top: (bridgeCanvasSize.height - bridgeArtHeight) / 2 + bridgeArtHeight * 0.167,
-    width: bridgeArtWidth * 0.762,
-    height: bridgeArtHeight * 0.534,
+    left: (bridgeCanvasSize.width - bridgeArtWidth) / 2 + bridgeArtWidth * BRIDGE_BOARD_VIEW.left,
+    top: (bridgeCanvasSize.height - bridgeArtHeight) / 2 + bridgeArtHeight * BRIDGE_BOARD_VIEW.top,
+    width: bridgeArtWidth * BRIDGE_BOARD_VIEW.width,
+    height: bridgeArtHeight * BRIDGE_BOARD_VIEW.height,
   } : undefined;
   const bridgePictureSource: ImageSourcePropType | undefined = run.pictureEvent?.isWaldo ? undefined
     : pictureEntry?.uri ? { uri: pictureEntry.uri }
       : (pictureEntry?.generatedBackdropId ?? run.pictureEvent?.generatedBackdropId) !== undefined
         ? GENERATED_PICTURE_BACKDROPS[(pictureEntry?.generatedBackdropId ?? run.pictureEvent?.generatedBackdropId ?? 0) % GENERATED_PICTURE_BACKDROPS.length]
         : undefined;
-  const bridgeEventDisplay = run.pictureEvent && !run.pictureEvent.isWaldo
-    ? { kind: 'picture' as const, seed: run.pictureEvent.seed }
-    : undefined;
-  const bridgeHasPictureOverride = !!bridgeEventDisplay;
   const pinnedBridgeVista = bridgeVistaLibrary.find(entry => entry.id === selectedBridgeVistaId);
+  const bridgeVistaScenes = useMemo(() => [
+    ...BRIDGE_SCENIC_VIEWS.map((source, index) => ({ id: `builtin-${index}`, source })),
+    ...bridgeVistaLibrary.map(entry => ({ id: entry.id, source: { uri: entry.uri } as ImageSourcePropType })),
+  ], [bridgeVistaLibrary]);
   useEffect(() => {
-    if (menuPage !== 'home' || bridgeHasPictureOverride || selectedBridgeVistaId || bridgeSimView === 'window') return;
-    const timer = setInterval(() => setBridgeVistaIndex(index => (index + 1) % BRIDGE_SCENIC_VIEWS.length), 18000);
+    if (menuPage !== 'home' || selectedBridgeVistaId || bridgeSimView === 'window' || bridgeVistaScenes.length < 2) return;
+    const timer = setInterval(() => setBridgeVistaIndex(index => (index + 1) % bridgeVistaScenes.length), 18000);
     return () => clearInterval(timer);
-  }, [menuPage, bridgeHasPictureOverride, selectedBridgeVistaId, bridgeSimView]);
-  const bridgeExteriorSource: ImageSourcePropType | undefined = bridgeHasPictureOverride
-    ? (bridgeEventDisplay?.kind === 'picture' ? bridgePictureSource : undefined)
-    : pinnedBridgeVista ? { uri: pinnedBridgeVista.uri } : BRIDGE_SCENIC_VIEWS[bridgeVistaIndex];
+  }, [menuPage, selectedBridgeVistaId, bridgeSimView, bridgeVistaScenes]);
+  const bridgeExteriorSource: ImageSourcePropType | undefined = pinnedBridgeVista
+    ? { uri: pinnedBridgeVista.uri }
+    : bridgeVistaScenes[bridgeVistaIndex % Math.max(bridgeVistaScenes.length, 1)]?.source;
   const claimRects = useMemo(() => {
     const cols = run.gridCols, rows = run.gridRows, rects: { key: string; x: number; y: number; width: number }[] = [];
     for (let y = 0; y < rows; y++) {
@@ -1126,7 +1124,7 @@ export default function App() {
       const x = (px - rect.x) / rect.width * runRef.current.boardWidth;
       const y = (py - rect.y) / rect.height * runRef.current.boardHeight;
       const current = runRef.current, deployed = deployEngi(current, pet.id, x, y, true);
-      if (deployed === current && pet.species === 'waldo') commit({ ...current, petNotice: 'WALDO NEEDS OPEN, UNCLAIMED SPACE', petNoticeUntilMs: current.elapsedMs + 2600 });
+      if (deployed === current) commit({ ...current, petNotice: 'PETS NEED OPEN, UNCLAIMED SPACE', petNoticeUntilMs: current.elapsedMs + 2600 });
       else commit(deployed);
     } else if (pet.deployed) commit(deployEngi(runRef.current, pet.id, pet.x, pet.y, false));
   };
@@ -1153,7 +1151,7 @@ export default function App() {
       {ramArmed && <Text style={styles.readyTimer}>{run.pictureEvent?.isWaldo && !run.pictureEvent.waldoFound ? 'TAP WALDO IN THE CROWD' : run.treasureHunt?.revealed && run.ramCharges < 3 ? '3 RAM TO OPEN · MISS COSTS 1' : 'TAP A BALL OR JACKPOT'}</Text>}
     </View>
     <View style={[styles.railAbility, isPhoneLandscape && styles.phoneRailAbility]}>
-      <Text style={styles.abilityLabel}>CHARGE</Text><Pressable accessibilityRole="button" accessibilityLabel="Arm a charge wall" onTouchStart={(e: any) => e.stopPropagation()} onPointerDown={(e: any) => e.stopPropagation()} disabled={!running || run.chargeCharges < 1 || (run.chargeReadyUntil !== null && run.chargeReadyUntil > run.elapsedMs)} onPress={() => commit(activateCharge(runRef.current, visualSkinSelectionsRef.current.pickups.charge))} style={[styles.abilityButton, isPhoneLandscape && styles.phoneAbilityButton, styles.chargeButton, run.chargeCharges < 1 && styles.abilityDisabled]}><HudPickupIcon kind="charge" skinId={visualSkins.pickups.charge} size={17} /><HudChargeIcons kind="charge" skinId={visualSkins.pickups.charge} count={run.chargeCharges} /></Pressable>
+      <Text style={styles.abilityLabel}>CHARGE</Text><Pressable accessibilityRole="button" accessibilityLabel="Arm a charge wall or cancel the active wall" onTouchStart={(e: any) => e.stopPropagation()} onPointerDown={(e: any) => e.stopPropagation()} disabled={!running || run.chargeCharges < 1 || (run.chargeReadyUntil !== null && run.chargeReadyUntil > run.elapsedMs)} onPress={() => commit(activateCharge(runRef.current, visualSkinSelectionsRef.current.pickups.charge), true)} style={[styles.abilityButton, isPhoneLandscape && styles.phoneAbilityButton, styles.chargeButton, run.chargeCharges < 1 && styles.abilityDisabled]}><HudPickupIcon kind="charge" skinId={visualSkins.pickups.charge} size={17} /><HudChargeIcons kind="charge" skinId={visualSkins.pickups.charge} count={run.chargeCharges} /></Pressable>
       <Text style={styles.storageReadout}>{run.chargeCharges} / {chargeCapacity(run, 'charge')} STORED</Text><Pressable accessibilityRole="button" accessibilityLabel={`Expand Charge storage for ${chargeStorageUpgradeCost(run, 'charge')} Credits`} disabled={run.credits < chargeStorageUpgradeCost(run, 'charge')} onPress={() => expandChargeCapacity('charge')} style={[styles.storageUpgrade, run.credits < chargeStorageUpgradeCost(run, 'charge') && styles.storageUpgradeDisabled]}><Text style={styles.storageUpgradeText}>+ SLOT · {chargeStorageUpgradeCost(run, 'charge')} C</Text></Pressable>
       {run.chargeReadyUntil !== null && <Text style={styles.readyTimer}>CHARGED · {Math.max(0, (run.chargeReadyUntil - run.elapsedMs) / 1000).toFixed(1)}s</Text>}
     </View>
@@ -1197,6 +1195,13 @@ export default function App() {
           {run.skinDiscovery && discoveryNode && <Text style={styles.skinDiscoveryLabel}>SKIN SIGNAL · {discoveryNode.name} · CLEAR {run.skinDiscovery.requiredClaimed.toFixed(0)}%{run.skinDiscovery.requiresIsotypes ? ' + ISOTYPES CONTAINED' : ''}</Text>}
           {run.levelEvent === 'elimination' && <Text style={styles.eliminationEventLabel}>ELIMINATION · CLEAR ALL BALLS</Text>}
           {run.levelEvent === 'drift-swarm' && run.elapsedMs < run.levelEventBannerUntilMs && <Text style={styles.driftSwarmEventLabel}>DRIFT SWARM ANOMALY DETECTED</Text>}
+          {(run.containmentMutations ?? []).filter(box => box.active && box.kind).map(box => {
+            const fresh = box.startedAtMs !== undefined && run.elapsedMs - box.startedAtMs < 4200;
+            const kind = box.kind!;
+            const color = CONTAINMENT_MUTATION_COLOR;
+            const pickupName = kind === 'engi-egg' ? 'PET EGG' : kind === 'credit' ? 'CREDITS' : kind.toUpperCase();
+            return <Text key={`mutation-${box.key}`} style={[styles.pictureEventLabel, { color, borderColor: color, backgroundColor: `${color}22` }]}>{fresh ? 'CONTAINMENT MUTATION DETECTED' : 'MUTATION ACTIVE'} · {pickupName} BIASED</Text>;
+          })}
           {run.treasureHunt && <Text style={styles.treasureEventLabel}>{run.treasureHunt.revealed ? 'JACKPOT FOUND · USE 3 RAM TO OPEN' : 'TREASURE HUNT'} · {Math.ceil(run.treasureHunt.remainingMs / 1000)}s</Text>}
           {(run.pets.length > 0 || run.petEggs > 0 || run.petIncubations.length > 0) && <Text style={styles.crewReadout}>CREW {run.pets.length} · COCOONS {run.petEggs + run.petIncubations.length}</Text>}
         </View>
@@ -1222,7 +1227,15 @@ export default function App() {
             : claimRects.map(rect => <View key={rect.key} pointerEvents="none" style={[styles.claimedCell, { backgroundColor: runSettings.claimedColor, opacity: runSettings.claimedFillOpacity, left: rect.x * run.boardWidth / run.gridCols * sx, top: rect.y * run.boardHeight / run.gridRows * sy, width: rect.width * run.boardWidth / run.gridCols * sx, height: run.boardHeight / run.gridRows * sy }]} />)}
           {!run.pictureEvent && activeBackground.asset && <><View pointerEvents="none" style={StyleSheet.absoluteFill}><Image source={activeBackground.asset} resizeMode="cover" style={[StyleSheet.absoluteFill, { opacity: 0.58 }]} /></View><ArenaBackgroundEffects id={activeBackground.id} /></>}
           {runSettings.showGrid && <View pointerEvents="none" style={[styles.grid, { opacity: runSettings.gridOpacity, borderColor: runSettings.gridColor }]} />}
-          {run.walls.map((wall: Wall) => <WallView key={wall.id} wall={wall} sx={sx} sy={sy} mutation={run.containmentMutations?.find(box => box.active && box.wallIds.includes(wall.id))} elapsedMs={run.elapsedMs} />)}
+          {run.walls.map((wall: Wall) => <WallView key={wall.id} wall={wall} sx={sx} sy={sy} mutation={run.containmentMutations?.find(box => box.active && box.wallIds.includes(wall.id))} />)}
+          {(run.containmentMutations ?? []).filter(box => box.active && box.kind).map(box => {
+            const chamberWidth = (box.bounds.right - box.bounds.left) * run.boardWidth * sx;
+            const chamberHeight = (box.bounds.bottom - box.bounds.top) * run.boardHeight * sy;
+            if (chamberWidth < 36 || chamberHeight < 16) return null;
+            const kind = box.kind!;
+            const pickupName = kind === 'engi-egg' ? 'PET EGG' : kind === 'credit' ? 'CREDITS' : kind.toUpperCase();
+            return <View key={`mutation-chamber-${box.key}`} pointerEvents="none" style={{ position: 'absolute', zIndex: 7, left: box.bounds.left * run.boardWidth * sx + 4, top: box.bounds.top * run.boardHeight * sy + 4, maxWidth: chamberWidth - 8, paddingHorizontal: 4, paddingVertical: 2, borderWidth: 1, borderColor: CONTAINMENT_MUTATION_COLOR, borderRadius: 4, backgroundColor: '#07121de8' }}><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65} style={{ color: CONTAINMENT_MUTATION_COLOR, fontSize: 6, fontWeight: '900', letterSpacing: 0.5 }}>{pickupName} BIAS</Text></View>;
+          })}
           {paused && queuedWallPreview.map((wall, index) => <View key={`queued-wall-${index}`} pointerEvents="none" style={{ position: 'absolute', zIndex: 8, left: wall.x * sx - 6, top: wall.y * sy - 6, width: 12, height: 12, alignItems: 'center', justifyContent: 'center' }}><View style={{ position: 'absolute', width: wall.axis === 'vertical' ? 2 : 12, height: wall.axis === 'vertical' ? 12 : 2, borderRadius: 2, backgroundColor: '#78f6dc', shadowColor: '#78f6dc', shadowOpacity: 1, shadowRadius: 5 }} /><View style={{ width: 4, height: 4, borderRadius: 4, borderWidth: 1, borderColor: '#f1fff9', backgroundColor: '#35cbaa' }} /></View>)}
           {run.balls.map((ball: Ball) => {
             const sphereSize = 2 * ball.r * Math.min(sx, sy);
@@ -1236,7 +1249,7 @@ export default function App() {
             const top = painting.axis === 'vertical' ? painting.along * sy - 9 : painting.at * sy - 9;
             return <WaldoPaintingView key={`painting-${painting.id}`} left={left} top={top} styleId={painting.style} />;
           }))}
-          {run.pets.map(pet => <View key={`pet-${pet.id}`} {...petDragHandlers(pet)} style={[styles.deployedEngi, !pet.deployed && styles.roamingPet, { left: pet.x * sx - 20, top: pet.y * sy - 22 }]}>{pet.species === 'waldo' ? <WaldoPetArtwork pet={pet} size={40} /> : <EngiPetArtwork skinId={visualSkins.engiPet} task={pet.task as any} size={40} />}</View>)}
+          {run.pets.map(pet => <View key={`pet-${pet.id}`} {...petDragHandlers(pet)} style={[styles.deployedEngi, !pet.deployed && styles.roamingPet, { left: pet.x * sx - 20, top: pet.y * sy - 22 }]}>{pet.species === 'waldo' ? <WaldoPetArtwork pet={pet} size={40} /> : <EngiPetArtwork skinId={visualSkins.engiPet} task={pet.task as any} size={40} moving={Math.hypot(pet.vx, pet.vy) > 12} direction={pet.vx < 0 ? -1 : 1} />}</View>)}
           {run.powerups.map((p: PowerUp) => <PowerOrb key={p.id} power={p} sx={sx} sy={sy} skinId={run.skinDiscovery?.category === `pickup:${p.kind}` ? visualSkins.pickups[p.kind] : p.skinId ?? visualSkins.pickups[p.kind]} creditBaseAmount={run.mechanics.creditPickupBaseAmount} />)}
           {run.treasureHunt?.revealed && <PowerOrb key="revealed-jackpot" power={{ id: -2, kind: 'treasure', x: run.treasureHunt.x, y: run.treasureHunt.y, vx: 0, vy: 0 }} sx={sx} sy={sy} skinId={visualSkins.pickups.treasure} />}
           {captureEffects.map((effect, index) => <CaptureBurst key={`${effect.id}-${index}`} event={effect} sx={sx} sy={sy} creditSkin={skinSelections.credit} stageWidth={board.width} stageHeight={board.height} onDone={() => setCaptureEffects(old => old.filter(e => e !== effect))} />)}
@@ -1347,8 +1360,9 @@ export default function App() {
         <NumberRow label="Drift Swarm radius / strength variation minimum (×)" value={tuning.driftSwarmVariationMin} step={0.05} min={0.1} max={5} onChange={value => setTuning(old => ({ ...old, driftSwarmVariationMin: Math.min(value, old.driftSwarmVariationMax) }))} />
         <NumberRow label="Drift Swarm radius / strength variation maximum (×)" value={tuning.driftSwarmVariationMax} step={0.05} min={0.1} max={5} onChange={value => setTuning(old => ({ ...old, driftSwarmVariationMax: Math.max(value, old.driftSwarmVariationMin) }))} />
         <Text style={styles.sectionTitle}>CONTAINMENT MUTATION</Text>
-        <Text style={styles.devHint}>One roll per qualifying enclosure, after its randomized wait. A qualifying box has exactly one ball, four solid player walls, and the run is not fully isolated. Its active walls show chromatic or growing-vine markings. Mutated boxes only spawn their selected pickup type; per-pickup eligibility stays with that pickup&apos;s settings.</Text>
+        <Text style={styles.devHint}>One roll per qualifying chamber, after its randomized wait. A chamber contains exactly one metal ball and is completely surrounded by completed player-drawn walls; every boundary side must be a wall, not the board edge or claimed territory. Wall color and animation are shared across mutation types; a chamber label identifies its favored pickup. Mutated chambers only spawn their selected pickup type.</Text>
         <NumberRow label="Mutation chance per eligible box (%)" value={tuning.containmentMutationChance * 100} step={1} min={0} max={100} onChange={value => setTuning(old => ({ ...old, containmentMutationChance: value / 100 }))} />
+        <View style={styles.profileRow}><Pressable style={styles.smallAction} onPress={() => { const current = runRef.current, tested = testContainmentMutation(current); if (tested === current) setNotice('No single-ball chamber fully enclosed by player walls yet'); else { commit(tested); setNotice('TEST MUTATION FIELD ACTIVE'); } }}><Text style={styles.smallActionText}>TEST MUTATION ON ELIGIBLE CHAMBER</Text></Pressable></View>
         <NumberRow label="Random qualification wait minimum (seconds)" value={tuning.containmentMutationDelayMinSeconds} step={1} min={0} max={600} onChange={value => setTuning(old => ({ ...old, containmentMutationDelayMinSeconds: Math.min(value, old.containmentMutationDelayMaxSeconds) }))} />
         <NumberRow label="Random qualification wait maximum (seconds)" value={tuning.containmentMutationDelayMaxSeconds} step={1} min={0} max={600} onChange={value => setTuning(old => ({ ...old, containmentMutationDelayMaxSeconds: Math.max(value, old.containmentMutationDelayMinSeconds) }))} />
         <NumberRow label="Chance mutation ends after next spawn (%)" value={tuning.containmentMutationDecayChance * 100} step={1} min={0} max={100} onChange={value => setTuning(old => ({ ...old, containmentMutationDecayChance: value / 100 }))} />
@@ -1430,7 +1444,7 @@ export default function App() {
           {modifierTypes.map(modifier => {
             const setting = tuning.ballModifiers[modifier];
             const title = modifier.toUpperCase();
-            const rule = modifier === 'splitter' ? 'Limit to one active Splitter at a time.' : modifier === 'skimmer' ? 'Each tick can apply Skimmer to a random unmodified ball for a random duration. It glides when a solid player wall is available.' : modifier === 'drifter' ? 'Requires a forming player wall to drift toward.' : modifier === 'anchor' ? 'Limit to one active Anchor. Above its speed threshold, it severs the struck wall section to the nearest junction, then slows below threshold.' : modifier === 'phase' ? 'Each ball must occupy its own disconnected open region; a successful roll phases one random ball when a new wall is started.' : 'Uses this modifier’s own eligibility and collision rules.';
+            const rule = modifier === 'splitter' ? 'Limit to one active Splitter at a time.' : modifier === 'skimmer' ? 'Each tick can apply Skimmer to a random unmodified ball. It expires after its random duration or immediately after its first successful wall cut.' : modifier === 'drifter' ? 'Requires a forming player wall to drift toward.' : modifier === 'anchor' ? 'Limit to one active Anchor. Above its speed threshold, it severs the struck wall section to the nearest junction, then slows below threshold.' : modifier === 'phase' ? 'Each ball must occupy its own disconnected open region; a successful roll phases one random ball when a new wall is started.' : 'Uses this modifier’s own eligibility and collision rules.';
             const update = (patch: Partial<typeof setting>) => setTuning(old => ({ ...old, ballModifiers: { ...old.ballModifiers, [modifier]: { ...old.ballModifiers[modifier], ...patch } } }));
             return <View key={modifier} style={styles.pickupSettingsCard}>
               <Text style={styles.pickupSettingsTitle}>{title}</Text>
@@ -1536,7 +1550,7 @@ export default function App() {
       const { width, height } = event.nativeEvent.layout;
       setBridgeCanvasSize(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height });
     }}>
-      {(bridgeExteriorSource || bridgeEventDisplay) && <BridgeExterior source={bridgeExteriorSource} event={bridgeEventDisplay} />}
+      {bridgeExteriorSource && <BridgeExterior source={bridgeExteriorSource} />}
       {bridgeSimView === 'window' && bridgeWindowBounds && <BridgeStagePreview run={run} hasActiveRun={hasSave && !run.ended} simulationRunning={running} defaultBackground={activeBackground.asset ?? undefined} simulationBackground={bridgePictureSource} visualSkins={visualSkins} backgroundTint={tint} backgroundId={activeBackground.id} onPress={fullscreenSimulation} presentation="window" containerStyle={bridgeWindowBounds}
         onSurfaceLayout={(width, height, rect) => { handleStageLayout(width, height); setBoard(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height }); if (rect) boardScreenRect.current = rect; }}
         onTouchStart={event => collectTouches(event, 'start')} onTouchEnd={event => collectTouches(event, 'end')} onTouchCancel={event => collectTouches(event, 'cancel')}
@@ -1569,7 +1583,7 @@ export default function App() {
           <View style={styles.commandFooterRow}><BridgePulse delay={450} color="#ffc879" /><Text style={styles.commandFooter}>FLIGHT SYSTEMS ONLINE</Text></View>
         </View>}
         <View pointerEvents="box-none" style={[styles.commandMain, compactBridge && styles.commandMainCompact]}>
-          <View style={styles.bridgeWelcome}><View><Text style={styles.menuEyebrow}>COMMAND BRIDGE · DEEP SPACE</Text><Text style={[styles.bridgeWelcomeTitle, compactBridge && styles.bridgeWelcomeTitleCompact]}>Welcome aboard</Text></View><View style={styles.bridgeWelcomeActions}><Pressable style={styles.bridgeVistaTrigger} onPress={() => setBridgeVistaOpen(true)}><Text style={styles.bridgeVistaTriggerText}>VISTA · {bridgeEventDisplay ? 'EVENT' : pinnedBridgeVista ? 'PINNED' : 'AUTO'}</Text></Pressable><View style={styles.bridgeReady}><BridgePulse delay={240} /><Text style={styles.bridgeReadyText}>{running ? 'SECTOR LIVE' : paused ? 'SECTOR PAUSED' : 'SYSTEMS READY'}</Text></View></View></View>
+          <View style={styles.bridgeWelcome}><View><Text style={styles.menuEyebrow}>COMMAND BRIDGE · DEEP SPACE</Text><Text style={[styles.bridgeWelcomeTitle, compactBridge && styles.bridgeWelcomeTitleCompact]}>Welcome aboard</Text></View><View style={styles.bridgeWelcomeActions}><Pressable style={styles.bridgeVistaTrigger} onPress={() => setBridgeVistaOpen(true)}><Text style={styles.bridgeVistaTriggerText}>VISTA · {pinnedBridgeVista ? 'PINNED' : 'AUTO'}</Text></Pressable><View style={styles.bridgeReady}><BridgePulse delay={240} /><Text style={styles.bridgeReadyText}>{running ? 'SECTOR LIVE' : paused ? 'SECTOR PAUSED' : 'SYSTEMS READY'}</Text></View></View></View>
           {bridgeSimView === 'mini' && <BridgeStagePreview run={run} hasActiveRun={hasSave && !run.ended} simulationRunning={running} defaultBackground={activeBackground.asset ?? undefined} onPress={openSimulationWindow} />}
           <View style={[styles.bridgeArtifactDock, styles.bridgeArtifactDockConsole, compactBridge && styles.bridgeArtifactDockConsoleCompact]}>
             <Text style={styles.bridgeDockHeading}>SHIP SYSTEMS · SELECT A CONSOLE</Text>
@@ -1586,8 +1600,8 @@ export default function App() {
     </View>}
     {bridgeVistaOpen && <View style={styles.bridgeVistaScrim}><View style={styles.bridgeVistaPanel}>
       <View style={styles.menuPanelHeader}><View><Text style={styles.menuEyebrow}>COMMAND BRIDGE · EXTERIOR</Text><Text style={styles.bridgeVistaTitle}>Vista archive</Text></View><Pressable style={styles.menuBack} onPress={() => setBridgeVistaOpen(false)}><Text style={styles.menuBackText}>CLOSE</Text></Pressable></View>
-      <Text style={styles.menuSubhead}>Choose what appears beyond the glass. Picture and Waldo event scenes temporarily take priority; your pinned vista returns afterward.</Text>
-      <View style={styles.bridgeVistaActions}><Pressable style={[styles.bridgeVistaAction, !selectedBridgeVistaId && styles.bridgeVistaActionSelected]} onPress={() => { setSelectedBridgeVistaId(null); setBridgeVistaNotice('Automatic rotation is active. Picture and Waldo event scenes still take priority.'); }}><Text style={styles.bridgeVistaActionTitle}>AUTO ROTATION</Text><Text style={styles.bridgeVistaActionCopy}>Cycle through the built-in scenic views</Text></Pressable><Pressable style={styles.bridgeVistaAction} onPress={() => void importBridgeVista()}><Text style={styles.bridgeVistaActionTitle}>＋ IMPORT PHOTO</Text><Text style={styles.bridgeVistaActionCopy}>Add PNG, JPEG, or WebP to this archive</Text></Pressable></View>
+       <Text style={styles.menuSubhead}>One continuous exterior scene shows through the main and side windows. Game Picture events stay on the game board and do not replace the bridge vista.</Text>
+       <View style={styles.bridgeVistaActions}><Pressable style={[styles.bridgeVistaAction, !selectedBridgeVistaId && styles.bridgeVistaActionSelected]} onPress={() => { setSelectedBridgeVistaId(null); setBridgeVistaNotice('Automatic rotation is active across built-in and uploaded scenes.'); }}><Text style={styles.bridgeVistaActionTitle}>AUTO ROTATION</Text><Text style={styles.bridgeVistaActionCopy}>Cycle through built-in and uploaded scenes</Text></Pressable><Pressable style={styles.bridgeVistaAction} onPress={() => void importBridgeVista()}><Text style={styles.bridgeVistaActionTitle}>＋ IMPORT PHOTO</Text><Text style={styles.bridgeVistaActionCopy}>Add PNG, JPEG, or WebP to this archive</Text></Pressable></View>
       <Text style={styles.bridgeVistaNotice}>{bridgeVistaNotice}</Text>
       <ScrollView style={styles.bridgeVistaGalleryScroll} contentContainerStyle={styles.bridgeVistaGallery}>
         {bridgeVistaLibrary.map(entry => <View key={entry.id} style={[styles.bridgeVistaCard, selectedBridgeVistaId === entry.id && styles.bridgeVistaCardSelected]}><Pressable style={styles.bridgeVistaChoose} onPress={() => { setSelectedBridgeVistaId(entry.id); setBridgeVistaNotice(`“${entry.name}” is pinned outside the bridge windows.`); }}><Image source={{ uri: entry.uri }} style={styles.bridgeVistaThumb} resizeMode="cover" /><Text numberOfLines={1} style={styles.bridgeVistaName}>{entry.name}</Text><Text style={styles.bridgeVistaStatus}>{selectedBridgeVistaId === entry.id ? 'PINNED' : 'SELECT TO PIN'}</Text></Pressable><Pressable style={styles.bridgeVistaRemove} onPress={() => removeBridgeVista(entry)}><Text style={styles.deleteText}>REMOVE</Text></Pressable></View>)}
@@ -1826,25 +1840,33 @@ function BallModifierArtwork({ modifier, drifting, skimming, diameter, skinStyle
   return null;
 }
 
-function WallView({ wall, sx, sy, mutation, elapsedMs }: { wall: Wall; sx: number; sy: number; mutation?: Run['containmentMutations'][number]; elapsedMs: number }) {
+function WallView({ wall, sx, sy, mutation }: { wall: Wall; sx: number; sy: number; mutation?: Run['containmentMutations'][number] }) {
   const [chargePulse] = useState(() => new Animated.Value(0));
+  const [mutationPulse] = useState(() => new Animated.Value(0));
   useEffect(() => {
     if (!wall.chargeWall) return;
     const loop = Animated.loop(Animated.sequence([Animated.timing(chargePulse, { toValue: 1, duration: 300, useNativeDriver: true }), Animated.timing(chargePulse, { toValue: 0, duration: 420, useNativeDriver: true })]));
     loop.start(); return () => loop.stop();
   }, [chargePulse, wall.chargeWall]);
+  useEffect(() => {
+    if (!mutation) { mutationPulse.setValue(0); return; }
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(mutationPulse, { toValue: 1, duration: 2600, useNativeDriver: true }),
+      Animated.timing(mutationPulse, { toValue: 0, duration: 2600, useNativeDriver: true }),
+    ]));
+    loop.start(); return () => loop.stop();
+  }, [mutationPulse, mutation?.key]);
   const vertical = wall.axis === 'vertical';
   const chargeColor = wall.chargeSkinId === 'voltaic-cartridge' ? '#66e9ff' : wall.chargeSkinId === 'singularity-charge' ? '#c39aff' : '#ffad55';
-  const vineColor = mutation?.kind === 'life' ? '#ef7e9d' : mutation?.kind === 'speed' ? '#9be9ff' : mutation?.kind === 'ram' || mutation?.kind === 'charge' ? '#ffc36a' : mutation?.kind === 'treasure' || mutation?.kind === 'merchant' ? '#f4d46f' : mutation?.kind === 'credit' ? '#b99aff' : '#98e98e';
-  const vineCount = mutation?.style === 'vines' ? Math.min(14, Math.floor(Math.max(0, elapsedMs - (mutation.startedAtMs ?? elapsedMs)) / 900) + 1) : 0;
-  return <View pointerEvents="none" style={[styles.wall, wall.active ? styles.activeWall : styles.fixedWall, wall.chargeWall && { backgroundColor: chargeColor, borderColor: '#fff1d2', shadowColor: chargeColor, shadowOpacity: 1, shadowRadius: 11, elevation: 5 }, mutation?.style === 'chromatic' && { backgroundColor: mutation.color, borderColor: '#eaffff', shadowColor: mutation.color, shadowOpacity: 1, shadowRadius: 13, elevation: 6 },
+  const mutationColor = mutation?.kind ? containmentMutationColor(mutation.kind) : '#78ead4';
+  const mutationGlow = mutationPulse.interpolate({ inputRange: [0, 1], outputRange: [0.2, 0.48] });
+  const mutationTravel = mutationPulse.interpolate({ inputRange: [0, 1], outputRange: [-15, 15] });
+  return <View pointerEvents="none" style={[styles.wall, wall.active ? styles.activeWall : styles.fixedWall, wall.chargeWall && { backgroundColor: chargeColor, borderColor: '#fff1d2', shadowColor: chargeColor, shadowOpacity: 1, shadowRadius: 11, elevation: 5 }, mutation && { backgroundColor: mutationColor, borderColor: '#f3fffc', shadowColor: mutationColor, shadowOpacity: 0.92, shadowRadius: 7, elevation: 4 },
     vertical ? { left: wall.at * sx - 2, top: wall.low * sy, height: (wall.high - wall.low) * sy, width: 4 }
       : { left: wall.low * sx, top: wall.at * sy - 2, width: (wall.high - wall.low) * sx, height: 4 }]}>
       {wall.chargeWall && <><Animated.View style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', backgroundColor: chargeColor, opacity: chargePulse.interpolate({ inputRange: [0, 1], outputRange: [0.18, 0.95] }) }} />{[0, 1, 2, 3, 4].map(index => <View key={index} style={vertical ? { position: 'absolute', left: -2, top: `${8 + index * 19}%`, width: 8, height: 2, backgroundColor: index % 2 ? '#fff3d3' : chargeColor } : { position: 'absolute', left: `${8 + index * 19}%`, top: -2, width: 2, height: 8, backgroundColor: index % 2 ? '#fff3d3' : chargeColor }} />)}</>}
-      {mutation?.style === 'vines' && <View style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }}>{Array.from({ length: vineCount }, (_, index) => {
-        const along = `${((index + 0.5) / Math.max(1, vineCount)) * 100}%` as `${number}%`, side = index % 2 ? 1 : -1;
-        return <View key={index} style={vertical ? { position: 'absolute', left: side * 5 - 1, top: along, width: 3, height: 9 + (index % 3) * 3, borderLeftWidth: 1.5, borderColor: vineColor, transform: [{ rotate: `${side * 28}deg` }] } : { position: 'absolute', left: along, top: side * 5 - 1, width: 9 + (index % 3) * 3, height: 3, borderTopWidth: 1.5, borderColor: vineColor, transform: [{ rotate: `${side * 28}deg` }] }}><View style={{ position: 'absolute', left: vertical ? side * 3 : 2, top: vertical ? 2 : side * 2, width: 6 + index % 3, height: 4 + index % 2, borderRadius: 99, backgroundColor: index % 2 ? vineColor : '#d9ffab', transform: [{ rotate: `${index * 31}deg` }], shadowColor: vineColor, shadowOpacity: 0.9, shadowRadius: 4 }} /></View>;
-      })}</View>}
+      {mutation && <><Animated.View style={{ position: 'absolute', left: vertical ? 1 : 0, top: vertical ? 0 : 1, width: vertical ? 2 : '100%', height: vertical ? '100%' : 2, backgroundColor: '#ffffff', opacity: mutationGlow }} /><Animated.View style={vertical ? { position: 'absolute', left: 0, top: '50%', width: '100%', height: 30, marginTop: -15, backgroundColor: '#ffffff', opacity: mutationGlow, transform: [{ translateY: mutationTravel }] } : { position: 'absolute', left: '50%', top: 0, width: 30, height: '100%', marginLeft: -15, backgroundColor: '#ffffff', opacity: mutationGlow, transform: [{ translateX: mutationTravel }] }} />
+      </>}
     </View>;
 }
 
@@ -2372,9 +2394,11 @@ function WaldoScoutFigure({ size, idle }: { size: number; idle: Animated.Value }
 
 function WaldoPetArtwork({ pet, size }: { pet: CompanionPet; size: number }) {
   const [motion] = useState(() => new Animated.Value(0));
-  useEffect(() => { const animation = Animated.loop(Animated.sequence([Animated.timing(motion, { toValue: 1, duration: pet.task === 'paint' ? 520 : 760, useNativeDriver: true }), Animated.timing(motion, { toValue: 0, duration: pet.task === 'paint' ? 450 : 620, useNativeDriver: true })])); animation.start(); return () => animation.stop(); }, [motion, pet.task]);
-  const bob = motion.interpolate({ inputRange: [0, 1], outputRange: [1, -2] });
-  return <Animated.View style={{ width: size, height: size * 1.12, alignItems: 'center', justifyContent: 'center', transform: [{ translateY: bob }] }}><WaldoScoutFigure size={size * 0.82} idle={motion} />{pet.task === 'paint' && <Animated.Text style={{ position: 'absolute', right: 1, top: 3, color: '#ffe5a0', fontSize: size * 0.28, opacity: motion.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }) }}>✦</Animated.Text>}</Animated.View>;
+  const moving = Math.hypot(pet.vx, pet.vy) > 12;
+  useEffect(() => { const animation = Animated.loop(Animated.sequence([Animated.timing(motion, { toValue: 1, duration: pet.task === 'paint' ? 390 : moving ? 250 : 1050, useNativeDriver: true }), Animated.timing(motion, { toValue: 0, duration: pet.task === 'paint' ? 360 : moving ? 220 : 900, useNativeDriver: true })])); animation.start(); return () => animation.stop(); }, [motion, pet.task, moving]);
+  const bob = motion.interpolate({ inputRange: [0, 1], outputRange: [moving ? 1 : 0, moving ? -4 : -1.5] });
+  const lean = pet.vx < -1 ? '-8deg' : pet.vx > 1 ? '8deg' : '0deg';
+  return <Animated.View style={{ width: size, height: size * 1.12, alignItems: 'center', justifyContent: 'center', transform: [{ translateY: bob }, { rotate: lean }] }}><WaldoScoutFigure size={size * 0.82} idle={motion} />{pet.task === 'paint' && <Animated.Text style={{ position: 'absolute', right: 1, top: 3, color: '#ffe5a0', fontSize: size * 0.28, opacity: motion.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }) }}>✦</Animated.Text>}</Animated.View>;
 }
 
 function WaldoPaintingView({ left, top, styleId }: { left: number; top: number; styleId: number }) {
@@ -2414,18 +2438,18 @@ function HudPickupIcon({ kind, skinId, size }: { kind: PowerKind; skinId: string
   return <View style={{ width: size, height: size, position: 'relative' }}><PowerOrb power={{ id: -1, kind, x: center, y: center, vx: 0, vy: 0 }} sx={scale} sy={scale} skinId={skinId} staticDisplay /></View>;
 }
 
-function EngiPetArtwork({ skinId, task, size = 42 }: { skinId: string; task: CompanionPet['task']; size?: number }) {
+function EngiPetArtwork({ skinId, task, size = 42, moving = false, direction = 1 }: { skinId: string; task: CompanionPet['task']; size?: number; moving?: boolean; direction?: number }) {
   const [motion] = useState(() => new Animated.Value(0));
-  useEffect(() => { const duration = task === 'weld' ? 360 : task === 'scan' ? 1150 : 1750; const loop = Animated.loop(Animated.sequence([Animated.timing(motion, { toValue: 1, duration, useNativeDriver: true }), Animated.timing(motion, { toValue: 0, duration: duration * 0.82, useNativeDriver: true })])); loop.start(); return () => loop.stop(); }, [motion, task, skinId]);
+  useEffect(() => { const duration = task === 'weld' ? 360 : task === 'scan' ? 1150 : moving ? 240 : task === 'rest' ? 2400 : 1750; const loop = Animated.loop(Animated.sequence([Animated.timing(motion, { toValue: 1, duration, useNativeDriver: true }), Animated.timing(motion, { toValue: 0, duration: duration * 0.82, useNativeDriver: true })])); loop.start(); return () => loop.stop(); }, [motion, task, skinId, moving]);
   const skin = ENGI_PET_SKINS.find(item => item.id === skinId) ?? ENGI_PET_SKINS[0];
   const conceptArt = ENGI_CONCEPT_ART[skinId];
   const pulse = motion.interpolate({ inputRange: [0, 1], outputRange: [0.78, 1.18] });
-  const bob = motion.interpolate({ inputRange: [0, 1], outputRange: [1, task === 'rest' ? -0.7 : -2.2] });
-  const lean = motion.interpolate({ inputRange: [0, 1], outputRange: skin.form === 'pilgrim' ? ['-3deg', '3deg'] : ['-2deg', '2deg'] });
+  const bob = motion.interpolate({ inputRange: [0, 1], outputRange: [moving ? 1 : 0.5, moving ? -3.2 : task === 'rest' ? -0.7 : -2.2] });
+  const lean = motion.interpolate({ inputRange: [0, 1], outputRange: moving ? (direction < 0 ? ['-8deg', '-2deg'] : ['2deg', '8deg']) : skin.form === 'pilgrim' ? ['-3deg', '3deg'] : ['-2deg', '2deg'] });
   const shell = skin.shell, trim = skin.trim, glow = skin.glow;
   const plate = { position: 'absolute' as const, borderWidth: Math.max(1, size * 0.025), borderColor: trim, backgroundColor: shell, shadowColor: glow, shadowOpacity: 0.26, shadowRadius: size * 0.08 };
   const joint = { position: 'absolute' as const, width: size * 0.095, height: size * 0.095, borderRadius: size, backgroundColor: trim, borderWidth: 1, borderColor: '#f6dfb2' };
-  const legs = <><View style={[plate, { left: size * 0.13, top: size * 0.68, width: size * 0.33, height: size * 0.11, borderRadius: size, transform: [{ rotate: '27deg' }] }]} /><View style={[plate, { right: size * 0.12, top: size * 0.68, width: size * 0.33, height: size * 0.11, borderRadius: size, transform: [{ rotate: '-27deg' }] }]} /><View style={[plate, { left: size * 0.42, top: size * 0.7, width: size * 0.16, height: size * 0.12, borderRadius: size, backgroundColor: '#17232a' }]} /><View style={[joint, { left: size * 0.12, top: size * 0.64 }]} /><View style={[joint, { right: size * 0.11, top: size * 0.64 }]} /></>;
+  const legs = <><Animated.View style={[plate, { left: size * 0.13, top: size * 0.68, width: size * 0.33, height: size * 0.11, borderRadius: size, transform: [{ rotate: moving ? motion.interpolate({ inputRange: [0, 1], outputRange: ['-12deg', '38deg'] }) : '27deg' }] }]} /><Animated.View style={[plate, { right: size * 0.12, top: size * 0.68, width: size * 0.33, height: size * 0.11, borderRadius: size, transform: [{ rotate: moving ? motion.interpolate({ inputRange: [0, 1], outputRange: ['-38deg', '12deg'] }) : '-27deg' }] }]} /><View style={[plate, { left: size * 0.42, top: size * 0.7, width: size * 0.16, height: size * 0.12, borderRadius: size, backgroundColor: '#17232a' }]} /><View style={[joint, { left: size * 0.12, top: size * 0.64 }]} /><View style={[joint, { right: size * 0.11, top: size * 0.64 }]} /></>;
   const art = skin.form === 'aegis'
     ? <>
       <Animated.View style={[{ position: 'absolute', left: size * 0.1, top: size * 0.08, width: size * 0.8, height: size * 0.12, borderTopWidth: size * 0.05, borderColor: trim, borderTopLeftRadius: size, borderTopRightRadius: size }, { transform: [{ rotate: lean }] }]} />
@@ -2661,17 +2685,17 @@ function CaptureBurst({ event, sx, sy, creditSkin = DEFAULT_SKIN_SELECTIONS.cred
   const [progress] = useState(() => new Animated.Value(0));
   const onDoneRef = useRef(onDone);
   useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
-  useEffect(() => { Animated.timing(progress, { toValue: 1, duration: event.skewered ? 2100 : event.kind === 'chargeBallBreak' ? event.skinId === 'voltaic-cartridge' ? 1380 : event.skinId === 'singularity-charge' ? 1760 : 1120 : event.skinId === 'phoenix-ember' ? 1550 : event.skinId === 'moth-lantern' ? 1650 : event.skinId === 'thunder-lattice' ? 1280 : event.skinId === 'ion-skiff' ? 1160 : event.skinId === 'mantis-breacher' ? 1360 : event.skinId === 'meteor-maul' ? 1480 : event.skinId === 'star-reliquary' ? 1580 : event.skinId === 'orbital-astrolabe' ? 1720 : event.skinId === 'radiant-coin' ? 1640 : event.skinId === 'star-chart-astrolabe' ? 1480 : event.skinId === 'skyglass-merchant' ? 1560 : event.skinId === 'lantern-gate-token' ? 1420 : event.skinId === 'aurora-crown' ? 1580 : event.skinId === 'tiny-glassworld' ? 1680 : event.skinId === 'inkblot-comet' ? 1460 : event.skinId === 'finder-badge' ? 1620 : event.skinId === 'solar-mint-seal' ? 1420 : event.skinId === 'circuit-ledger-relay' ? 1540 : event.skinId === 'void-prism-scrip' ? 1660 : event.skinId === 'engi-cocoon' ? 1380 : event.skinId === 'engi-seed-pod' ? 1480 : event.skinId === 'engi-scarab-capsule' ? 1600 : event.skinId === 'courier-skiff' ? 1360 : event.skinId === 'folded-transit' ? 1410 : event.kind === 'merchantBreak' ? 1250 : event.kind === 'exit' ? 1450 : event.kind === 'petHatched' ? 1450 : event.kind === 'petRepair' ? 1050 : event.kind === 'engiEggBreak' ? 780 : event.kind === 'phaseChestBreak' ? 1350 : event.kind === 'phaseRupture' ? 1150 : event.kind === 'waldoFound' ? 1450 : event.kind === 'waldo' ? 1250 : event.kind === 'jackpot' ? 1100 : event.kind === 'bubble' ? 1450 : event.kind === 'credit' ? 1050 : event.kind === 'creditLost' ? 620 : event.kind === 'combo' ? 980 : event.kind === 'bubbleLost' ? 460 : 720, useNativeDriver: true }).start(({ finished }) => { if (finished) onDoneRef.current(); }); }, [progress, event.kind, event.skinId, event.skewered]);
-  const pickupKind: PowerKind | undefined = event.kind === 'jackpot' ? 'treasure' : event.kind === 'chargeBallBreak' ? 'charge' : event.kind === 'engiEggBreak' || event.kind === 'petHatched' ? 'engi-egg' : event.kind === 'explosion' || event.kind === 'overflowFailed' || event.kind === 'phaseRupture' || event.kind === 'phaseChestBreak' || event.kind === 'anchorBreak' || event.kind === 'combo' || event.kind === 'waldoFound' || event.kind === 'petRepair' || event.kind === 'petLost' ? undefined : event.kind === 'ramBlast' ? 'ram' : event.kind === 'merchantBreak' ? 'merchant' : event.kind === 'bubbleLost' ? 'bubble' : event.kind === 'creditLost' ? 'credit' : event.kind;
+  useEffect(() => { Animated.timing(progress, { toValue: 1, duration: event.skewered ? 2100 : event.kind === 'chargeBallBreak' || event.kind === 'chargeWallBreak' ? event.skinId === 'voltaic-cartridge' ? 1380 : event.skinId === 'singularity-charge' ? 1760 : 1120 : event.skinId === 'phoenix-ember' ? 1550 : event.skinId === 'moth-lantern' ? 1650 : event.skinId === 'thunder-lattice' ? 1280 : event.skinId === 'ion-skiff' ? 1160 : event.skinId === 'mantis-breacher' ? 1360 : event.skinId === 'meteor-maul' ? 1480 : event.skinId === 'star-reliquary' ? 1580 : event.skinId === 'orbital-astrolabe' ? 1720 : event.skinId === 'radiant-coin' ? 1640 : event.skinId === 'star-chart-astrolabe' ? 1480 : event.skinId === 'skyglass-merchant' ? 1560 : event.skinId === 'lantern-gate-token' ? 1420 : event.skinId === 'aurora-crown' ? 1580 : event.skinId === 'tiny-glassworld' ? 1680 : event.skinId === 'inkblot-comet' ? 1460 : event.skinId === 'finder-badge' ? 1620 : event.skinId === 'solar-mint-seal' ? 1420 : event.skinId === 'circuit-ledger-relay' ? 1540 : event.skinId === 'void-prism-scrip' ? 1660 : event.skinId === 'engi-cocoon' ? 1380 : event.skinId === 'engi-seed-pod' ? 1480 : event.skinId === 'engi-scarab-capsule' ? 1600 : event.skinId === 'courier-skiff' ? 1360 : event.skinId === 'folded-transit' ? 1410 : event.kind === 'merchantBreak' ? 1250 : event.kind === 'exit' ? 1450 : event.kind === 'petHatched' ? 1450 : event.kind === 'petRepair' ? 1050 : event.kind === 'engiEggBreak' ? 780 : event.kind === 'phaseChestBreak' ? 1350 : event.kind === 'phaseRupture' ? 1150 : event.kind === 'waldoFound' ? 1450 : event.kind === 'waldo' ? 1250 : event.kind === 'jackpot' ? 1100 : event.kind === 'bubble' ? 1450 : event.kind === 'credit' ? 1050 : event.kind === 'creditLost' ? 620 : event.kind === 'combo' ? 980 : event.kind === 'bubbleLost' ? 460 : 720, useNativeDriver: true }).start(({ finished }) => { if (finished) onDoneRef.current(); }); }, [progress, event.kind, event.skinId, event.skewered]);
+  const pickupKind: PowerKind | undefined = event.kind === 'jackpot' ? 'treasure' : event.kind === 'chargeBallBreak' || event.kind === 'chargeWallBreak' ? 'charge' : event.kind === 'engiEggBreak' || event.kind === 'petHatched' ? 'engi-egg' : event.kind === 'explosion' || event.kind === 'overflowFailed' || event.kind === 'phaseRupture' || event.kind === 'phaseChestBreak' || event.kind === 'anchorBreak' || event.kind === 'combo' || event.kind === 'waldoFound' || event.kind === 'petRepair' || event.kind === 'petLost' ? undefined : event.kind === 'ramBlast' ? 'ram' : event.kind === 'merchantBreak' ? 'merchant' : event.kind === 'bubbleLost' ? 'bubble' : event.kind === 'creditLost' ? 'credit' : event.kind;
   const option = pickupKind ? PICKUP_SKINS[pickupKind].find(skin => skin.id === event.skinId) ?? PICKUP_SKINS[pickupKind][0] : undefined;
-  const isChargeBreak = event.kind === 'chargeBallBreak';
+  const isChargeBreak = event.kind === 'chargeBallBreak' || event.kind === 'chargeWallBreak';
   const isBlast = event.kind === 'explosion' || event.kind === 'ramBlast' || isChargeBreak;
   const isBubblePop = event.kind === 'bubble';
   const isCombo = event.kind === 'combo';
   const skewerAnimation: CaptureAnimation | undefined = event.skewered ? 'skewer-pierce' : undefined;
   const skewerAxis = event.skeweredWall?.axis ?? event.skeweredAxis;
   const wall = event.skeweredWall;
-  const animation = event.kind === 'bubbleLost' ? 'bubble-pop' : event.kind === 'creditLost' || event.kind === 'engiEggBreak' || event.kind === 'merchantBreak' || event.kind === 'chargeBallBreak' ? option?.breakAnimation ?? 'token-fracture' : option?.captureAnimation;
+  const animation = event.kind === 'bubbleLost' ? 'bubble-pop' : event.kind === 'creditLost' || event.kind === 'engiEggBreak' || event.kind === 'merchantBreak' || isChargeBreak ? option?.breakAnimation ?? 'token-fracture' : option?.captureAnimation;
   const isWaldoFound = event.kind === 'waldoFound';
   const isPhaseRupture = event.kind === 'phaseRupture';
   const isPhaseChestBreak = event.kind === 'phaseChestBreak';
