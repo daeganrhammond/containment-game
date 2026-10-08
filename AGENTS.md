@@ -30,6 +30,13 @@ Run lint and typecheck before declaring any task done.
 - Keep gameplay changes localized. Extract a helper or component when it makes the requested change safer or easier to maintain; avoid unrelated refactors during feature work.
 - Once an integration is stable, run `npx expo lint` and `npx tsc --noEmit` concurrently. Run them again only after a code change that could affect their results.
 
+## Browser and phone-sized verification
+
+- Playwright is configured in `playwright.config.ts`; `npm run test:e2e` checks the bridge vista in desktop Chromium and a phone-sized Chromium viewport. Install its browser once with `npx playwright install chromium`.
+- For vista motion, compare the computed transform on the animated image wrapper and its ancestors. React Native Web applies `Animated.Image` transforms to a wrapper element, so inspecting only the `<img>` can falsely report that drift is static.
+- A phone-sized Chromium project verifies responsive web behavior only. Do not describe it as a native Android/iOS runtime test; use a device or emulator for that.
+- Keep screenshots, traces, and Playwright output in ignored output directories. Don't commit generated browser binaries or test artifacts.
+
 ## Bridge vista and ambience workflow
 
 Use this short path for new exterior scenes and ambient motion; the existing scene pipeline is the source of truth:
@@ -49,7 +56,7 @@ Use this short path for new exterior scenes and ambient motion; the existing sce
 - For large source files, search once with `rg`, read only the bounded relevant region, make the edit, then inspect that region and `git diff --stat` before checks. Prefer one targeted implementation pass over repeatedly dumping or re-reading entire files.
 - Preserve each edited file's existing line endings. Check with `git ls-files --eol <paths>` before scripted edits; use `git diff --ignore-space-at-eol` to distinguish meaningful edits from line-ending churn. Never normalize a whole file as part of a feature patch.
 - Run lint and typecheck together once after code edits settle. Run a web export only for web-facing changes or a release. Don't repeat successful checks unless code changes afterward.
-- When publishing, inspect the intended release files before staging. Stage the source, assets, docs, and generated archives deliberately; do not include stale build archives or unrelated artifacts by default. Verify the pushed commit and tag, then check the GitHub Pages workflow run before telling the user the live site is updated.
+- When publishing, inspect the intended release files before staging. Stage the source, assets, and docs deliberately; do not include stale build archives or unrelated artifacts by default. Verify the pushed commit and tag, then wait for the GitHub Pages workflow to succeed for that exact commit. Confirm the deployed URL from the Pages deployment/environment or Pages settings and verify it returns the app before saying it is live. Always include the direct live link in the final response after a successful deployment; if deployment is still running or failed, report that without implying the site updated.
 
 ## Navigation & Routing
 
