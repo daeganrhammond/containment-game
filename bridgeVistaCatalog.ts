@@ -1,6 +1,6 @@
 import type { ImageSourcePropType } from 'react-native';
 
-export type BridgeAmbienceProfile = 'deep-space' | 'pelagic-megacity' | 'emberline-shipyard' | 'nacre-ice-giant' | 'eventide-eclipse' | 'glass-desert' | 'pilgrim-beacons' | 'aurora-reef' | 'comet-caravan' | 'blue-meridian' | 'vesper-horizon' | 'blueworld-patrol' | 'dawnward-escort' | 'emberfall-frontier' | 'leviathan-orbit' | 'nebula-clouds' | 'asteroid-belt';
+export type BridgeAmbienceProfile = 'deep-space' | 'pelagic-megacity' | 'emberline-shipyard' | 'nacre-ice-giant' | 'eventide-eclipse' | 'glass-desert' | 'pilgrim-beacons' | 'aurora-reef' | 'comet-caravan' | 'blue-meridian' | 'vesper-horizon' | 'blueworld-patrol' | 'dawnward-escort' | 'emberfall-frontier' | 'leviathan-orbit' | 'nebula-clouds' | 'asteroid-belt' | 'cinder-comet-shoals' | 'copperline-orbital-foundry';
 export type BridgeVistaScene = {
   id: string;
   name: string;
@@ -11,6 +11,8 @@ export type BridgeVistaScene = {
 // Built-in vista art is a clean exterior plate. The ship interior and window
 // mask stay in App.tsx; gentle motion is composed by BridgeVistaRenderer.
 export const BUILT_IN_BRIDGE_VISTAS: BridgeVistaScene[] = [
+  { id: 'cinder-comet-shoals', name: 'Cinder Comet Shoals', source: require('./assets/bridge-vistas/cinder-comet-shoals.png'), ambience: 'cinder-comet-shoals' },
+  { id: 'copperline-orbital-foundry', name: 'Copperline Orbital Foundry', source: require('./assets/bridge-vistas/copperline-orbital-foundry.jpg'), ambience: 'copperline-orbital-foundry' },
   { id: 'blue-ringworld', name: 'Blue Ringworld', source: require('./assets/bridge-vistas/blue-ringworld-vista.jpg'), ambience: 'blue-meridian' },
   { id: 'astral-nebula', name: 'Astral Nebula', source: require('./assets/picture-events/astral-nebula.jpg'), ambience: 'nebula-clouds' },
   { id: 'ringworld-horizon', name: 'Ringworld Horizon', source: require('./assets/picture-events/ringworld-horizon.jpg'), ambience: 'nacre-ice-giant' },

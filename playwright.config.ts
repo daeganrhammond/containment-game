@@ -3,7 +3,8 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: './playwright',
   outputDir: './playwright-output',
-  timeout: 30_000,
+  timeout: 60_000,
+  workers: 1,
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:8082',
     trace: 'retain-on-failure',

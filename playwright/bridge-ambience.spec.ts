@@ -8,8 +8,8 @@ test('bridge vista renders and exterior motion advances', async ({ page }, testI
   await expect(page.locator('body')).toBeVisible();
   await page.waitForTimeout(2_000);
 
-  const vista = page.locator('img[src*="blue-ringworld-vista.jpg"]');
-  await expect(vista, 'expected the initial Blue Ringworld bridge vista').toBeAttached();
+  const vista = page.locator('img[src*="cinder-comet-shoals.png"]');
+  await expect(vista, 'expected the initial Cinder Comet Shoals bridge vista').toBeAttached();
   await vista.evaluate(image => image.scrollIntoView({ block: 'center', behavior: 'instant' }));
   await page.waitForTimeout(1_500);
   const firstFrame = await vista.evaluate(image => {

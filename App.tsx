@@ -388,7 +388,7 @@ function BridgeStagePreview({ run, hasActiveRun, simulationRunning, defaultBackg
       requestAnimationFrame(() => surfaceRef.current?.measureInWindow((x, y, measuredWidth, measuredHeight) => onSurfaceLayout(width, height, { x, y, width: measuredWidth, height: measuredHeight })));
     }} onTouchStart={presentation === 'window' ? onTouchStart : undefined} onTouchEnd={presentation === 'window' ? onTouchEnd : undefined} onTouchCancel={presentation === 'window' ? onTouchCancel : undefined}
       {...(Platform.OS === 'web' && presentation === 'window' ? { onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onPointerLeave } : {})}
-      style={[styles.bridgeMiniFrame, presentation === 'window' && styles.bridgeWindowFrame, presentation === 'window' && { backgroundColor: backgroundTint }, { width: boardWidth, height: boardHeight }]}>
+      style={[styles.bridgeMiniFrame, presentation === 'window' && styles.bridgeWindowFrame, presentation === 'window' && { backgroundColor: backgroundTint }, presentation === 'window' && Platform.OS === 'web' && { cursor: 'none' } as any, { width: boardWidth, height: boardHeight }]}>
       {activeBackground && <Image source={activeBackground} resizeMode={run.pictureEvent && !run.pictureEvent.isWaldo ? 'stretch' : 'cover'} style={{ position: 'absolute', left: 0, top: 0, width: boardWidth, height: boardHeight, opacity: presentation === 'window' && !run.pictureEvent ? 0.58 : 1 }} />}
       {presentation === 'mini' ? <>
         <View pointerEvents="none" style={styles.bridgeMiniTint} />
@@ -520,6 +520,7 @@ export default function App() {
   const [bridgeCanvasSize, setBridgeCanvasSize] = useState({ width: 0, height: 0 });
   const [bridgeRailVisible, setBridgeRailVisible] = useState(true);
   const [bridgeVistaIndex, setBridgeVistaIndex] = useState(0);
+  const [developerVistaId, setDeveloperVistaId] = useState<string | null>(null);
   const [manualSave, setManualSave] = useState<Run | null>(null);
   const [confirmOverwriteSave, setConfirmOverwriteSave] = useState(false);
   const [confirmNewRun, setConfirmNewRun] = useState(false);
@@ -1078,14 +1079,16 @@ export default function App() {
     ...bridgeVistaLibrary.map(entry => ({ id: entry.id, name: entry.name, source: { uri: entry.uri } as ImageSourcePropType, ambience: undefined })),
   ], [bridgeVistaLibrary]);
   useEffect(() => {
-    if (menuPage !== 'home' || selectedBridgeVistaId || bridgeSimView === 'window' || bridgeVistaScenes.length < 2) return;
+    if (menuPage !== 'home' || selectedBridgeVistaId || developerVistaId || bridgeSimView === 'window' || bridgeVistaScenes.length < 2) return;
     const timer = setInterval(() => setBridgeVistaIndex(index => (index + 1) % bridgeVistaScenes.length), 18000);
     return () => clearInterval(timer);
-  }, [menuPage, selectedBridgeVistaId, bridgeSimView, bridgeVistaScenes]);
-  const bridgeExteriorScene = useMemo(() => pinnedBridgeVista
-    ? { id: pinnedBridgeVista.id, name: pinnedBridgeVista.name, source: { uri: pinnedBridgeVista.uri } as ImageSourcePropType }
-    : bridgeVistaScenes[bridgeVistaIndex % Math.max(bridgeVistaScenes.length, 1)],
-  [pinnedBridgeVista, bridgeVistaScenes, bridgeVistaIndex]);
+  }, [menuPage, selectedBridgeVistaId, developerVistaId, bridgeSimView, bridgeVistaScenes]);
+  const bridgeExteriorScene = useMemo(() => {
+    const developerSelection = developerVistaId ? bridgeVistaScenes.find(scene => scene.id === developerVistaId) : undefined;
+    return developerSelection ?? (pinnedBridgeVista
+      ? { id: pinnedBridgeVista.id, name: pinnedBridgeVista.name, source: { uri: pinnedBridgeVista.uri } as ImageSourcePropType }
+      : bridgeVistaScenes[bridgeVistaIndex % Math.max(bridgeVistaScenes.length, 1)]);
+  }, [developerVistaId, pinnedBridgeVista, bridgeVistaScenes, bridgeVistaIndex]);
   const claimRects = useMemo(() => {
     const cols = run.gridCols, rows = run.gridRows, rects: { key: string; x: number; y: number; width: number }[] = [];
     for (let y = 0; y < rows; y++) {
@@ -1303,6 +1306,9 @@ export default function App() {
       {devTab === 'gameplay' && <>
         <Text style={styles.devTitle}>DEVELOPER SETTINGS</Text>
         <Text style={styles.devHint}>Most tuning updates the active run immediately. Starting population and other run-start values apply to the next run. Use Balance Profiles above to save, overwrite, or restore complete tuning and skin setups.</Text>
+        <Text style={styles.sectionTitle}>BRIDGE WINDOW PREVIEW</Text>
+        <Text style={styles.devHint}>Pin a built-in or uploaded vista while inspecting it from HOME. AUTO returns to your current vista selection; unpinned scenes rotate normally.</Text>
+        <SettingChoiceRow label="Window theme" value={developerVistaId ?? 'auto'} options={[{ id: 'auto', label: 'AUTO ROTATION' }, ...bridgeVistaScenes.map(scene => ({ id: scene.id, label: scene.name }))]} onChange={value => setDeveloperVistaId(value === 'auto' ? null : value)} />
         <Text style={styles.sectionTitle}>SKIN CATALOG</Text>
         <SkinSelectRow label="Arena background" value={skinSelections.background} previewKind="background" options={BACKGROUND_SKINS} onChange={id => {
           const index = BACKGROUND_SKINS.findIndex(skin => skin.id === id);
@@ -1596,7 +1602,7 @@ export default function App() {
           <View style={styles.commandFooterRow}><BridgePulse delay={450} color="#ffc879" /><Text style={styles.commandFooter}>FLIGHT SYSTEMS ONLINE</Text></View>
         </View>}
         <View pointerEvents="box-none" style={[styles.commandMain, compactBridge && styles.commandMainCompact]}>
-          <View style={styles.bridgeWelcome}><View><Text style={styles.menuEyebrow}>COMMAND BRIDGE · DEEP SPACE</Text><Text style={[styles.bridgeWelcomeTitle, compactBridge && styles.bridgeWelcomeTitleCompact]}>Welcome aboard</Text></View><View style={styles.bridgeWelcomeActions}><Pressable style={styles.bridgeVistaTrigger} onPress={() => setBridgeVistaOpen(true)}><Text style={styles.bridgeVistaTriggerText}>VISTA · {pinnedBridgeVista ? 'PINNED' : 'AUTO'}</Text></Pressable><View style={styles.bridgeReady}><BridgePulse delay={240} /><Text style={styles.bridgeReadyText}>{running ? 'SECTOR LIVE' : paused ? 'SECTOR PAUSED' : 'SYSTEMS READY'}</Text></View></View></View>
+          <View style={styles.bridgeWelcome}><View><Text style={styles.menuEyebrow}>COMMAND BRIDGE · DEEP SPACE</Text><Text style={[styles.bridgeWelcomeTitle, compactBridge && styles.bridgeWelcomeTitleCompact]}>Welcome aboard</Text></View><View style={styles.bridgeWelcomeActions}><Pressable style={styles.bridgeVistaTrigger} onPress={() => setBridgeVistaOpen(true)}><Text style={styles.bridgeVistaTriggerText}>VISTA · {developerVistaId ? 'DEV PINNED' : pinnedBridgeVista ? 'PINNED' : 'AUTO'}</Text></Pressable><View style={styles.bridgeReady}><BridgePulse delay={240} /><Text style={styles.bridgeReadyText}>{running ? 'SECTOR LIVE' : paused ? 'SECTOR PAUSED' : 'SYSTEMS READY'}</Text></View></View></View>
           {bridgeSimView === 'mini' && <BridgeStagePreview run={run} hasActiveRun={hasSave && !run.ended} simulationRunning={running} defaultBackground={activeBackground.asset ?? undefined} onPress={openSimulationWindow} />}
           <View style={[styles.bridgeArtifactDock, styles.bridgeArtifactDockConsole, compactBridge && styles.bridgeArtifactDockConsoleCompact]}>
             <Text style={styles.bridgeDockHeading}>SHIP SYSTEMS · SELECT A CONSOLE</Text>

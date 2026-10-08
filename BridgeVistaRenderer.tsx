@@ -98,13 +98,13 @@ function NebulaCloudDrift({ width, height, index, tint, sceneSeed }: { width: nu
   return <Animated.View pointerEvents="none" style={{ position: 'absolute', left: startLeft, top: startTop, width: cloudWidth, height: cloudHeight, borderRadius: 999, backgroundColor: tint, opacity, shadowColor: tint, shadowOpacity: 0.85, shadowRadius: cloudHeight * 0.42, transform: [{ translateX }, { translateY }, { scale }] }} />;
 }
 
-function DriftingAsteroid({ width, height, index, sceneSeed }: { width: number; height: number; index: number; sceneSeed: number }) {
+function DriftingAsteroid({ width, height, index, sceneSeed, prominent = false }: { width: number; height: number; index: number; sceneSeed: number; prominent?: boolean }) {
   const [phase] = useState(() => new Animated.Value(0));
   const variation = seededRandom(sceneSeed + index * 104729);
   const fromLeft = variation() < 0.5;
-  const size = Math.max(4, width * (0.0035 + variation() * 0.003));
+  const size = Math.max(prominent ? 7 : 4, width * (prominent ? 0.0065 + variation() * 0.006 : 0.0035 + variation() * 0.003));
   const top = height * (0.16 + variation() * 0.68);
-  const duration = 30000 + variation() * 36000;
+  const duration = prominent ? 19000 + variation() * 19000 : 30000 + variation() * 36000;
   const driftY = height * ((variation() - 0.5) * 0.18);
   const delay = index * 7100 + Math.floor(variation() * 5000);
   useEffect(() => {
@@ -119,8 +119,8 @@ function DriftingAsteroid({ width, height, index, sceneSeed }: { width: number; 
   const translateX = phase.interpolate({ inputRange: [0, 1], outputRange: [0, fromLeft ? width * 1.18 : -width * 1.18] });
   const translateY = phase.interpolate({ inputRange: [0, 1], outputRange: [0, driftY] });
   const rotate = phase.interpolate({ inputRange: [0, 1], outputRange: ['-18deg', `${55 + variation() * 95}deg`] });
-  const opacity = phase.interpolate({ inputRange: [0, 0.08, 0.88, 1], outputRange: [0, 0.64, 0.6, 0] });
-  return <Animated.View pointerEvents="none" style={{ position: 'absolute', left: fromLeft ? -size : width, top, width: size, height: size * (0.72 + variation() * 0.24), borderRadius: size * 0.3, backgroundColor: index % 2 ? '#81909e' : '#a0aab4', opacity, shadowColor: '#b8d2e8', shadowOpacity: 0.7, shadowRadius: size * 0.6, transform: [{ translateX }, { translateY }, { rotate }] }} />;
+  const opacity = phase.interpolate({ inputRange: [0, 0.08, 0.88, 1], outputRange: [0, prominent ? 0.9 : 0.64, prominent ? 0.8 : 0.6, 0] });
+  return <Animated.View pointerEvents="none" style={{ position: 'absolute', left: fromLeft ? -size : width, top, width: size, height: size * (0.72 + variation() * 0.24), borderRadius: size * 0.3, backgroundColor: prominent ? (index % 2 ? '#b47654' : '#e6b47a') : (index % 2 ? '#81909e' : '#a0aab4'), opacity, shadowColor: prominent ? '#ff9d54' : '#b8d2e8', shadowOpacity: prominent ? 0.95 : 0.7, shadowRadius: size * (prominent ? 0.95 : 0.6), transform: [{ translateX }, { translateY }, { rotate }] }} />;
 }
 
 function RainTrace({ width, height, index }: { width: number; height: number; index: number }) {
@@ -192,13 +192,13 @@ function EclipseCorona({ width, height }: { width: number; height: number }) {
   return <Animated.View pointerEvents="none" style={{ position: 'absolute', left: width * 0.28 - size / 2, top: height * 0.42 - size / 2, width: size, height: size, borderRadius: size, borderWidth: 2, borderColor: '#ffe3a0', opacity, shadowColor: '#ffd88e', shadowOpacity: 0.7, shadowRadius: size * 0.18, transform: [{ scale }] }} />;
 }
 
-function ShuttlePass({ width, height, trafficIndex }: { width: number; height: number; trafficIndex: number }) {
+function ShuttlePass({ width, height, trafficIndex, laneY, sizeMultiplier = 1, firstDelayStepMs = 8500, firstDelayJitterMs = 12000 }: { width: number; height: number; trafficIndex: number; laneY?: number; sizeMultiplier?: number; firstDelayStepMs?: number; firstDelayJitterMs?: number }) {
   const [progress] = useState(() => new Animated.Value(0));
   const [opacity] = useState(() => new Animated.Value(0));
   const [thrust] = useState(() => new Animated.Value(0));
   const [route, setRoute] = useState({ top: height * 0.45, direction: 1, arc: 0, drift: 0, shipIndex: 0, size: 1 });
   const ship = BRIDGE_SHIP_SKINS[route.shipIndex];
-  const shuttleWidth = Math.max(34, width * 0.055 * route.size);
+  const shuttleWidth = Math.max(24, width * 0.055 * route.size * sizeMultiplier);
   const shuttleHeight = shuttleWidth / ship.aspect;
   useEffect(() => {
     const pulse = Animated.loop(Animated.sequence([
@@ -215,7 +215,7 @@ function ShuttlePass({ width, height, trafficIndex }: { width: number; height: n
     const schedulePass = () => {
       const direction = Math.random() < 0.5 ? -1 : 1;
       const duration = 22000 + Math.random() * 26000;
-      const top = height * (0.12 + Math.random() * 0.76);
+      const top = laneY === undefined ? height * (0.12 + Math.random() * 0.76) : height * (laneY + (Math.random() - 0.5) * 0.035);
       const arc = (Math.random() < 0.5 ? -1 : 1) * height * (0.012 + Math.random() * 0.027);
       const drift = (Math.random() - 0.5) * height * 0.03;
       const shipIndex = Math.floor(Math.random() * BRIDGE_SHIP_SKINS.length);
@@ -224,7 +224,7 @@ function ShuttlePass({ width, height, trafficIndex }: { width: number; height: n
       progress.setValue(0);
       opacity.setValue(0);
       const delay = firstPass
-        ? trafficIndex * 8500 + Math.random() * 12000
+        ? trafficIndex * firstDelayStepMs + Math.random() * firstDelayJitterMs
         : 9000 + Math.random() * 22000;
       firstPass = false;
       const fadeInMs = 1500;
@@ -247,7 +247,7 @@ function ShuttlePass({ width, height, trafficIndex }: { width: number; height: n
     };
     schedulePass();
     return () => { cancelled = true; progress.stopAnimation(); opacity.stopAnimation(); };
-  }, [height, opacity, progress, trafficIndex, width]);
+  }, [firstDelayJitterMs, firstDelayStepMs, height, laneY, opacity, progress, trafficIndex, width]);
   const glowOpacity = thrust.interpolate({ inputRange: [0, 1], outputRange: [0.68, 1] });
   const glowScale = thrust.interpolate({ inputRange: [0, 1], outputRange: [0.82, 1.38] });
   const pathStops = [0, 0.22, 0.5, 0.78, 1];
@@ -291,29 +291,51 @@ export function BridgeVistaRenderer({ source, ambience, sceneId = 'unnamed-vista
         driftY.stopAnimation(() => {
           driftScale.stopAnimation(() => {
             if (cancelled) return;
-            const targetX = (random() < 0.5 ? -1 : 1) * width * (0.025 + random() * 0.05);
-            const targetY = (random() < 0.5 ? -1 : 1) * height * (0.012 + random() * 0.032);
-            const duration = 20000 + random() * 52000;
-            const easing = random() < 0.35 ? Easing.inOut(Easing.quad) : Easing.inOut(Easing.sin);
+            // Change the drift character over time: long lateral glides,
+            // slow vertical rolls, and wider diagonal voyages all remain
+            // inside the overscan around the window mask.
+            const routeStyle = Math.floor(random() * 4);
+            const directionX = random() < 0.5 ? -1 : 1;
+            const directionY = random() < 0.5 ? -1 : 1;
+            const horizontalTravel = routeStyle === 0 ? 0.045 + random() * 0.05
+              : routeStyle === 1 ? 0.015 + random() * 0.035
+                : 0.03 + random() * 0.06;
+            const verticalTravel = routeStyle === 0 ? 0.004 + random() * 0.018
+              : routeStyle === 1 ? 0.035 + random() * 0.035
+                : 0.014 + random() * 0.05;
+            const targetX = directionX * width * horizontalTravel;
+            const targetY = directionY * height * verticalTravel;
+            const duration = 18000 + random() * 68000;
+            const easingChoice = random();
+            const easing = easingChoice < 0.25 ? Easing.inOut(Easing.quad)
+              : easingChoice < 0.5 ? Easing.inOut(Easing.cubic)
+                : Easing.inOut(Easing.sin);
             const animation = Animated.parallel([
               Animated.timing(driftX, { toValue: targetX, duration, easing, useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
               Animated.timing(driftY, { toValue: targetY, duration, easing, useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
-              Animated.timing(driftScale, { toValue: 1.008 + random() * 0.027, duration, easing, useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
+              Animated.timing(driftScale, { toValue: 1.006 + random() * 0.036, duration, easing, useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
             ]);
-            animation.start(({ finished }) => { if (finished && !cancelled) nextLeg(); });
+            animation.start(({ finished }) => {
+              if (!finished || cancelled) return;
+              Animated.delay(250 + random() * 1450).start(({ finished: delayFinished }) => {
+                if (delayFinished && !cancelled) nextLeg();
+              });
+            });
           });
         });
       });
     };
-    driftX.setValue((random() < 0.5 ? -1 : 1) * width * (0.025 + random() * 0.05));
-    driftY.setValue((random() < 0.5 ? -1 : 1) * height * (0.012 + random() * 0.032));
-    driftScale.setValue(1.008 + random() * 0.027);
+    driftX.setValue((random() < 0.5 ? -1 : 1) * width * (0.025 + random() * 0.055));
+    driftY.setValue((random() < 0.5 ? -1 : 1) * height * (0.012 + random() * 0.045));
+    driftScale.setValue(1.006 + random() * 0.036);
     nextLeg();
     return () => { cancelled = true; driftX.stopAnimation(); driftY.stopAnimation(); driftScale.stopAnimation(); };
   }, [driftScale, driftX, driftY, height, sceneSeed, width]);
   return <View pointerEvents="none" style={{ position: 'absolute', left, top, width, height, overflow: 'hidden' }}>
     {width > 0 && height > 0 && <Animated.View style={[{ position: 'absolute', left: 0, top: 0, width, height, overflow: 'hidden' }, { opacity: fade }]}>
-      <Animated.Image source={source} resizeMode="cover" style={{ position: 'absolute', left: '-12.5%', top: '-12.5%', width: '125%', height: '125%', transform: [{ translateX: driftX }, { translateY: driftY }, { scale: driftScale }] }} />
+      <Animated.View style={{ position: 'absolute', left: '-12.5%', top: '-12.5%', width: '125%', height: '125%', transform: [{ translateX: driftX }, { translateY: driftY }, { scale: driftScale }] }}>
+        <Animated.Image source={source} resizeMode="cover" style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} />
+      </Animated.View>
       <View pointerEvents="none" style={styles.exteriorDecor}>
         {resolvedAmbience === 'deep-space' && <>
           <TwinklingStar left="12%" top="35%" size={2} delay={200} />
