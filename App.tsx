@@ -1083,9 +1083,9 @@ export default function App() {
     return () => clearInterval(timer);
   }, [menuPage, selectedBridgeVistaId, bridgeSimView, bridgeVistaScenes]);
   const bridgeExteriorScene = useMemo(() => pinnedBridgeVista
-    ? { source: { uri: pinnedBridgeVista.uri } as ImageSourcePropType }
+    ? { id: pinnedBridgeVista.id, name: pinnedBridgeVista.name, source: { uri: pinnedBridgeVista.uri } as ImageSourcePropType }
     : bridgeVistaScenes[bridgeVistaIndex % Math.max(bridgeVistaScenes.length, 1)],
-  [pinnedBridgeVista?.uri, bridgeVistaScenes, bridgeVistaIndex]);
+  [pinnedBridgeVista, bridgeVistaScenes, bridgeVistaIndex]);
   const claimRects = useMemo(() => {
     const cols = run.gridCols, rows = run.gridRows, rects: { key: string; x: number; y: number; width: number }[] = [];
     for (let y = 0; y < rows; y++) {
@@ -1556,7 +1556,7 @@ export default function App() {
       const { width, height } = event.nativeEvent.layout;
       setBridgeCanvasSize(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height });
     }}>
-      {bridgeExteriorScene && <BridgeVistaRenderer source={bridgeExteriorScene.source} ambience={'ambience' in bridgeExteriorScene ? bridgeExteriorScene.ambience : undefined} left={(bridgeCanvasSize.width - bridgeArtWidth) / 2} top={(bridgeCanvasSize.height - bridgeArtHeight) / 2} width={bridgeArtWidth} height={bridgeArtHeight} />}
+      {bridgeExteriorScene && <BridgeVistaRenderer source={bridgeExteriorScene.source} sceneId={bridgeExteriorScene.id} sceneName={bridgeExteriorScene.name} ambience={'ambience' in bridgeExteriorScene ? bridgeExteriorScene.ambience : undefined} left={(bridgeCanvasSize.width - bridgeArtWidth) / 2} top={(bridgeCanvasSize.height - bridgeArtHeight) / 2} width={bridgeArtWidth} height={bridgeArtHeight} />}
       {bridgeSimView === 'window' && bridgeWindowBounds && bridgeStageBounds && <BridgeStagePreview run={run} hasActiveRun={hasSave && !run.ended} simulationRunning={running} defaultBackground={activeBackground.asset ?? undefined} simulationBackground={bridgePictureSource} visualSkins={visualSkins} backgroundTint={tint} backgroundId={activeBackground.id} onPress={fullscreenSimulation} presentation="window" containerStyle={bridgeStageBounds}
         onSurfaceLayout={(width, height, rect) => { handleStageLayout(width, height); setBoard(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height }); if (rect) boardScreenRect.current = rect; }}
         onTouchStart={event => collectTouches(event, 'start')} onTouchEnd={event => collectTouches(event, 'end')} onTouchCancel={event => collectTouches(event, 'cancel')}

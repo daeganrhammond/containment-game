@@ -15,6 +15,7 @@
     "react-native-web": "^0.21.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
     "@types/react": "~19.2.2",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~57.0.2",
@@ -27,7 +28,8 @@
     "web": "expo start --web",
     "web:local": "expo start --web --host localhost --port 8082",
     "export:web": "expo export --platform web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "test:e2e": "playwright test"
   },
   "private": true
 }
