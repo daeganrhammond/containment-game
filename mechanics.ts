@@ -48,7 +48,7 @@ export type BallModifier = 'splitter' | 'skimmer' | 'drifter' | 'anchor' | 'phas
 export type ContainmentPickupKind = 'life' | 'speed' | 'ram' | 'charge' | 'treasure' | 'merchant' | 'credit' | 'engi-egg';
 export const CONTAINMENT_MUTATION_COLOR = '#f2d37a';
 export function containmentMutationColor(_kind: ContainmentPickupKind) { return CONTAINMENT_MUTATION_COLOR; }
-export type ContainmentMutation = { key: string; wallIds: number[]; bounds: { left: number; right: number; top: number; bottom: number }; rollAtMs: number; rolled: boolean; active: boolean; kind?: ContainmentPickupKind; style?: 'chromatic' | 'vines'; color?: string; startedAtMs?: number; decayQueued?: boolean };
+export type ContainmentMutation = { key: string; wallIds: number[]; wallSegments?: { wallId: number; low: number; high: number }[]; bounds: { left: number; right: number; top: number; bottom: number }; rollAtMs: number; rolled: boolean; active: boolean; kind?: ContainmentPickupKind; style?: 'chromatic' | 'vines'; color?: string; startedAtMs?: number; decayQueued?: boolean };
 /** Reusable shorthand for modifiers periodically applied for a random duration. Chance is per second and dt-adjusted in the sim tick. */
 export type PeriodicModifierRule = { chancePerSecond: number; durationMinSeconds: number; durationMaxSeconds: number };
 export type BallModifierSettings = {
@@ -815,7 +815,7 @@ export function everyBallHasItsOwnRegion(run: Run, width: number, height: number
 
 /** Finds fully player-walled regions containing one metal ball and no other ball. */
 function findContainmentBoxes(run: Run, width: number, height: number) {
-  if (run.balls.length === 0) return [] as { key: string; wallIds: number[]; bounds: ContainmentMutation['bounds'] }[];
+  if (run.balls.length === 0) return [] as { key: string; wallIds: number[]; wallSegments: NonNullable<ContainmentMutation['wallSegments']>; bounds: ContainmentMutation['bounds'] }[];
   const cols = run.gridCols || 48, rows = run.gridRows || 72, stepX = width / cols, stepY = height / rows;
   const barriers = buildWallBarrierGrid(run.walls.filter(wall => !wall.active), width, height, cols, rows, 'edge-tolerance');
   const solidWalls = run.walls.filter(wall => !wall.active), labels = new Int32Array(cols * rows), queue = new Int32Array(cols * rows);
@@ -830,24 +830,34 @@ function findContainmentBoxes(run: Run, width: number, height: number) {
       ? wall.axis === 'vertical' && Math.abs(wall.at - edge) < stepX * 0.7 && along >= wall.low - stepY * 0.5 && along <= wall.high + stepY * 0.5
       : wall.axis === 'horizontal' && Math.abs(wall.at - edge) < stepY * 0.7 && along >= wall.low - stepX * 0.5 && along <= wall.high + stepX * 0.5);
   };
-  const regions: { label: number; wallIds: Set<number>; fullyWallEnclosed: boolean; left: number; right: number; top: number; bottom: number }[] = [];
+  const regions: { label: number; wallIds: Set<number>; wallSegments: Map<number, { low: number; high: number }[]>; fullyWallEnclosed: boolean; left: number; right: number; top: number; bottom: number }[] = [];
   for (let start = 0; start < labels.length; start++) {
     if (labels[start] || run.claimMask[start]) continue;
     const label = ++nextLabel; let head = 0, tail = 0, fullyWallEnclosed = true;
     let left = cols, right = 0, top = rows, bottom = 0;
-    const wallIds = new Set<number>(); labels[start] = label; queue[tail++] = start;
+    const wallIds = new Set<number>(), wallSegments = new Map<number, { low: number; high: number }[]>(); labels[start] = label; queue[tail++] = start;
     while (head < tail) {
       const index = queue[head++], x = index % cols, y = Math.floor(index / cols);
       left = Math.min(left, x); right = Math.max(right, x); top = Math.min(top, y); bottom = Math.max(bottom, y);
       for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]] as const) {
         if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) { fullyWallEnclosed = false; continue; }
         const next = ny * cols + nx;
-        if (blocked(x, y, nx, ny)) { const wall = wallAtBoundary(x, y, nx, ny); if (wall) wallIds.add(wall.id); else fullyWallEnclosed = false; continue; }
+        if (blocked(x, y, nx, ny)) {
+          const wall = wallAtBoundary(x, y, nx, ny);
+          if (wall) {
+            wallIds.add(wall.id);
+            const low = Math.max(wall.low, wall.axis === 'vertical' ? y * stepY : x * stepX);
+            const high = Math.min(wall.high, wall.axis === 'vertical' ? (y + 1) * stepY : (x + 1) * stepX);
+            const intervals = wallSegments.get(wall.id) ?? [];
+            if (high > low) { intervals.push({ low, high }); wallSegments.set(wall.id, intervals); }
+          } else fullyWallEnclosed = false;
+          continue;
+        }
         if (run.claimMask[next]) { fullyWallEnclosed = false; continue; }
         if (!labels[next]) { labels[next] = label; queue[tail++] = next; }
       }
     }
-    regions.push({ label, wallIds, fullyWallEnclosed, left, right, top, bottom });
+    regions.push({ label, wallIds, wallSegments, fullyWallEnclosed, left, right, top, bottom });
   }
   const occupiedLabels = run.balls.map(ball => {
     const col = Math.max(0, Math.min(cols - 1, Math.floor(ball.x / width * cols)));
@@ -859,7 +869,16 @@ function findContainmentBoxes(run: Run, width: number, height: number) {
   return regions.filter(region => region.fullyWallEnclosed && region.wallIds.size > 0 && countByLabel.get(region.label) === 1).map(region => {
     const wallIds = [...region.wallIds].sort((a, b) => a - b);
     const ball = run.balls[occupiedLabels.findIndex(label => label === region.label)];
-    return { key: wallIds.length ? wallIds.join(':') : `ball:${ball.id}`, wallIds, bounds: { left: region.left / cols, right: (region.right + 1) / cols, top: region.top / rows, bottom: (region.bottom + 1) / rows } };
+    const segments = [...region.wallSegments].flatMap(([wallId, intervals]) => {
+      const merged: { low: number; high: number }[] = [];
+      for (const interval of intervals.sort((a, b) => a.low - b.low)) {
+        const last = merged[merged.length - 1];
+        if (last && interval.low <= last.high + 0.01) last.high = Math.max(last.high, interval.high);
+        else merged.push({ ...interval });
+      }
+      return merged.map(interval => ({ wallId, ...interval }));
+    });
+    return { key: wallIds.length ? wallIds.join(':') : `ball:${ball.id}`, wallIds, wallSegments: segments, bounds: { left: region.left / cols, right: (region.right + 1) / cols, top: region.top / rows, bottom: (region.bottom + 1) / rows } };
   });
 }
 
@@ -894,7 +913,6 @@ function rollContainmentMutationKind(run: Run): ContainmentPickupKind | undefine
 }
 
 function refreshContainmentMutations(run: Run, width: number, height: number, dt: number) {
-  if (run.mechanics.containmentMutationChance <= 0) return;
   run.containmentMutationScanRemainingMs = Math.max(0, (run.containmentMutationScanRemainingMs ?? 0) - dt);
   if (run.containmentMutationScanRemainingMs > 0) return;
   run.containmentMutationScanRemainingMs = 250;
@@ -903,8 +921,9 @@ function refreshContainmentMutations(run: Run, width: number, height: number, dt
   const boxes = (run.containmentMutations ?? []).map(box => {
     const region = current.get(box.key);
     if (box.active && !region) return { ...box, active: false };
-    return region ? { ...box, bounds: region.bounds } : box;
+    return region ? { ...box, bounds: region.bounds, wallSegments: region.wallSegments } : box;
   });
+  if (run.mechanics.containmentMutationChance <= 0) { run.containmentMutations = boxes; return; }
   for (const region of regions) {
     if (boxes.some(box => box.key === region.key)) continue;
     const min = Math.max(0, Math.min(run.mechanics.containmentMutationDelayMinSeconds, run.mechanics.containmentMutationDelayMaxSeconds));
@@ -1489,7 +1508,7 @@ function trySpawnDeferredPhaseChest(run: Run, width: number, height: number) {
 
 export function stepRun(previous: Run, dt: number, width: number, height: number): Run {
   if (previous.ended || width <= 0 || height <= 0) return previous;
-  let run: Run = { ...previous, levelEvent: previous.levelEvent ?? 'none', levelEventBannerUntilMs: previous.levelEventBannerUntilMs ?? 0, levelClearAnimationRemainingMs: previous.levelClearAnimationRemainingMs ?? 0, containmentMutations: (previous.containmentMutations ?? []).map(box => ({ ...box, wallIds: [...box.wallIds], bounds: { ...box.bounds } })), containmentMutationScanRemainingMs: previous.containmentMutationScanRemainingMs ?? 0, elapsedMs: previous.elapsedMs + dt, modifierCollisionLocks: Object.fromEntries(Object.entries(previous.modifierCollisionLocks ?? {}).filter(([, expiresAt]) => expiresAt > previous.elapsedMs + dt)), balls: previous.balls.map(b => ({ ...b })), walls: previous.walls.map(w => ({ ...w })), powerups: previous.powerups.map(p => ({ ...p })), overflowJobs: (previous.overflowJobs ?? []).map(job => ({ ...job })), pets: (previous.pets ?? []).map(pet => ({ ...pet })), petIncubations: (previous.petIncubations ?? []).map(incubation => ({ ...incubation })), captureEvents: [], wallBreakEvents: [], territoryGainEvents: [], creditGainEvents: [], speedReadyUntil: previous.speedReadyUntil !== null && previous.speedReadyUntil <= previous.elapsedMs + dt ? null : previous.speedReadyUntil,
+  let run: Run = { ...previous, levelEvent: previous.levelEvent ?? 'none', levelEventBannerUntilMs: previous.levelEventBannerUntilMs ?? 0, levelClearAnimationRemainingMs: previous.levelClearAnimationRemainingMs ?? 0, containmentMutations: (previous.containmentMutations ?? []).map(box => ({ ...box, wallIds: [...box.wallIds], wallSegments: box.wallSegments?.map(segment => ({ ...segment })), bounds: { ...box.bounds } })), containmentMutationScanRemainingMs: previous.containmentMutationScanRemainingMs ?? 0, elapsedMs: previous.elapsedMs + dt, modifierCollisionLocks: Object.fromEntries(Object.entries(previous.modifierCollisionLocks ?? {}).filter(([, expiresAt]) => expiresAt > previous.elapsedMs + dt)), balls: previous.balls.map(b => ({ ...b })), walls: previous.walls.map(w => ({ ...w })), powerups: previous.powerups.map(p => ({ ...p })), overflowJobs: (previous.overflowJobs ?? []).map(job => ({ ...job })), pets: (previous.pets ?? []).map(pet => ({ ...pet })), petIncubations: (previous.petIncubations ?? []).map(incubation => ({ ...incubation })), captureEvents: [], wallBreakEvents: [], territoryGainEvents: [], creditGainEvents: [], speedReadyUntil: previous.speedReadyUntil !== null && previous.speedReadyUntil <= previous.elapsedMs + dt ? null : previous.speedReadyUntil,
     treasureHunt: previous.treasureHunt ? { ...previous.treasureHunt, remainingMs: previous.treasureHunt.remainingMs - dt } : null,
     chargeReadyUntil: previous.chargeReadyUntil !== null && previous.chargeReadyUntil <= previous.elapsedMs + dt ? null : previous.chargeReadyUntil };
   if (run.levelClearPending) {

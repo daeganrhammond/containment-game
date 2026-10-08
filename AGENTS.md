@@ -30,6 +30,18 @@ Run lint and typecheck before declaring any task done.
 - Keep gameplay changes localized. Extract a helper or component when it makes the requested change safer or easier to maintain; avoid unrelated refactors during feature work.
 - Once an integration is stable, run `npx expo lint` and `npx tsc --noEmit` concurrently. Run them again only after a code change that could affect their results.
 
+## Bridge vista and ambience workflow
+
+Use this short path for new exterior scenes and ambient motion; the existing scene pipeline is the source of truth:
+
+1. Check `ART_ASSET_HANDOFF.md`, `bridgeVistaCatalog.ts`, and `BridgeVistaRenderer.tsx` first. Do not re-open the full `App.tsx`; use `rg` to locate only the scene-selection and renderer call sites if the task requires them.
+2. Keep a vista as a clean, continuous panorama with no ship interior, window frames, UI, or baked gameplay board. Prefer 16:9 at 1536×864 for built-in plates. Save optimized JPEG/WebP plates under `assets/bridge-vistas/`; use transparent PNG for independent moving craft or effects.
+3. Add built-in scenery by adding one typed catalog entry with a stable id, display name, source, and optional reusable ambience profile. Uploaded/pinned scenes are already handled by the user library; do not duplicate them as built-ins or edit storage/import logic for routine scene additions.
+4. Keep scene rendering and passive animation in `BridgeVistaRenderer.tsx`. Add a reusable ambience profile/effect there instead of creating one-off animation code per image. Keep panorama drift continuous (long, eased sweeps with no long stationary pauses), and schedule decorative craft independently with a hard cap of four simultaneous passes. A ship should remain visible until its entire sprite clears the panorama bounds. Prefer compositing code-driven motion (vista drift, star twinkle, routed craft with light/glow layers) over generating a new video for every scene. Keep motion lightweight and decorative; it must not affect gameplay physics or inputs. Reserve generated clips for distinctive one-off events that need complex organic motion.
+5. The vista layer must use the same aspect-fitted design-art bounds as `BridgeInterior` (including its centered left/top offset), not the raw screen bounds. Clip the panorama and all of its motion to those bounds; use `cover` inside them. Pass the measured bounds from the owning layout into the renderer. Do not independently measure, aspect-fit, or center a nested vista image: that produced partial-window alignment failures and revealed scenery outside the glass on shorter screens. Do not change window coordinates or interior artwork just to fit a new photo.
+6. For integration, make only the asset/catalog/renderer edits needed. Inspect the edited blocks and `git diff --stat`, then open the running web preview once and capture a screenshot to confirm the image fills the center and both side windows behind the interior. If the preview is already running, reuse it instead of starting another server. Check one phone-sized layout when the change affects responsive sizing; do not repeat browser tours for unchanged code.
+7. Record the new asset dimensions, file path, scene id, and any ambience profile in `ART_ASSET_HANDOFF.md`. Keep `PROJECT_BRIEF.md` and `SESSION_LOG.md` concise: update only when the project-level direction or a meaningful milestone changes.
+
 ## Patch and release workflow
 
 - For behavior changes, gather unresolved behavior choices into one concise, numbered clarification before implementation. Include a recommended default for each material choice; do not ask again about decisions already answered in the conversation.

@@ -3,11 +3,13 @@ import * as DocumentPicker from 'expo-document-picker';
 import { Directory, File, Paths } from 'expo-file-system';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Image, ImageSourcePropType, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { Animated, Easing, Image, ImageSourcePropType, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { activateCharge, activateSpeed, Ball, BallModifier, CaptureEvent, chargeCapacity, chargeStorageUpgradeCost, CompanionPet, ContainmentPickupKind, CONTAINMENT_MUTATION_COLOR, containmentMutationColor, CreditGainEvent, DEFAULT_MECHANICS, deployEngi, engiUpgradeCost, enforceChargeCapacities, getMechanicsSettings, hireEngi, lifeStorageUpgradeCost, MechanicsSettings, MECHANICS, merchantPowerBarCost as getMerchantPowerBarCost, newRun, OverflowJob, OverflowResult, overflowProcessingUpgradeCost, overflowRefineryUpgradeCost, PictureLibraryEntry, PowerKind, PowerUp, powerupCollisionRadius, powerupDespawnAt, randomBetween, randomEngiCocoonSkin, ramAt, startEngiIncubation, tapPickupAt, resizeRunBoard, Run, ScoreEntry, setMechanicsSettings, setPictureLibrary, setWaldoLibrary, startWall, stepRun, TerritoryGainEvent, testContainmentMutation, upgradeEngi, WaldoLibraryEntry, Wall, WallBreakEvent } from './mechanics';
 import { BACKGROUND_SKINS, BALL_SKINS, CREDIT_SKINS, DEFAULT_SKIN_SELECTIONS, ENGI_PET_SKINS, LEVEL_CLEAR_ANIMATIONS, normalizeSkinSelections, PICKUP_SKINS, SkinOption, SkinSelections, CaptureAnimation } from './skins';
 import { defaultSkinUnlocks, normalizeSkinUnlocks, reachableSkin, SKIN_ARCHIVE, SKIN_CATEGORY_KEYS, SKIN_DEFAULTS, SkinArchiveNode, SkinUnlocks } from './themeCatalog';
 import { ThemeTreeScreen } from './ThemeTreeScreen';
+import { BridgeVistaRenderer } from './BridgeVistaRenderer';
+import { BUILT_IN_BRIDGE_VISTAS } from './bridgeVistaCatalog';
 
 const SAVE_KEY = 'trap-game-save-v1';
 const SETTINGS_KEY = 'trap-game-dev-settings-v1';
@@ -27,9 +29,6 @@ const GENERATED_PICTURE_BACKDROPS = [
   require('./assets/picture-events/astral-nebula.jpg'), require('./assets/picture-events/ringworld-horizon.jpg'), require('./assets/picture-events/stellar-clouds.jpg'),
   require('./assets/picture-events/alpine-lake.jpg'), require('./assets/picture-events/red-rock-canyon.jpg'), require('./assets/picture-events/alien-coast.jpg'),
   require('./assets/picture-events/misty-pines.jpg'), require('./assets/picture-events/bioluminescent-forest.jpg'), require('./assets/picture-events/autumn-woods.jpg'),
-];
-const BRIDGE_SCENIC_VIEWS: ImageSourcePropType[] = [
-  require('./assets/picture-events/astral-nebula.jpg'), require('./assets/picture-events/ringworld-horizon.jpg'), require('./assets/picture-events/stellar-clouds.jpg'),
 ];
 const BRIDGE_ART_SIZE = { width: 1672, height: 941 };
 const BRIDGE_ART_ASPECT = BRIDGE_ART_SIZE.width / BRIDGE_ART_SIZE.height;
@@ -287,46 +286,37 @@ function BridgeInterior() {
   </View>;
 }
 
-// Exterior art is rendered on the exact same full-image canvas as the cockpit
-// cutout. The transparent window pixels in BridgeInterior are the sole clip
-// boundary, so no second photograph can peek through around a smaller viewport.
-function BridgeExterior({ source }: { source: ImageSourcePropType }) {
-  const [frame, setFrame] = useState({ width: 0, height: 0 });
-  const [fade] = useState(() => new Animated.Value(0));
-  const [drift] = useState(() => new Animated.Value(0));
-  const imageAspect = BRIDGE_ART_ASPECT;
-  const imageWidth = Math.min(frame.width, frame.height * imageAspect);
-  const imageHeight = imageWidth / imageAspect;
+function MouseCursorOverlay({ cursor, skin }: { cursor: { x: number; y: number; down: boolean } | null; skin: 'crosshair' | 'spark' | 'halo' }) {
+  const [clickProgress] = useState(() => new Animated.Value(0));
   useEffect(() => {
-    fade.setValue(0);
-    const animation = Animated.timing(fade, { toValue: 1, duration: 1100, useNativeDriver: true });
-    animation.start();
-    return () => animation.stop();
-  }, [fade, source]);
-  useEffect(() => {
-    const loop = Animated.loop(Animated.sequence([
-      Animated.timing(drift, { toValue: 1, duration: 14000, useNativeDriver: true }),
-      Animated.delay(350),
-      Animated.timing(drift, { toValue: 0, duration: 1, useNativeDriver: true }),
-      Animated.delay(1800),
-    ]));
-    loop.start();
-    return () => loop.stop();
-  }, [drift]);
-  const craftX = drift.interpolate({ inputRange: [0, 1], outputRange: [-22, 35] });
-  const craftY = drift.interpolate({ inputRange: [0, 1], outputRange: [8, -7] });
-  const craftOpacity = drift.interpolate({ inputRange: [0, 0.08, 0.88, 1], outputRange: [0, 0.75, 0.75, 0] });
-  return <View pointerEvents="none" style={StyleSheet.absoluteFill} onLayout={event => {
-    const { width, height } = event.nativeEvent.layout;
-    setFrame(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height });
-  }}>
-    {imageWidth > 0 && imageHeight > 0 && <Animated.View style={{ position: 'absolute', width: imageWidth, height: imageHeight, left: (frame.width - imageWidth) / 2, top: (frame.height - imageHeight) / 2, opacity: fade, overflow: 'hidden' }}>
-      <Image source={source} resizeMode="cover" style={{ position: 'absolute', left: 0, top: 0, width: imageWidth, height: imageHeight }} />
-      <View pointerEvents="none" style={styles.bridgeExteriorWindowDecor}>
-        <View style={styles.bridgeExteriorGlint} />
-        <Animated.View style={[styles.bridgeExteriorCraft, { opacity: craftOpacity, transform: [{ translateX: craftX }, { translateY: craftY }] }]}><Text style={styles.bridgeExteriorCraftText}>⌁</Text></Animated.View>
-      </View>
-    </Animated.View>}
+    if (!cursor?.down || skin !== 'crosshair') return;
+    clickProgress.stopAnimation();
+    clickProgress.setValue(0);
+    Animated.timing(clickProgress, { toValue: 1, duration: 620, easing: Easing.out(Easing.cubic), useNativeDriver: true, isInteraction: false }).start();
+  }, [clickProgress, cursor?.down, skin]);
+  if (!cursor) return null;
+  const glyph = skin === 'spark' ? '✦' : '◉';
+  const color = skin === 'spark' ? '#ffe39a' : '#c9fff2';
+  const idleOpacity = clickProgress.interpolate({ inputRange: [0, 0.12, 0.72, 1], outputRange: [1, 0.22, 0.12, 1] });
+  const idleScale = clickProgress.interpolate({ inputRange: [0, 0.18, 0.58, 1], outputRange: [1, 0.68, 0.42, 1] });
+  const arcOpacity = clickProgress.interpolate({ inputRange: [0, 0.14, 0.82, 1], outputRange: [0, 1, 0.8, 0] });
+  const arcScale = clickProgress.interpolate({ inputRange: [0, 0.28, 1], outputRange: [0.55, 1, 1.55] });
+  const leftArcRotation = clickProgress.interpolate({ inputRange: [0, 1], outputRange: ['-18deg', '-150deg'] });
+  const rightArcRotation = clickProgress.interpolate({ inputRange: [0, 1], outputRange: ['162deg', '30deg'] });
+  return <View pointerEvents="none" style={{ position: 'absolute', zIndex: 9999, left: cursor.x - 11, top: cursor.y - 11, width: 22, height: 22, alignItems: 'center', justifyContent: 'center' }}>
+    {skin === 'crosshair' ? <>
+      <Animated.View style={{ position: 'absolute', width: 20, height: 20, borderWidth: 1.25, borderColor: 'transparent', borderLeftColor: '#bfffee', borderRadius: 99, opacity: arcOpacity, transform: [{ scale: arcScale }, { rotate: leftArcRotation }] }} />
+      <Animated.View style={{ position: 'absolute', width: 20, height: 20, borderWidth: 1.25, borderColor: 'transparent', borderRightColor: '#e6fffa', borderRadius: 99, opacity: arcOpacity, transform: [{ scale: arcScale }, { rotate: rightArcRotation }] }} />
+      <Animated.View style={{ position: 'absolute', width: 16, height: 16, alignItems: 'center', justifyContent: 'center', opacity: idleOpacity, transform: [{ scale: idleScale }] }}>
+        <View style={{ position: 'absolute', top: 2, width: 1, height: 3, backgroundColor: '#c9fff2' }} />
+        <View style={{ position: 'absolute', bottom: 2, width: 1, height: 3, backgroundColor: '#c9fff2' }} />
+        <View style={{ position: 'absolute', left: 2, width: 3, height: 1, backgroundColor: '#c9fff2' }} />
+        <View style={{ position: 'absolute', right: 2, width: 3, height: 1, backgroundColor: '#c9fff2' }} />
+        <View style={{ width: 1, height: 1, borderRadius: 1, backgroundColor: '#f3fff9', shadowColor: '#54e8c6', shadowOpacity: 1, shadowRadius: 3 }} />
+      </Animated.View>
+    </> : <View style={{ width: 22, height: 22, alignItems: 'center', justifyContent: 'center', borderRadius: 99, borderWidth: skin === 'halo' ? 1 : 0, borderColor: '#7af3dc', transform: [{ scale: cursor.down ? 0.82 : 1 }] }}>
+      <Text style={{ color, fontSize: 14, fontWeight: '900', textShadowColor: skin === 'spark' ? '#ffab42' : '#43e5cb', textShadowRadius: 4 }}>{glyph}</Text>
+    </View>}
   </View>;
 }
 
@@ -424,7 +414,7 @@ function BridgeStagePreview({ run, hasActiveRun, simulationRunning, defaultBackg
         {run.pictureEvent?.isWaldo && <WaldoArtwork seed={run.pictureEvent.seed} width={boardWidth} height={boardHeight} waldoX={run.pictureEvent.waldoX ?? 0.5} waldoY={run.pictureEvent.waldoY ?? 0.5} found={!!run.pictureEvent.waldoFound} />}
         {!run.pictureEvent && backgroundId && <ArenaBackgroundEffects id={backgroundId} />}
         {!run.pictureEvent && claimedRects.map(rect => <View key={`claim-${rect.id}`} pointerEvents="none" style={[styles.claimedCell, { backgroundColor: run.mechanics.claimedColor, opacity: run.mechanics.claimedFillOpacity, left: rect.x * run.boardWidth / run.gridCols * sx, top: rect.y * run.boardHeight / run.gridRows * sy, width: rect.width * run.boardWidth / run.gridCols * sx, height: run.boardHeight / run.gridRows * sy }]} />)}
-        {run.walls.map(wall => <WallView key={`wall-${wall.id}`} wall={wall} sx={sx} sy={sy} mutation={run.containmentMutations?.find(box => box.active && box.wallIds.includes(wall.id))} />)}
+        {run.walls.map(wall => <WallView key={`wall-${wall.id}`} wall={wall} sx={sx} sy={sy} mutationSegments={(run.containmentMutations ?? []).filter(box => box.active).flatMap(box => (box.wallSegments ?? []).filter(segment => segment.wallId === wall.id).map(segment => ({ ...segment, kind: box.kind })))} />)}
         {run.balls.map(ball => <BallArtwork key={`ball-${ball.id}`} skin={ballSkin} diameter={2 * ball.r * Math.min(sx, sy)} left={ball.x * sx - ball.r * Math.min(sx, sy)} top={ball.y * sy - ball.r * Math.min(sx, sy)} rammed={ball.rammed} modifier={ball.modifier} extraModifiers={ball.modifiers?.length ?? 0} drifting={ball.drifting} skimming={ball.skimmerWallId !== undefined} />)}
         {run.pets.map(pet => <View key={`pet-${pet.id}`} pointerEvents="none" style={[styles.deployedEngi, !pet.deployed && styles.roamingPet, { left: pet.x * sx - 20, top: pet.y * sy - 22 }]}>{pet.species === 'waldo' ? <WaldoPetArtwork pet={pet} size={40} /> : <EngiPetArtwork skinId={visualSkins?.engiPet ?? DEFAULT_SKIN_SELECTIONS.engiPet} task={pet.task as any} size={40} moving={Math.hypot(pet.vx, pet.vy) > 12} direction={pet.vx < 0 ? -1 : 1} />}</View>)}
         {run.powerups.map(powerup => <PowerOrb key={`pickup-${powerup.id}`} power={powerup} sx={sx} sy={sy} skinId={powerup.skinId ?? visualSkins?.pickups[powerup.kind] ?? PICKUP_SKINS[powerup.kind][0].id} creditBaseAmount={run.mechanics.creditPickupBaseAmount} />)}
@@ -507,6 +497,15 @@ export default function App() {
   const [developerOverlay, setDeveloperOverlay] = useState(false);
   const [cursorSkin, setCursorSkin] = useState<'crosshair' | 'spark' | 'halo'>('crosshair');
   const [mouseCursor, setMouseCursor] = useState<{ x: number; y: number; down: boolean } | null>(null);
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const move = (event: PointerEvent) => { if (event.pointerType === 'mouse') setMouseCursor(current => ({ x: event.clientX, y: event.clientY, down: current?.down ?? false })); };
+    const down = (event: PointerEvent) => { if (event.pointerType === 'mouse') setMouseCursor({ x: event.clientX, y: event.clientY, down: true }); };
+    const up = (event: PointerEvent) => { if (event.pointerType === 'mouse') setMouseCursor(current => current ? { x: event.clientX, y: event.clientY, down: false } : null); };
+    const leave = () => setMouseCursor(null);
+    window.addEventListener('pointermove', move, true); window.addEventListener('pointerdown', down, true); window.addEventListener('pointerup', up, true); window.addEventListener('pointercancel', up, true); window.addEventListener('pointerleave', leave, true);
+    return () => { window.removeEventListener('pointermove', move, true); window.removeEventListener('pointerdown', down, true); window.removeEventListener('pointerup', up, true); window.removeEventListener('pointercancel', up, true); window.removeEventListener('pointerleave', leave, true); };
+  }, []);
   const [devTab, setDevTab] = useState<'gameplay' | 'events' | 'pickups' | 'metal-balls' | 'economy' | 'merchant' | 'pets'>('gameplay');
   const [metalBallTab, setMetalBallTab] = useState<'base' | 'modifiers'>('base');
   const [modifierPairFocus, setModifierPairFocus] = useState<BallModifier>('splitter');
@@ -1062,6 +1061,12 @@ export default function App() {
     width: bridgeArtWidth * BRIDGE_BOARD_VIEW.width,
     height: bridgeArtHeight * BRIDGE_BOARD_VIEW.height,
   } : undefined;
+  const bridgeToolbarOnTop = uiWidth < 620;
+  const bridgeToolbarSize = bridgeWindowBounds ? (bridgeToolbarOnTop ? 32 : 42) : 0;
+  const bridgeStageBounds = bridgeWindowBounds ? bridgeToolbarOnTop
+    ? { ...bridgeWindowBounds, top: bridgeWindowBounds.top + bridgeToolbarSize, height: Math.max(1, bridgeWindowBounds.height - bridgeToolbarSize) }
+    : { ...bridgeWindowBounds, width: Math.max(1, bridgeWindowBounds.width - bridgeToolbarSize) }
+    : undefined;
   const bridgePictureSource: ImageSourcePropType | undefined = run.pictureEvent?.isWaldo ? undefined
     : pictureEntry?.uri ? { uri: pictureEntry.uri }
       : (pictureEntry?.generatedBackdropId ?? run.pictureEvent?.generatedBackdropId) !== undefined
@@ -1069,17 +1074,18 @@ export default function App() {
         : undefined;
   const pinnedBridgeVista = bridgeVistaLibrary.find(entry => entry.id === selectedBridgeVistaId);
   const bridgeVistaScenes = useMemo(() => [
-    ...BRIDGE_SCENIC_VIEWS.map((source, index) => ({ id: `builtin-${index}`, source })),
-    ...bridgeVistaLibrary.map(entry => ({ id: entry.id, source: { uri: entry.uri } as ImageSourcePropType })),
+    ...BUILT_IN_BRIDGE_VISTAS,
+    ...bridgeVistaLibrary.map(entry => ({ id: entry.id, name: entry.name, source: { uri: entry.uri } as ImageSourcePropType, ambience: undefined })),
   ], [bridgeVistaLibrary]);
   useEffect(() => {
     if (menuPage !== 'home' || selectedBridgeVistaId || bridgeSimView === 'window' || bridgeVistaScenes.length < 2) return;
     const timer = setInterval(() => setBridgeVistaIndex(index => (index + 1) % bridgeVistaScenes.length), 18000);
     return () => clearInterval(timer);
   }, [menuPage, selectedBridgeVistaId, bridgeSimView, bridgeVistaScenes]);
-  const bridgeExteriorSource: ImageSourcePropType | undefined = pinnedBridgeVista
-    ? { uri: pinnedBridgeVista.uri }
-    : bridgeVistaScenes[bridgeVistaIndex % Math.max(bridgeVistaScenes.length, 1)]?.source;
+  const bridgeExteriorScene = useMemo(() => pinnedBridgeVista
+    ? { source: { uri: pinnedBridgeVista.uri } as ImageSourcePropType }
+    : bridgeVistaScenes[bridgeVistaIndex % Math.max(bridgeVistaScenes.length, 1)],
+  [pinnedBridgeVista?.uri, bridgeVistaScenes, bridgeVistaIndex]);
   const claimRects = useMemo(() => {
     const cols = run.gridCols, rows = run.gridRows, rects: { key: string; x: number; y: number; width: number }[] = [];
     for (let y = 0; y < rows; y++) {
@@ -1168,8 +1174,9 @@ export default function App() {
   };
 
   return (
-    <View style={[styles.screen, Platform.OS === 'web' && styles.screenWeb]}>
+    <View style={[styles.screen, Platform.OS === 'web' && styles.screenWeb, Platform.OS === 'web' && { cursor: 'none' as any }]}>
       <StatusBar style="light" />
+      {Platform.OS === 'web' && <MouseCursorOverlay cursor={mouseCursor} skin={cursorSkin} />}
       <View style={[styles.header, Platform.OS === 'web' && styles.headerWeb, isPhoneLandscape && styles.phoneHeader]}>
         <View><Text style={[styles.kicker, isPhoneLandscape && styles.phoneKicker]}>TRAP / SURVIVAL</Text><Text style={[styles.title, isPhoneLandscape && styles.phoneTitle]}>Containment</Text></View>
         <Text style={styles.best}>BEST RUNS{scores.length ? `  ${scores[0].level}` : '  —'}</Text>
@@ -1220,14 +1227,14 @@ export default function App() {
         <View style={[styles.boardWrap, isPhoneLandscape ? styles.phoneBoardWrap : Platform.OS === 'web' ? [desktopHudStyles.board, { height: desktopBoardHeight }] : { width: arenaWidth, height: arenaHeight, flexGrow: 1, flexShrink: 1, minHeight: 0 }]} onLayout={e => handleStageLayout(e.nativeEvent.layout.width, e.nativeEvent.layout.height)}>
           <View ref={boardRef} style={[styles.board, { backgroundColor: tint }, { touchAction: 'none', ...(Platform.OS === 'web' && !phoneViewport ? { cursor: 'none' } : {}) } as any]} onLayout={e => { setBoard({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height }); requestAnimationFrame(() => boardRef.current?.measureInWindow((x, y, width, height) => { boardScreenRect.current = { x, y, width, height }; })); }}
           onTouchStart={e => collectTouches(e, 'start')} onTouchEnd={e => collectTouches(e, 'end')} onTouchCancel={e => collectTouches(e, 'cancel')}
-          {...(Platform.OS === 'web' ? { onPointerDown: (e: any) => { if (e.nativeEvent.pointerType === 'mouse') setMouseCursor({ x: e.nativeEvent.offsetX ?? 0, y: e.nativeEvent.offsetY ?? 0, down: true }); pointerGesture(e, 'start'); }, onPointerMove: (e: any) => { if (e.nativeEvent.pointerType === 'mouse') setMouseCursor({ x: e.nativeEvent.offsetX ?? 0, y: e.nativeEvent.offsetY ?? 0, down: mouseCursor?.down ?? false }); }, onPointerUp: (e: any) => { if (e.nativeEvent.pointerType === 'mouse') setMouseCursor(point => point ? { ...point, down: false } : null); pointerGesture(e, 'end'); }, onPointerCancel: (e: any) => { setMouseCursor(null); pointerGesture(e, 'cancel'); }, onPointerLeave: () => setMouseCursor(null) } : {}) as any}>
+          {...(Platform.OS === 'web' ? { onPointerDown: (e: any) => pointerGesture(e, 'start'), onPointerUp: (e: any) => pointerGesture(e, 'end'), onPointerCancel: (e: any) => pointerGesture(e, 'cancel') } : {}) as any}>
           {run.pictureEvent?.isWaldo ? <WaldoArtwork seed={run.pictureEvent.seed} width={board.width} height={board.height} waldoX={run.pictureEvent.waldoX ?? 0.5} waldoY={run.pictureEvent.waldoY ?? 0.5} found={!!run.pictureEvent.waldoFound} /> : run.pictureEvent && (pictureEntry?.uri ? <View pointerEvents="none" style={[FULL_BOARD_ART_STYLE, { backgroundColor: tint }]}><Image source={{ uri: pictureEntry.uri }} resizeMode="stretch" style={FULL_STAGE_IMAGE_STYLE} /></View> : (pictureEntry?.generatedBackdropId ?? run.pictureEvent.generatedBackdropId) !== undefined ? <View pointerEvents="none" style={[FULL_BOARD_ART_STYLE, { backgroundColor: tint }]}><Image source={GENERATED_PICTURE_BACKDROPS[(pictureEntry?.generatedBackdropId ?? run.pictureEvent.generatedBackdropId ?? 0) % GENERATED_PICTURE_BACKDROPS.length]} resizeMode="stretch" style={[FULL_STAGE_IMAGE_STYLE, { opacity: 0.92 }]} /></View> : <PictureArtwork seed={run.pictureEvent.seed} width={board.width} height={board.height} />)}
           {run.pictureEvent
             ? openRectFractions.map(rect => <View key={rect.key} pointerEvents="none" style={[styles.unclaimedMask, { backgroundColor: tint, left: `${rect.left * 100}%`, top: `${rect.top * 100}%`, width: `${rect.width * 100}%`, height: `${rect.height * 100}%` }]} />)
             : claimRects.map(rect => <View key={rect.key} pointerEvents="none" style={[styles.claimedCell, { backgroundColor: runSettings.claimedColor, opacity: runSettings.claimedFillOpacity, left: rect.x * run.boardWidth / run.gridCols * sx, top: rect.y * run.boardHeight / run.gridRows * sy, width: rect.width * run.boardWidth / run.gridCols * sx, height: run.boardHeight / run.gridRows * sy }]} />)}
           {!run.pictureEvent && activeBackground.asset && <><View pointerEvents="none" style={StyleSheet.absoluteFill}><Image source={activeBackground.asset} resizeMode="cover" style={[StyleSheet.absoluteFill, { opacity: 0.58 }]} /></View><ArenaBackgroundEffects id={activeBackground.id} /></>}
           {runSettings.showGrid && <View pointerEvents="none" style={[styles.grid, { opacity: runSettings.gridOpacity, borderColor: runSettings.gridColor }]} />}
-          {run.walls.map((wall: Wall) => <WallView key={wall.id} wall={wall} sx={sx} sy={sy} mutation={run.containmentMutations?.find(box => box.active && box.wallIds.includes(wall.id))} />)}
+          {run.walls.map((wall: Wall) => <WallView key={wall.id} wall={wall} sx={sx} sy={sy} mutationSegments={(run.containmentMutations ?? []).filter(box => box.active).flatMap(box => (box.wallSegments ?? []).filter(segment => segment.wallId === wall.id).map(segment => ({ ...segment, kind: box.kind })))} />)}
           {(run.containmentMutations ?? []).filter(box => box.active && box.kind).map(box => {
             const chamberWidth = (box.bounds.right - box.bounds.left) * run.boardWidth * sx;
             const chamberHeight = (box.bounds.bottom - box.bounds.top) * run.boardHeight * sy;
@@ -1258,7 +1265,6 @@ export default function App() {
           {creditGainEffects.map((effect, index) => <CreditGainPopup key={`${effect.id}-${index}`} event={effect} sx={sx} sy={sy} stageWidth={run.boardWidth * sx} stageHeight={run.boardHeight * sy} creditSkin={visualSkins.credit} style={run.mechanics.creditGainStyle} onDone={() => setCreditGainEffects(old => old.filter(item => item !== effect))} />)}
           {!running && !paused && !run.levelClearPending && <View pointerEvents="none" style={styles.pauseBadge}><Text style={styles.pauseText}>{run.ended ? 'RUN ENDED' : 'READY'}</Text></View>}
           {run.isotypesContained && run.isotypesNoticeUntilMs > run.elapsedMs && <View pointerEvents="none" style={styles.isotypesBanner}><Text style={styles.isotypesBannerText}>Isotypes Contained</Text></View>}
-          {Platform.OS === 'web' && !phoneViewport && mouseCursor && <View pointerEvents="none" style={{ position: 'absolute', zIndex: 60, left: mouseCursor.x - 11, top: mouseCursor.y - 11, width: 22, height: 22, alignItems: 'center', justifyContent: 'center', borderRadius: 99, borderWidth: cursorSkin === 'halo' ? 2 : 0, borderColor: '#7af3dc', transform: [{ scale: mouseCursor.down ? 0.72 : 1 }] }}><Text style={{ color: cursorSkin === 'spark' ? '#ffe39a' : '#c9fff2', fontSize: cursorSkin === 'crosshair' ? 21 : 18, fontWeight: '900', textShadowColor: cursorSkin === 'spark' ? '#ffab42' : '#43e5cb', textShadowRadius: 8 }}>{cursorSkin === 'crosshair' ? '⌖' : cursorSkin === 'spark' ? '✦' : '◉'}</Text></View>}
           </View>
         </View>
       </View>
@@ -1550,18 +1556,25 @@ export default function App() {
       const { width, height } = event.nativeEvent.layout;
       setBridgeCanvasSize(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height });
     }}>
-      {bridgeExteriorSource && <BridgeExterior source={bridgeExteriorSource} />}
-      {bridgeSimView === 'window' && bridgeWindowBounds && <BridgeStagePreview run={run} hasActiveRun={hasSave && !run.ended} simulationRunning={running} defaultBackground={activeBackground.asset ?? undefined} simulationBackground={bridgePictureSource} visualSkins={visualSkins} backgroundTint={tint} backgroundId={activeBackground.id} onPress={fullscreenSimulation} presentation="window" containerStyle={bridgeWindowBounds}
+      {bridgeExteriorScene && <BridgeVistaRenderer source={bridgeExteriorScene.source} ambience={'ambience' in bridgeExteriorScene ? bridgeExteriorScene.ambience : undefined} left={(bridgeCanvasSize.width - bridgeArtWidth) / 2} top={(bridgeCanvasSize.height - bridgeArtHeight) / 2} width={bridgeArtWidth} height={bridgeArtHeight} />}
+      {bridgeSimView === 'window' && bridgeWindowBounds && bridgeStageBounds && <BridgeStagePreview run={run} hasActiveRun={hasSave && !run.ended} simulationRunning={running} defaultBackground={activeBackground.asset ?? undefined} simulationBackground={bridgePictureSource} visualSkins={visualSkins} backgroundTint={tint} backgroundId={activeBackground.id} onPress={fullscreenSimulation} presentation="window" containerStyle={bridgeStageBounds}
         onSurfaceLayout={(width, height, rect) => { handleStageLayout(width, height); setBoard(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height }); if (rect) boardScreenRect.current = rect; }}
         onTouchStart={event => collectTouches(event, 'start')} onTouchEnd={event => collectTouches(event, 'end')} onTouchCancel={event => collectTouches(event, 'cancel')}
-        onPointerDown={event => { if (event.nativeEvent.pointerType === 'mouse') setMouseCursor({ x: event.nativeEvent.offsetX ?? 0, y: event.nativeEvent.offsetY ?? 0, down: true }); pointerGesture(event, 'start'); }}
-        onPointerMove={event => { if (event.nativeEvent.pointerType === 'mouse') setMouseCursor({ x: event.nativeEvent.offsetX ?? 0, y: event.nativeEvent.offsetY ?? 0, down: mouseCursor?.down ?? false }); }}
-        onPointerUp={event => { if (event.nativeEvent.pointerType === 'mouse') setMouseCursor(point => point ? { ...point, down: false } : null); pointerGesture(event, 'end'); }}
-        onPointerCancel={event => { setMouseCursor(null); pointerGesture(event, 'cancel'); }} onPointerLeave={() => setMouseCursor(null)} />}
+        onPointerDown={event => pointerGesture(event, 'start')}
+        onPointerUp={event => pointerGesture(event, 'end')}
+        onPointerCancel={event => pointerGesture(event, 'cancel')} />}
       <BridgeInterior />
       <View pointerEvents="none" style={styles.commandImageShade} />
-      {bridgeSimView === 'window' && bridgeWindowBounds && <View pointerEvents="box-none" style={[styles.bridgeWindowControls, { left: bridgeWindowBounds.left, top: bridgeWindowBounds.top, width: bridgeWindowBounds.width, height: bridgeWindowBounds.height }]}>
-        <View style={styles.bridgeWindowControlBar}><Text style={styles.bridgeWindowLiveLabel}>{running ? 'LIVE SECTOR' : 'SECTOR PAUSED'} · STAGE {String(run.level).padStart(2, '0')}</Text><View style={styles.bridgeWindowControlButtons}><Pressable accessibilityRole="button" accessibilityLabel="Minimize simulation to bridge console" onPress={minimizeSimulation} style={styles.bridgeWindowControl}><Text style={styles.bridgeWindowControlGlyph}>−</Text><Text style={styles.bridgeWindowControlText}>MINIMIZE</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Expand simulation to full screen" onPress={fullscreenSimulation} style={[styles.bridgeWindowControl, styles.bridgeWindowZoom]}><Text style={styles.bridgeWindowControlGlyph}>⤢</Text><Text style={styles.bridgeWindowControlText}>FULL SCREEN</Text></Pressable></View></View>
+      {bridgeSimView === 'window' && bridgeWindowBounds && bridgeStageBounds && <View pointerEvents="box-none" style={[styles.bridgeWindowControls, { left: bridgeToolbarOnTop ? bridgeWindowBounds.left : bridgeStageBounds.left + bridgeStageBounds.width, top: bridgeToolbarOnTop ? bridgeWindowBounds.top : bridgeWindowBounds.top, width: bridgeToolbarOnTop ? bridgeWindowBounds.width : bridgeToolbarSize, height: bridgeToolbarOnTop ? bridgeToolbarSize : bridgeWindowBounds.height }]}>
+        <View style={[styles.bridgeWindowControlBar, { flexDirection: bridgeToolbarOnTop ? 'row' : 'column', justifyContent: bridgeToolbarOnTop ? 'space-between' : 'center', height: '100%', paddingHorizontal: bridgeToolbarOnTop ? 4 : 2, paddingVertical: bridgeToolbarOnTop ? 1 : 4 }]}>
+          {bridgeToolbarOnTop
+            ? <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.bridgeWindowLiveLabel, { flex: 1 }]}>{running ? 'LIVE' : 'PAUSED'} · {String(run.level).padStart(2, '0')}</Text>
+            : <View style={{ alignItems: 'center', gap: 1 }}><Text numberOfLines={1} style={styles.bridgeWindowLiveLabel}>{running ? 'LIVE' : 'PAUSED'}</Text><Text style={styles.bridgeWindowStageLabel}>{String(run.level).padStart(2, '0')}</Text></View>}
+          <View style={[styles.bridgeWindowControlButtons, { flexDirection: bridgeToolbarOnTop ? 'row' : 'column', alignItems: 'center', width: bridgeToolbarOnTop ? undefined : '100%', gap: bridgeToolbarOnTop ? 3 : 2 }]}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Minimize simulation to bridge console" onPress={minimizeSimulation} style={[styles.bridgeWindowControl, { width: bridgeToolbarOnTop ? 27 : 28, height: bridgeToolbarOnTop ? 26 : 25, paddingHorizontal: 0, paddingVertical: 0 }]}><Text style={styles.bridgeWindowControlGlyph}>−</Text></Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="Expand simulation to full screen" onPress={fullscreenSimulation} style={[styles.bridgeWindowControl, styles.bridgeWindowZoom, { width: bridgeToolbarOnTop ? 27 : 28, height: bridgeToolbarOnTop ? 26 : 25, paddingHorizontal: 0, paddingVertical: 0 }]}><Text style={styles.bridgeWindowControlGlyph}>⤢</Text></Pressable>
+          </View>
+        </View>
       </View>}
       <View pointerEvents="box-none" style={[styles.commandLayout, { flexDirection: portraitBridge ? 'column' : 'row' }]}>
         {bridgeRailVisible && <View style={[styles.commandRail, { width: portraitBridge ? '100%' : uiWidth < 620 ? 166 : uiWidth < 920 ? 205 : 258, maxHeight: portraitBridge ? '48%' : undefined, paddingHorizontal: compactBridge ? 11 : 19, paddingVertical: compactBridge ? 10 : 18 }]}>
@@ -1840,33 +1853,42 @@ function BallModifierArtwork({ modifier, drifting, skimming, diameter, skinStyle
   return null;
 }
 
-function WallView({ wall, sx, sy, mutation }: { wall: Wall; sx: number; sy: number; mutation?: Run['containmentMutations'][number] }) {
+function WallView({ wall, sx, sy, mutationSegments = [] }: { wall: Wall; sx: number; sy: number; mutationSegments?: { wallId: number; low: number; high: number; kind?: ContainmentPickupKind }[] }) {
   const [chargePulse] = useState(() => new Animated.Value(0));
   const [mutationPulse] = useState(() => new Animated.Value(0));
+  const mutationKey = mutationSegments.map(segment => `${segment.wallId}:${segment.low}:${segment.high}:${segment.kind ?? ''}`).join('|');
+  const mutation = mutationSegments[0];
   useEffect(() => {
     if (!wall.chargeWall) return;
     const loop = Animated.loop(Animated.sequence([Animated.timing(chargePulse, { toValue: 1, duration: 300, useNativeDriver: true }), Animated.timing(chargePulse, { toValue: 0, duration: 420, useNativeDriver: true })]));
     loop.start(); return () => loop.stop();
   }, [chargePulse, wall.chargeWall]);
   useEffect(() => {
-    if (!mutation) { mutationPulse.setValue(0); return; }
+    if (!mutationKey) { mutationPulse.setValue(0); return; }
     const loop = Animated.loop(Animated.sequence([
       Animated.timing(mutationPulse, { toValue: 1, duration: 2600, useNativeDriver: true }),
       Animated.timing(mutationPulse, { toValue: 0, duration: 2600, useNativeDriver: true }),
     ]));
     loop.start(); return () => loop.stop();
-  }, [mutationPulse, mutation?.key]);
+  }, [mutationPulse, mutationKey]);
   const vertical = wall.axis === 'vertical';
   const chargeColor = wall.chargeSkinId === 'voltaic-cartridge' ? '#66e9ff' : wall.chargeSkinId === 'singularity-charge' ? '#c39aff' : '#ffad55';
   const mutationColor = mutation?.kind ? containmentMutationColor(mutation.kind) : '#78ead4';
   const mutationGlow = mutationPulse.interpolate({ inputRange: [0, 1], outputRange: [0.2, 0.48] });
   const mutationTravel = mutationPulse.interpolate({ inputRange: [0, 1], outputRange: [-15, 15] });
-  return <View pointerEvents="none" style={[styles.wall, wall.active ? styles.activeWall : styles.fixedWall, wall.chargeWall && { backgroundColor: chargeColor, borderColor: '#fff1d2', shadowColor: chargeColor, shadowOpacity: 1, shadowRadius: 11, elevation: 5 }, mutation && { backgroundColor: mutationColor, borderColor: '#f3fffc', shadowColor: mutationColor, shadowOpacity: 0.92, shadowRadius: 7, elevation: 4 },
+  return <View pointerEvents="none" style={[styles.wall, wall.active ? styles.activeWall : styles.fixedWall, wall.chargeWall && { backgroundColor: chargeColor, borderColor: '#fff1d2', shadowColor: chargeColor, shadowOpacity: 1, shadowRadius: 11, elevation: 5 },
     vertical ? { left: wall.at * sx - 2, top: wall.low * sy, height: (wall.high - wall.low) * sy, width: 4 }
       : { left: wall.low * sx, top: wall.at * sy - 2, width: (wall.high - wall.low) * sx, height: 4 }]}>
       {wall.chargeWall && <><Animated.View style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', backgroundColor: chargeColor, opacity: chargePulse.interpolate({ inputRange: [0, 1], outputRange: [0.18, 0.95] }) }} />{[0, 1, 2, 3, 4].map(index => <View key={index} style={vertical ? { position: 'absolute', left: -2, top: `${8 + index * 19}%`, width: 8, height: 2, backgroundColor: index % 2 ? '#fff3d3' : chargeColor } : { position: 'absolute', left: `${8 + index * 19}%`, top: -2, width: 2, height: 8, backgroundColor: index % 2 ? '#fff3d3' : chargeColor }} />)}</>}
-      {mutation && <><Animated.View style={{ position: 'absolute', left: vertical ? 1 : 0, top: vertical ? 0 : 1, width: vertical ? 2 : '100%', height: vertical ? '100%' : 2, backgroundColor: '#ffffff', opacity: mutationGlow }} /><Animated.View style={vertical ? { position: 'absolute', left: 0, top: '50%', width: '100%', height: 30, marginTop: -15, backgroundColor: '#ffffff', opacity: mutationGlow, transform: [{ translateY: mutationTravel }] } : { position: 'absolute', left: '50%', top: 0, width: 30, height: '100%', marginLeft: -15, backgroundColor: '#ffffff', opacity: mutationGlow, transform: [{ translateX: mutationTravel }] }} />
-      </>}
+      {mutationSegments.map((segment, index) => {
+        const segmentColor = segment.kind ? containmentMutationColor(segment.kind) : mutationColor;
+        const offset = (segment.low - wall.low) * (vertical ? sy : sx);
+        const length = (segment.high - segment.low) * (vertical ? sy : sx);
+        return <View key={`${segment.wallId}-${segment.low}-${segment.high}-${index}`} style={{ position: 'absolute', left: vertical ? 0 : offset, top: vertical ? offset : 0, width: vertical ? '100%' : length, height: vertical ? length : '100%', overflow: 'hidden', backgroundColor: segmentColor, borderColor: '#f3fffc', borderWidth: 0.5, shadowColor: segmentColor, shadowOpacity: 0.92, shadowRadius: 7, elevation: 4 }}>
+          <Animated.View style={{ position: 'absolute', left: vertical ? 1 : 0, top: vertical ? 0 : 1, width: vertical ? 2 : '100%', height: vertical ? '100%' : 2, backgroundColor: '#ffffff', opacity: mutationGlow }} />
+          <Animated.View style={vertical ? { position: 'absolute', left: 0, top: '50%', width: '100%', height: 10, marginTop: -5, backgroundColor: '#ffffff', opacity: mutationGlow, transform: [{ translateY: mutationTravel }] } : { position: 'absolute', left: '50%', top: 0, width: 10, height: '100%', marginLeft: -5, backgroundColor: '#ffffff', opacity: mutationGlow, transform: [{ translateX: mutationTravel }] }} />
+        </View>;
+      })}
     </View>;
 }
 
@@ -3212,7 +3234,6 @@ const styles = StyleSheet.create({
   compassNeedle: { position: 'absolute', width: '60%', height: '60%', alignItems: 'center', justifyContent: 'center' },
   burstSkewerRing: { position: 'absolute', width: '86%', height: '86%', borderWidth: 3, borderRadius: 999, borderStyle: 'dashed', shadowOpacity: 1, shadowRadius: 13 }, burstSkewerLine: { position: 'absolute', width: '108%', height: 5, borderRadius: 99, shadowOpacity: 1, shadowRadius: 16, elevation: 10 }, skewerWallFlash: { position: 'absolute', backgroundColor: '#36aaff', borderRadius: 8, shadowColor: '#5adfff', shadowOpacity: 1, shadowRadius: 16, elevation: 12 }, skewerCrackle: { position: 'absolute', width: 18, height: 20, color: '#c9f7ff', fontSize: 20, lineHeight: 20, textAlign: 'center', fontWeight: '900', textShadowColor: '#299aff', textShadowRadius: 11, elevation: 12 }, comboBadge: { position: 'absolute', top: '14%', alignSelf: 'center', color: '#f0fdff', fontSize: 12, fontWeight: '900', letterSpacing: 2, textShadowColor: '#70eaff', textShadowRadius: 12 }, bubbleCredit: { position: 'absolute', width: 22, height: 22, textAlign: 'center', color: '#ffe9a4', fontSize: 16, fontWeight: '900', textShadowColor: '#fff3c1', textShadowRadius: 8 }, bubbleCreditTotal: { position: 'absolute', top: '68%', alignSelf: 'center', color: '#fff3b3', fontSize: 9, fontWeight: '900', letterSpacing: 1, textShadowColor: '#e6ac42', textShadowRadius: 7 },
   commandScrim: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, zIndex: 90, overflow: 'hidden', backgroundColor: '#050b13' }, commandImageShade: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(3,8,15,0.16)' },
-  bridgeExteriorWindowDecor: { ...StyleSheet.absoluteFill }, bridgeExteriorGlint: { position: 'absolute', left: '64%', top: '25%', width: 5, height: 5, borderRadius: 9, backgroundColor: '#fff6d4', shadowColor: '#b9edff', shadowOpacity: 1, shadowRadius: 11, elevation: 5 }, bridgeExteriorCraft: { position: 'absolute', left: '34%', top: '38%', width: 15, height: 15, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: 'rgba(5,18,35,0.5)' }, bridgeExteriorCraftText: { color: '#c4edff', fontSize: 10, textShadowColor: '#62ceff', textShadowRadius: 9 },
   commandLayout: { width: '100%', maxWidth: 1800, height: '100%', alignSelf: 'center', flexDirection: 'row', overflow: 'hidden', backgroundColor: 'transparent' },
   commandRail: { flexDirection: 'column', justifyContent: 'space-between', borderRightWidth: 1, borderColor: '#80c4e046', backgroundColor: 'rgba(3,12,20,0.78)' }, commandRailScroll: { flex: 1, minHeight: 0 }, commandRailContent: { paddingBottom: 7, gap: 7 }, bridgeBrandBlock: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }, bridgeBrandGlyph: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#73e9d599', backgroundColor: '#102b35bb', shadowColor: '#73e9d5', shadowOpacity: 0.35, shadowRadius: 10 }, bridgeBrandGlyphText: { color: '#d6fff6', fontSize: 22 },
   commandBrand: { color: '#eef4fb', fontSize: 23, fontWeight: '900', letterSpacing: -0.5, marginTop: 3 }, commandBrandCompact: { fontSize: 18 }, commandSubBrand: { color: '#8bb7c3', fontSize: 7, fontWeight: '900', letterSpacing: 1.7, marginTop: 2 }, commandSectionLabel: { color: '#9ab3c4', fontSize: 7, fontWeight: '900', letterSpacing: 1.4, marginBottom: 1 }, bridgeSectionLabel: { marginTop: 2 },
@@ -3222,7 +3243,7 @@ const styles = StyleSheet.create({
   bridgeArtifactDockConsole: { width: '68%', alignSelf: 'flex-start', minHeight: 82, paddingHorizontal: 8, paddingTop: 8, paddingBottom: 6, borderTopWidth: 1, borderColor: 'rgba(164,205,218,0.25)', backgroundColor: 'rgba(3,12,21,0.55)' }, bridgeArtifactDockConsoleCompact: { width: '65%', minHeight: 72, paddingHorizontal: 3 }, bridgeArtifactConsole: { flex: 1, minWidth: 50, minHeight: 54, justifyContent: 'center', paddingHorizontal: 7, paddingVertical: 4, borderWidth: 1, borderRadius: 3, borderBottomWidth: 3, backgroundColor: 'rgba(3,13,22,0.83)', shadowColor: '#79dfff', shadowOpacity: 0.12, shadowRadius: 7, elevation: 3 },
   bridgeArtifactDock: { minHeight: 88, paddingTop: 5, paddingBottom: 2 }, bridgeDockHeading: { color: '#9bb9c7', fontSize: 6, fontWeight: '900', letterSpacing: 1, marginBottom: 5 }, bridgeArtifactRow: { width: '100%', flexDirection: 'row', gap: 7 }, bridgeArtifact: { flex: 1, minWidth: 62, minHeight: 58, justifyContent: 'center', paddingHorizontal: 8, paddingVertical: 5, borderWidth: 1, borderRadius: 5, backgroundColor: 'rgba(4,15,23,0.78)' }, bridgeArtifactHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 1 }, bridgeArtifactGlyph: { fontSize: 15, fontWeight: '900', textShadowRadius: 8 }, bridgeArtifactTitle: { color: '#e8f1f4', fontSize: 7, fontWeight: '900', letterSpacing: 0.8 }, bridgeArtifactDetail: { color: '#93a8b4', fontSize: 5, fontWeight: '700', letterSpacing: 0.4, marginTop: 2 },
   commandTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 }, commandHeadline: { color: '#f0f5fb', fontSize: 29, fontWeight: '900', letterSpacing: 1.3, marginTop: 8 }, commandStageBadge: { minWidth: 92, padding: 11, borderWidth: 1, borderColor: '#315667', borderRadius: 10, backgroundColor: '#0d202d', alignItems: 'center' }, commandStageLabel: { color: '#7f9aaa', fontSize: 7, fontWeight: '900', letterSpacing: 1 }, commandStageValue: { color: '#6cebd1', fontSize: 24, fontWeight: '900', marginTop: 2 }, commandDescription: { color: '#91a6b5', fontSize: 11, lineHeight: 17, marginTop: 13, marginBottom: 16, maxWidth: 590 }, commandActions: { width: '100%', maxWidth: 700, gap: 8 }, commandResume: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, borderWidth: 1, borderColor: '#57dabb', borderRadius: 11, backgroundColor: '#103a38' }, commandAction: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 13, paddingHorizontal: 14, borderWidth: 1, borderColor: '#263e4e', borderRadius: 10, backgroundColor: '#0b1a27' }, commandNewRun: { borderColor: '#b78c4f', backgroundColor: '#211e17' }, commandActionWarn: { borderColor: '#e4ba63', backgroundColor: '#292315' }, commandActionGlyph: { width: 22, color: '#72e9d1', fontSize: 17, textAlign: 'center' }, commandActionTitle: { color: '#e7eff6', fontSize: 9, fontWeight: '900', letterSpacing: 0.8 }, commandActionDetail: { color: '#8da2b2', fontSize: 8, marginTop: 4 }, commandChevron: { marginLeft: 'auto', color: '#71909f', fontSize: 22 }, commandStatusRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 19, maxWidth: 700 }, commandStatus: { minWidth: 112, paddingHorizontal: 11, paddingVertical: 9, borderWidth: 1, borderColor: '#1f3948', borderRadius: 8, backgroundColor: '#091722' }, commandStatusLabel: { color: '#718b9a', fontSize: 7, fontWeight: '900', letterSpacing: 1 }, commandStatusValue: { color: '#d7e3ec', fontSize: 9, fontWeight: '900', marginTop: 4, letterSpacing: 0.5 },
-  bridgeWindowControls: { position: 'absolute', zIndex: 8 }, bridgeWindowControlBar: { position: 'absolute', top: 7, right: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, minHeight: 30, paddingHorizontal: 9, paddingVertical: 4, borderWidth: 1, borderColor: '#73dfd277', borderRadius: 8, backgroundColor: 'rgba(3,12,21,0.84)' }, bridgeWindowLiveLabel: { color: '#b5fff0', fontSize: 7, fontWeight: '900', letterSpacing: 0.65 }, bridgeWindowControlButtons: { flexDirection: 'row', alignItems: 'center', gap: 5 }, bridgeWindowControl: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 6, paddingVertical: 4, borderWidth: 1, borderColor: '#527182', borderRadius: 5, backgroundColor: '#102434' }, bridgeWindowZoom: { borderColor: '#58d8bd', backgroundColor: '#10342e' }, bridgeWindowControlGlyph: { color: '#dffbf5', fontSize: 11, fontWeight: '900' }, bridgeWindowControlText: { color: '#dffbf5', fontSize: 6, fontWeight: '900', letterSpacing: 0.4 },
+  bridgeWindowControls: { position: 'absolute', zIndex: 8 }, bridgeWindowControlBar: { flex: 1, alignItems: 'center', gap: 4, borderWidth: 1, borderColor: '#73dfd277', borderRadius: 7, backgroundColor: 'rgba(3,12,21,0.92)' }, bridgeWindowLiveLabel: { color: '#b5fff0', fontSize: 6, fontWeight: '900', letterSpacing: 0.35 }, bridgeWindowStageLabel: { color: '#8baebd', fontSize: 5, fontWeight: '900', letterSpacing: 0.2 }, bridgeWindowControlButtons: { flexDirection: 'row', alignItems: 'center', gap: 3 }, bridgeWindowControl: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: 6, paddingVertical: 5, borderWidth: 1, borderColor: '#527182', borderRadius: 5, backgroundColor: '#102434' }, bridgeWindowZoom: { borderColor: '#58d8bd', backgroundColor: '#10342e' }, bridgeWindowControlGlyph: { color: '#dffbf5', fontSize: 11, fontWeight: '900' }, bridgeWindowControlText: { color: '#dffbf5', fontSize: 6, fontWeight: '900', letterSpacing: 0.4 },
   bridgeVistaScrim: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, zIndex: 120, alignItems: 'center', justifyContent: 'center', padding: 14, backgroundColor: 'rgba(2,8,14,0.78)' }, bridgeVistaPanel: { width: '100%', maxWidth: 680, maxHeight: '92%', padding: 18, borderWidth: 1, borderColor: '#5ca99e', borderRadius: 14, backgroundColor: '#071521f5', shadowColor: '#69eed4', shadowOpacity: 0.25, shadowRadius: 20 }, bridgeVistaTitle: { color: '#eff7ff', fontSize: 24, fontWeight: '900', letterSpacing: 0.6, marginTop: 3 }, bridgeVistaActions: { flexDirection: 'row', gap: 8, marginBottom: 8 }, bridgeVistaAction: { flex: 1, minWidth: 130, padding: 11, borderWidth: 1, borderColor: '#345367', borderRadius: 9, backgroundColor: '#0c202d' }, bridgeVistaActionSelected: { borderColor: '#65e5cd', backgroundColor: '#0e302d' }, bridgeVistaActionTitle: { color: '#b8f3e8', fontSize: 9, fontWeight: '900', letterSpacing: 0.7 }, bridgeVistaActionCopy: { color: '#8fa8b7', fontSize: 8, marginTop: 4 }, bridgeVistaNotice: { color: '#f3cd83', fontSize: 9, lineHeight: 14, marginVertical: 7 }, bridgeVistaGalleryScroll: { flexGrow: 0, minHeight: 80 }, bridgeVistaGallery: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 3 }, bridgeVistaCard: { width: 142, padding: 7, borderWidth: 1, borderColor: '#294354', borderRadius: 8, backgroundColor: '#0b1d2a' }, bridgeVistaCardSelected: { borderColor: '#72ead3', backgroundColor: '#0b2929' }, bridgeVistaChoose: { gap: 4 }, bridgeVistaThumb: { width: '100%', height: 74, borderRadius: 5, backgroundColor: '#102333' }, bridgeVistaName: { color: '#e0eef3', fontSize: 9, fontWeight: '800' }, bridgeVistaStatus: { color: '#6fe4cd', fontSize: 7, fontWeight: '900', letterSpacing: 0.6 }, bridgeVistaRemove: { alignSelf: 'flex-end', paddingTop: 6 },
   mainMenuScrim: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, zIndex: 90, backgroundColor: 'rgba(3,8,15,0.88)', alignItems: 'center', justifyContent: 'center', padding: 16 }, mainMenuPanel: { width: '100%', maxWidth: 620, maxHeight: '94%', padding: 24, borderWidth: 1, borderColor: '#315469', borderRadius: 18, backgroundColor: '#081521ee' }, scorePanel: { width: '100%', maxWidth: 760, maxHeight: '92%', padding: 22, borderWidth: 1, borderColor: '#315469', borderRadius: 18, backgroundColor: '#081521' }, menuPanelHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, menuEyebrow: { color: '#64e8cc', fontSize: 9, fontWeight: '900', letterSpacing: 2 }, menuTitle: { color: '#f1f6ff', fontSize: 32, fontWeight: '900', letterSpacing: 1, marginTop: 3 }, menuSubhead: { color: '#a3b5c7', fontSize: 12, lineHeight: 18, marginTop: 7, marginBottom: 14 }, menuPrimary: { minHeight: 49, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#5be0c1', marginTop: 7, padding: 12 }, menuPrimaryText: { color: '#07151a', fontSize: 12, fontWeight: '900', letterSpacing: 1.2, textAlign: 'center' }, menuButton: { padding: 12, marginTop: 7, borderRadius: 10, borderWidth: 1, borderColor: '#344b5c', backgroundColor: '#0d1d2a' }, menuButtonTitle: { color: '#e8f0f7', fontSize: 10, fontWeight: '900', letterSpacing: 1 }, menuButtonCopy: { color: '#91a6b6', fontSize: 9, lineHeight: 14, marginTop: 4 }, menuConfirmText: { color: '#f1c96e', fontSize: 9, fontWeight: '900', marginTop: 9, letterSpacing: 1 }, menuGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }, menuTile: { width: '48%', minHeight: 88, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#283d4e', backgroundColor: '#0c1b29' }, menuTileGlyph: { color: '#68e8d0', fontSize: 20, fontWeight: '900', marginBottom: 4 }, menuWarning: { color: '#efc979', fontSize: 10, lineHeight: 15, marginTop: 8, textAlign: 'center' }, menuBack: { paddingHorizontal: 13, paddingVertical: 9, borderRadius: 8, borderWidth: 1, borderColor: '#365263' }, menuBackText: { color: '#70e8d1', fontSize: 9, fontWeight: '900', letterSpacing: 1 }, menuEmpty: { color: '#92a8b9', fontSize: 12, padding: 22, textAlign: 'center' }, menuScoreCard: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 8, padding: 10, borderWidth: 1, borderColor: '#22394a', borderRadius: 10, backgroundColor: '#0c1b29' }, menuScoreRank: { width: 33, height: 33, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: '#103c39' }, menuScoreRankText: { color: '#74f2da', fontWeight: '900' }, scoreMain: { flex: 1 }, scoreLevel: { color: '#e7eff6', fontSize: 10, fontWeight: '900', letterSpacing: 0.8 }, scoreDetails: { color: '#8fa4b3', fontSize: 8, marginTop: 4 }, scoreClaim: { color: '#edc96f', fontSize: 11, fontWeight: '900' }, modeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginTop: 9 }, modeCard: { flex: 1, minWidth: 140, padding: 14, borderRadius: 10, borderWidth: 1, borderColor: '#2a4052', backgroundColor: '#0c1b29' }, modeCardActive: { borderColor: '#5be0c1', backgroundColor: '#0d2a2a' }, modeTitle: { color: '#cad5df', fontSize: 12, fontWeight: '900', letterSpacing: 1 }, modeTitleActive: { color: '#70f1d5' }, skinAchievementScrim: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, zIndex: 110, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(2,8,14,0.78)', padding: 18 }, skinAchievementCard: { width: '100%', maxWidth: 390, alignItems: 'center', padding: 25, borderRadius: 17, borderWidth: 1, borderColor: '#e6c56f', backgroundColor: '#101b29', shadowColor: '#67eed2', shadowOpacity: 0.5, shadowRadius: 22 }, achievementGlyph: { color: '#f1d57d', fontSize: 48, marginTop: 14, textShadowColor: '#57efd4', textShadowRadius: 18 }, skinDiscoveryLabel: { color: '#f1d57d', backgroundColor: '#1d1b13', borderWidth: 1, borderColor: '#86713d', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, fontSize: 8, fontWeight: '900', letterSpacing: 0.55 },
 });
