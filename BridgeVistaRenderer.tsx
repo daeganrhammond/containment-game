@@ -1,17 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { Animated, Easing, Image, StyleSheet, View } from 'react-native';
+import { Animated, Easing, Image, Platform, StyleSheet, View } from 'react-native';
 import type { ImageSourcePropType } from 'react-native';
 import type { BridgeAmbienceProfile } from './bridgeVistaCatalog';
 import { BRIDGE_SHIP_SKINS } from './bridgeShipCatalog';
+
+// React Native Web has no native animation module. Select its JS driver
+// explicitly so browser builds do not depend on the native-driver fallback.
+const USE_NATIVE_DRIVER = Platform.OS !== 'web';
 
 function TwinklingStar({ left, top, size, delay, tint = '#c9eaff' }: { left: `${number}%`; top: `${number}%`; size: number; delay: number; tint?: string }) {
   const [pulse] = useState(() => new Animated.Value(0));
   useEffect(() => {
     const loop = Animated.loop(Animated.sequence([
       Animated.delay(delay),
-      Animated.timing(pulse, { toValue: 1, duration: 2600 + delay % 1700, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 1, duration: 2600 + delay % 1700, useNativeDriver: USE_NATIVE_DRIVER }),
       Animated.delay(1200 + delay % 2300),
-      Animated.timing(pulse, { toValue: 0, duration: 3400 + delay % 1100, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 0, duration: 3400 + delay % 1100, useNativeDriver: USE_NATIVE_DRIVER }),
       Animated.delay(900 + delay % 2600),
     ]));
     loop.start();
@@ -26,8 +30,8 @@ function SlowVeil({ width, height, top, delay, tint }: { width: number; height: 
   useEffect(() => {
     const loop = Animated.loop(Animated.sequence([
       Animated.delay(delay),
-      Animated.timing(phase, { toValue: 1, duration: 36000 + delay * 2, easing: Easing.inOut(Easing.sin), useNativeDriver: true, isInteraction: false }),
-      Animated.timing(phase, { toValue: 0, duration: 42000 + delay * 2, easing: Easing.inOut(Easing.sin), useNativeDriver: true, isInteraction: false }),
+      Animated.timing(phase, { toValue: 1, duration: 36000 + delay * 2, easing: Easing.inOut(Easing.sin), useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
+      Animated.timing(phase, { toValue: 0, duration: 42000 + delay * 2, easing: Easing.inOut(Easing.sin), useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
     ]));
     loop.start();
     return () => loop.stop();
@@ -42,8 +46,8 @@ function RainTrace({ width, height, index }: { width: number; height: number; in
   useEffect(() => {
     const loop = Animated.loop(Animated.sequence([
       Animated.delay(index * 790),
-      Animated.timing(phase, { toValue: 1, duration: 7400 + index * 310, easing: Easing.linear, useNativeDriver: true, isInteraction: false }),
-      Animated.timing(phase, { toValue: 0, duration: 1, useNativeDriver: true, isInteraction: false }),
+      Animated.timing(phase, { toValue: 1, duration: 7400 + index * 310, easing: Easing.linear, useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
+      Animated.timing(phase, { toValue: 0, duration: 1, useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
     ]));
     loop.start();
     return () => loop.stop();
@@ -57,8 +61,8 @@ function EclipseCorona({ width, height }: { width: number; height: number }) {
   const [pulse] = useState(() => new Animated.Value(0));
   useEffect(() => {
     const loop = Animated.loop(Animated.sequence([
-      Animated.timing(pulse, { toValue: 1, duration: 5100, easing: Easing.inOut(Easing.sin), useNativeDriver: true, isInteraction: false }),
-      Animated.timing(pulse, { toValue: 0, duration: 5100, easing: Easing.inOut(Easing.sin), useNativeDriver: true, isInteraction: false }),
+      Animated.timing(pulse, { toValue: 1, duration: 5100, easing: Easing.inOut(Easing.sin), useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
+      Animated.timing(pulse, { toValue: 0, duration: 5100, easing: Easing.inOut(Easing.sin), useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
     ]));
     loop.start();
     return () => loop.stop();
@@ -79,8 +83,8 @@ function ShuttlePass({ width, height, trafficIndex }: { width: number; height: n
   const shuttleHeight = shuttleWidth / ship.aspect;
   useEffect(() => {
     const pulse = Animated.loop(Animated.sequence([
-      Animated.timing(thrust, { toValue: 1, duration: 1100, easing: Easing.inOut(Easing.sin), useNativeDriver: true, isInteraction: false }),
-      Animated.timing(thrust, { toValue: 0.35, duration: 850, easing: Easing.inOut(Easing.sin), useNativeDriver: true, isInteraction: false }),
+      Animated.timing(thrust, { toValue: 1, duration: 1100, easing: Easing.inOut(Easing.sin), useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
+      Animated.timing(thrust, { toValue: 0.35, duration: 850, easing: Easing.inOut(Easing.sin), useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
     ]));
     pulse.start();
     return () => pulse.stop();
@@ -108,9 +112,9 @@ function ShuttlePass({ width, height, trafficIndex }: { width: number; height: n
       Animated.sequence([
         Animated.delay(delay),
         Animated.parallel([
-          Animated.timing(progress, { toValue: 1, duration, easing: Easing.inOut(Easing.quad), useNativeDriver: true, isInteraction: false }),
+          Animated.timing(progress, { toValue: 1, duration, easing: Easing.inOut(Easing.quad), useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
           Animated.sequence([
-            Animated.timing(opacity, { toValue: 0.92, duration: fadeInMs, useNativeDriver: true, isInteraction: false }),
+            Animated.timing(opacity, { toValue: 0.92, duration: fadeInMs, useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
             Animated.delay(duration - fadeInMs),
           ]),
         ]),
@@ -152,7 +156,7 @@ export function BridgeVistaRenderer({ source, ambience, left, top, width, height
   const [driftScale] = useState(() => new Animated.Value(1));
   useEffect(() => {
     fade.setValue(0);
-    const animation = Animated.timing(fade, { toValue: 1, duration: 1100, useNativeDriver: true });
+    const animation = Animated.timing(fade, { toValue: 1, duration: 1100, useNativeDriver: USE_NATIVE_DRIVER });
     animation.start();
     return () => animation.stop();
   }, [fade, source]);
@@ -169,9 +173,9 @@ export function BridgeVistaRenderer({ source, ambience, left, top, width, height
             const targetY = (Math.random() < 0.5 ? -1 : 1) * height * (0.02 + Math.random() * 0.02);
             const duration = 25000 + Math.random() * 40000;
             const animation = Animated.parallel([
-              Animated.timing(driftX, { toValue: targetX, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true, isInteraction: false }),
-              Animated.timing(driftY, { toValue: targetY, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true, isInteraction: false }),
-              Animated.timing(driftScale, { toValue: 1.015 + Math.random() * 0.02, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true, isInteraction: false }),
+              Animated.timing(driftX, { toValue: targetX, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
+              Animated.timing(driftY, { toValue: targetY, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
+              Animated.timing(driftScale, { toValue: 1.015 + Math.random() * 0.02, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
             ]);
             animation.start(({ finished }) => { if (finished && !cancelled) nextLeg(); });
           });
