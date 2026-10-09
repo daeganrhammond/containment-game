@@ -185,11 +185,13 @@ export type OverflowJob = { id: number; kind: PowerKind; credits: number; remain
 export type OverflowResult = { kind: PowerKind; success: boolean; credits: number; untilMs: number };
 export type PictureLibraryEntry = { id: string; name: string; seed: number; uri?: string; generatedBackdropId?: number };
 export type WaldoLibraryEntry = { id: string; name: string; seed: number; waldoX: number; waldoY: number };
-export type PictureEvent = { seed: number; pictureId?: string; generatedBackdropId?: number; isWaldo?: boolean; waldoX?: number; waldoY?: number; waldoLibraryId?: string; waldoFound?: boolean };
+export type PictureEvent = { seed: number; pictureId?: string; generatedBackdropId?: number; vistaId?: string; isWaldo?: boolean; waldoX?: number; waldoY?: number; waldoLibraryId?: string; waldoFound?: boolean };
 let pictureLibrary: PictureLibraryEntry[] = [];
 let waldoLibrary: WaldoLibraryEntry[] = [];
+let pictureEventVistaIds: string[] = [];
 export function setPictureLibrary(entries: PictureLibraryEntry[]) { pictureLibrary = [...entries]; }
 export function setWaldoLibrary(entries: WaldoLibraryEntry[]) { waldoLibrary = [...entries]; }
+export function setPictureEventVistas(ids: string[]) { pictureEventVistaIds = [...ids]; }
 function nextPictureEvent(waldoRequested = false): PictureEvent | null {
   if (Math.random() >= MECHANICS.pictureEventChance) return null;
   if (waldoRequested) {
@@ -199,6 +201,10 @@ function nextPictureEvent(waldoRequested = false): PictureEvent | null {
     }
     const seed = Math.floor(Math.random() * 2_147_483_647);
     return { seed, isWaldo: true, ...generatedWaldoLocation(seed), waldoFound: false };
+  }
+  if (pictureEventVistaIds.length && Math.random() < 0.35) {
+    const vistaId = pictureEventVistaIds[Math.floor(Math.random() * pictureEventVistaIds.length)];
+    return { seed: Math.floor(Math.random() * 2_147_483_647), vistaId };
   }
   const chooseSavedBackground = Math.random() < MECHANICS.pictureLibrarySelectionChance;
   const favorite = chooseSavedBackground && pictureLibrary.length ? pictureLibrary[Math.floor(Math.random() * pictureLibrary.length)] : undefined;

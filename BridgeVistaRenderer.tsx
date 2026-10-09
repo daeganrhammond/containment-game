@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Animated, Easing, Image, Platform, StyleSheet, View } from 'react-native';
 import type { ImageSourcePropType } from 'react-native';
-import type { BridgeAmbienceProfile } from './bridgeVistaCatalog';
+import { VideoView, useVideoPlayer } from 'expo-video';
+import type { BridgeAmbienceProfile, BridgeVistaSource } from './bridgeVistaCatalog';
 import { BRIDGE_SHIP_SKINS } from './bridgeShipCatalog';
 
 // React Native Web has no native animation module. Select its JS driver
@@ -267,14 +268,34 @@ function ShuttlePass({ width, height, trafficIndex, laneY, sizeMultiplier = 1, f
   </Animated.View>;
 }
 
-/** Renders a vista plate and its quiet, separately timed exterior motion. */
-export function BridgeVistaRenderer({ source, ambience, sceneId = 'unnamed-vista', sceneName = '', left, top, width, height }: { source: ImageSourcePropType; ambience?: BridgeAmbienceProfile; sceneId?: string; sceneName?: string; left: number; top: number; width: number; height: number }) {
+function BridgeVistaVideo({ source }: { source: number }) {
+  const player = useVideoPlayer(source, currentPlayer => {
+    currentPlayer.loop = true;
+    currentPlayer.muted = true;
+  });
+  // On web, useVideoPlayer creates the HTML player before VideoView mounts.
+  // Calling play() in its setup callback therefore sees no attached <video>
+  // element and silently does nothing. Start playback after the view mounts.
+  useEffect(() => {
+    player.play();
+    return () => player.pause();
+  }, [player]);
+  return <VideoView player={player} nativeControls={false} contentFit="cover" surfaceType="textureView" allowsPictureInPicture={false} playsInline style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} />;
+}
+
+function isVideoVistaSource(source: BridgeVistaSource): source is { type: 'video'; asset: number } {
+  return typeof source === 'object' && source !== null && !Array.isArray(source) && 'type' in source && source.type === 'video';
+}
+
+/** Renders a still or looping video vista and its quiet exterior motion. */
+export function BridgeVistaRenderer({ source, ambience, sceneId = 'unnamed-vista', sceneName = '', left, top, width, height }: { source: BridgeVistaSource; ambience?: BridgeAmbienceProfile; sceneId?: string; sceneName?: string; left: number; top: number; width: number; height: number }) {
   const [fade] = useState(() => new Animated.Value(0));
   const [driftX] = useState(() => new Animated.Value(0));
   const [driftY] = useState(() => new Animated.Value(0));
   const [driftScale] = useState(() => new Animated.Value(1));
   const sceneSeed = hashSceneKey(`${sceneId}:${sceneName}`);
   const resolvedAmbience = ambience ?? inferAmbience(sceneId, sceneName, sceneSeed);
+  const videoAsset = isVideoVistaSource(source) ? source.asset : undefined;
   useEffect(() => {
     fade.setValue(0);
     const animation = Animated.timing(fade, { toValue: 1, duration: 1100, useNativeDriver: USE_NATIVE_DRIVER });
@@ -285,27 +306,30 @@ export function BridgeVistaRenderer({ source, ambience, sceneId = 'unnamed-vista
     if (width <= 0 || height <= 0) return;
     let cancelled = false;
     const random = seededRandom(sceneSeed);
+    const maxOffsetX = width * 0.075;
+    const maxOffsetY = height * 0.052;
+    const positionX = (random() * 2 - 1) * maxOffsetX * 0.55;
+    const positionY = (random() * 2 - 1) * maxOffsetY * 0.55;
+    let previousEdge = -1;
     const nextLeg = () => {
       if (cancelled) return;
       driftX.stopAnimation(() => {
         driftY.stopAnimation(() => {
           driftScale.stopAnimation(() => {
             if (cancelled) return;
-            // Change the drift character over time: long lateral glides,
-            // slow vertical rolls, and wider diagonal voyages all remain
-            // inside the overscan around the window mask.
-            const routeStyle = Math.floor(random() * 4);
-            const directionX = random() < 0.5 ? -1 : 1;
-            const directionY = random() < 0.5 ? -1 : 1;
-            const horizontalTravel = routeStyle === 0 ? 0.045 + random() * 0.05
-              : routeStyle === 1 ? 0.015 + random() * 0.035
-                : 0.03 + random() * 0.06;
-            const verticalTravel = routeStyle === 0 ? 0.004 + random() * 0.018
-              : routeStyle === 1 ? 0.035 + random() * 0.035
-                : 0.014 + random() * 0.05;
-            const targetX = directionX * width * horizontalTravel;
-            const targetY = directionY * height * verticalTravel;
-            const duration = 18000 + random() * 68000;
+            // Drift toward a randomly chosen edge of the safe overscan area.
+            // At each edge, choose a fresh route so a still image wanders
+            // continuously without looping back to a fixed starting point.
+            const availableEdges = [0, 1, 2, 3].filter(edge => edge !== previousEdge);
+            const edge = availableEdges[Math.floor(random() * availableEdges.length)];
+            previousEdge = edge;
+            const acrossX = (random() * 2 - 1) * maxOffsetX * 0.82;
+            const acrossY = (random() * 2 - 1) * maxOffsetY * 0.82;
+            const targetX = edge === 0 ? -maxOffsetX : edge === 1 ? maxOffsetX : acrossX;
+            const targetY = edge === 2 ? -maxOffsetY : edge === 3 ? maxOffsetY : acrossY;
+            // Some legs are leisurely, others visibly cover the same route
+            // faster; keep the speed range broad enough to notice in the bridge.
+            const duration = 18000 + random() * 82000;
             const easingChoice = random();
             const easing = easingChoice < 0.25 ? Easing.inOut(Easing.quad)
               : easingChoice < 0.5 ? Easing.inOut(Easing.cubic)
@@ -313,11 +337,11 @@ export function BridgeVistaRenderer({ source, ambience, sceneId = 'unnamed-vista
             const animation = Animated.parallel([
               Animated.timing(driftX, { toValue: targetX, duration, easing, useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
               Animated.timing(driftY, { toValue: targetY, duration, easing, useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
-              Animated.timing(driftScale, { toValue: 1.006 + random() * 0.036, duration, easing, useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
+              Animated.timing(driftScale, { toValue: 1.005 + random() * 0.095, duration, easing, useNativeDriver: USE_NATIVE_DRIVER, isInteraction: false }),
             ]);
             animation.start(({ finished }) => {
               if (!finished || cancelled) return;
-              Animated.delay(250 + random() * 1450).start(({ finished: delayFinished }) => {
+              Animated.delay(200 + random() * 800).start(({ finished: delayFinished }) => {
                 if (delayFinished && !cancelled) nextLeg();
               });
             });
@@ -325,16 +349,18 @@ export function BridgeVistaRenderer({ source, ambience, sceneId = 'unnamed-vista
         });
       });
     };
-    driftX.setValue((random() < 0.5 ? -1 : 1) * width * (0.025 + random() * 0.055));
-    driftY.setValue((random() < 0.5 ? -1 : 1) * height * (0.012 + random() * 0.045));
-    driftScale.setValue(1.006 + random() * 0.036);
+    driftX.setValue(positionX);
+    driftY.setValue(positionY);
+    driftScale.setValue(1.005 + random() * 0.095);
     nextLeg();
     return () => { cancelled = true; driftX.stopAnimation(); driftY.stopAnimation(); driftScale.stopAnimation(); };
   }, [driftScale, driftX, driftY, height, sceneSeed, width]);
   return <View pointerEvents="none" style={{ position: 'absolute', left, top, width, height, overflow: 'hidden' }}>
     {width > 0 && height > 0 && <Animated.View style={[{ position: 'absolute', left: 0, top: 0, width, height, overflow: 'hidden' }, { opacity: fade }]}>
       <Animated.View style={{ position: 'absolute', left: '-12.5%', top: '-12.5%', width: '125%', height: '125%', transform: [{ translateX: driftX }, { translateY: driftY }, { scale: driftScale }] }}>
-        <Animated.Image source={source} resizeMode="cover" style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} />
+        {videoAsset !== undefined
+          ? <BridgeVistaVideo key={sceneId} source={videoAsset} />
+          : <Animated.Image source={source as ImageSourcePropType} resizeMode="cover" style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} />}
       </Animated.View>
       <View pointerEvents="none" style={styles.exteriorDecor}>
         {resolvedAmbience === 'deep-space' && <>

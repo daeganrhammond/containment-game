@@ -4,12 +4,14 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, Image, ImageSourcePropType, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
-import { activateCharge, activateSpeed, Ball, BallModifier, CaptureEvent, chargeCapacity, chargeStorageUpgradeCost, CompanionPet, ContainmentPickupKind, CONTAINMENT_MUTATION_COLOR, containmentMutationColor, CreditGainEvent, DEFAULT_MECHANICS, deployEngi, engiUpgradeCost, enforceChargeCapacities, getMechanicsSettings, hireEngi, lifeStorageUpgradeCost, MechanicsSettings, MECHANICS, merchantPowerBarCost as getMerchantPowerBarCost, newRun, OverflowJob, OverflowResult, overflowProcessingUpgradeCost, overflowRefineryUpgradeCost, PictureLibraryEntry, PowerKind, PowerUp, powerupCollisionRadius, powerupDespawnAt, randomBetween, randomEngiCocoonSkin, ramAt, startEngiIncubation, tapPickupAt, resizeRunBoard, Run, ScoreEntry, setMechanicsSettings, setPictureLibrary, setWaldoLibrary, startWall, stepRun, TerritoryGainEvent, testContainmentMutation, upgradeEngi, WaldoLibraryEntry, Wall, WallBreakEvent } from './mechanics';
+import { activateCharge, activateSpeed, Ball, BallModifier, CaptureEvent, chargeCapacity, chargeStorageUpgradeCost, CompanionPet, ContainmentPickupKind, CONTAINMENT_MUTATION_COLOR, containmentMutationColor, CreditGainEvent, DEFAULT_MECHANICS, deployEngi, engiUpgradeCost, enforceChargeCapacities, getMechanicsSettings, hireEngi, lifeStorageUpgradeCost, MechanicsSettings, MECHANICS, merchantPowerBarCost as getMerchantPowerBarCost, newRun, OverflowJob, OverflowResult, overflowProcessingUpgradeCost, overflowRefineryUpgradeCost, PictureLibraryEntry, PowerKind, PowerUp, powerupCollisionRadius, powerupDespawnAt, randomBetween, randomEngiCocoonSkin, ramAt, startEngiIncubation, tapPickupAt, resizeRunBoard, Run, ScoreEntry, setMechanicsSettings, setPictureLibrary, setPictureEventVistas, setWaldoLibrary, startWall, stepRun, TerritoryGainEvent, testContainmentMutation, upgradeEngi, WaldoLibraryEntry, Wall, WallBreakEvent } from './mechanics';
 import { BACKGROUND_SKINS, BALL_SKINS, CREDIT_SKINS, DEFAULT_SKIN_SELECTIONS, ENGI_PET_SKINS, LEVEL_CLEAR_ANIMATIONS, normalizeSkinSelections, PICKUP_SKINS, SkinOption, SkinSelections, CaptureAnimation } from './skins';
 import { defaultSkinUnlocks, normalizeSkinUnlocks, reachableSkin, SKIN_ARCHIVE, SKIN_CATEGORY_KEYS, SKIN_DEFAULTS, SkinArchiveNode, SkinUnlocks } from './themeCatalog';
 import { ThemeTreeScreen } from './ThemeTreeScreen';
 import { BridgeVistaRenderer } from './BridgeVistaRenderer';
 import { BUILT_IN_BRIDGE_VISTAS } from './bridgeVistaCatalog';
+import type { BridgeVistaScene } from './bridgeVistaCatalog';
+import { BridgeInteriorAmbience } from './BridgeInteriorAmbience';
 
 const SAVE_KEY = 'trap-game-save-v1';
 const SETTINGS_KEY = 'trap-game-dev-settings-v1';
@@ -19,7 +21,9 @@ const PICTURE_LIBRARY_KEY = 'trap-game-picture-library-v1';
 const BRIDGE_VISTA_LIBRARY_KEY = 'trap-game-bridge-vista-library-v1';
 const WALDO_LIBRARY_KEY = 'trap-game-waldo-library-v1';
 const SKIN_UNLOCKS_V2_KEY = 'trap-game-skin-unlocks-v2';
+const VISTA_UNLOCKS_KEY = 'trap-game-picture-vista-unlocks-v1';
 const MANUAL_SAVE_KEY = 'trap-game-manual-save-v1';
+const BRIDGE_INTERIOR_VARIANT_KEY = 'trap-game-bridge-interior-variant-v1';
 const CREDIT_SYMBOL_ART: Record<string, number> = {
   sunshard: require('./assets/credits/sunshard.png'),
   'circuit-chit': require('./assets/credits/circuit-chit.png'),
@@ -272,17 +276,39 @@ function BridgePulse({ delay = 0, color = '#75f4dc' }: { delay?: number; color?:
 
 // Transparent foreground cutout: the glass is no longer baked to the default vista.
 const BRIDGE_INTERIOR_ART = require('./assets/bridge-command-foreground.png');
+const BRIDGE_INTERIOR_EMISSION = require('./assets/bridge-ambient-emission.png');
+const BRIDGE_INTERIOR_CATHEDRAL_ART = require('./assets/bridge-command-cathedral-alt.png');
+const BRIDGE_INTERIOR_CATHEDRAL_EMISSION = require('./assets/bridge-ambient-emission-cathedral-alt.png');
 
-function BridgeInterior() {
+function BridgeInterior({ variant }: { variant: 'original' | 'cathedral' }) {
   const [frame, setFrame] = useState({ width: 0, height: 0 });
+  const [lightFlicker] = useState(() => new Animated.Value(0.35));
+  useEffect(() => {
+    const flicker = Animated.loop(Animated.sequence([
+      Animated.timing(lightFlicker, { toValue: 0.76, duration: 2600, easing: Easing.inOut(Easing.sin), useNativeDriver: true, isInteraction: false }),
+      Animated.timing(lightFlicker, { toValue: 0.55, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true, isInteraction: false }),
+      Animated.timing(lightFlicker, { toValue: 0.7, duration: 380, useNativeDriver: true, isInteraction: false }),
+      Animated.timing(lightFlicker, { toValue: 0.34, duration: 520, useNativeDriver: true, isInteraction: false }),
+      Animated.timing(lightFlicker, { toValue: 0.48, duration: 3200, easing: Easing.inOut(Easing.sin), useNativeDriver: true, isInteraction: false }),
+    ]));
+    flicker.start();
+    return () => flicker.stop();
+  }, [lightFlicker]);
+  const interiorArt = variant === 'cathedral' ? BRIDGE_INTERIOR_CATHEDRAL_ART : BRIDGE_INTERIOR_ART;
+  const interiorEmission = variant === 'cathedral' ? BRIDGE_INTERIOR_CATHEDRAL_EMISSION : BRIDGE_INTERIOR_EMISSION;
   const imageAspect = BRIDGE_ART_ASPECT;
   const imageWidth = Math.min(frame.width, frame.height * imageAspect);
   const imageHeight = imageWidth / imageAspect;
-  return <View pointerEvents="none" style={StyleSheet.absoluteFill} onLayout={event => {
+  return <View pointerEvents="box-none" style={StyleSheet.absoluteFill} onLayout={event => {
     const { width, height } = event.nativeEvent.layout;
     setFrame(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height });
   }}>
-    {imageWidth > 0 && imageHeight > 0 && <Image source={BRIDGE_INTERIOR_ART} resizeMode="stretch" style={{ position: 'absolute', width: imageWidth, height: imageHeight, left: (frame.width - imageWidth) / 2, top: (frame.height - imageHeight) / 2 }} />}
+    {imageWidth > 0 && imageHeight > 0 && <View pointerEvents="box-none" style={{ position: 'absolute', width: imageWidth, height: imageHeight, left: (frame.width - imageWidth) / 2, top: (frame.height - imageHeight) / 2 }}>
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <Image source={interiorArt} resizeMode="stretch" style={{ width: imageWidth, height: imageHeight }} />
+        <Animated.Image source={interiorEmission} resizeMode="stretch" style={{ position: 'absolute', left: 0, top: 0, width: imageWidth, height: imageHeight, opacity: lightFlicker }} />
+      </View>
+    </View>}
   </View>;
 }
 
@@ -521,6 +547,9 @@ export default function App() {
   const [bridgeRailVisible, setBridgeRailVisible] = useState(true);
   const [bridgeVistaIndex, setBridgeVistaIndex] = useState(0);
   const [developerVistaId, setDeveloperVistaId] = useState<string | null>(null);
+  const [unlockedVistaIds, setUnlockedVistaIds] = useState<string[]>([]);
+  const unlockedVistaIdsRef = useRef(unlockedVistaIds);
+  const [vistaAchievement, setVistaAchievement] = useState<string | null>(null);
   const [manualSave, setManualSave] = useState<Run | null>(null);
   const [confirmOverwriteSave, setConfirmOverwriteSave] = useState(false);
   const [confirmNewRun, setConfirmNewRun] = useState(false);
@@ -545,6 +574,7 @@ export default function App() {
   const [selectedBridgeVistaId, setSelectedBridgeVistaId] = useState<string | null>(null);
   const [bridgeVistaNotice, setBridgeVistaNotice] = useState('Import a photo to pin it outside the bridge windows. Auto restores rotating scenery.');
   const [bridgeVistaOpen, setBridgeVistaOpen] = useState(false);
+  const [bridgeInteriorVariant, setBridgeInteriorVariant] = useState<'original' | 'cathedral'>('original');
   const [waldoLibrary, setWaldoLibraryState] = useState<WaldoLibraryEntry[]>([]);
   const waldoLibraryRef = useRef(waldoLibrary);
   const [waldoLibraryNotice, setWaldoLibraryNotice] = useState('Generated Waldo puzzles saved here can appear only in future Waldo events.');
@@ -552,7 +582,13 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [save, boardScores, settingsSave, profilesSave, skinsSave, pictureLibrarySave, bridgeVistaSave, waldoLibrarySave, skinUnlocksSave, legacySkinUnlocksSave, manualSaveData] = await Promise.all([AsyncStorage.getItem(SAVE_KEY), AsyncStorage.getItem(`${SAVE_KEY}-scores`), AsyncStorage.getItem(SETTINGS_KEY), AsyncStorage.getItem(PROFILES_KEY), AsyncStorage.getItem(SKINS_KEY), AsyncStorage.getItem(PICTURE_LIBRARY_KEY), AsyncStorage.getItem(BRIDGE_VISTA_LIBRARY_KEY), AsyncStorage.getItem(WALDO_LIBRARY_KEY), AsyncStorage.getItem(SKIN_UNLOCKS_V2_KEY), AsyncStorage.getItem('trap-game-skin-unlocks-v1'), AsyncStorage.getItem(MANUAL_SAVE_KEY)]);
+        const [save, boardScores, settingsSave, profilesSave, skinsSave, pictureLibrarySave, bridgeVistaSave, waldoLibrarySave, skinUnlocksSave, legacySkinUnlocksSave, manualSaveData, vistaUnlocksSave, bridgeInteriorSave] = await Promise.all([AsyncStorage.getItem(SAVE_KEY), AsyncStorage.getItem(`${SAVE_KEY}-scores`), AsyncStorage.getItem(SETTINGS_KEY), AsyncStorage.getItem(PROFILES_KEY), AsyncStorage.getItem(SKINS_KEY), AsyncStorage.getItem(PICTURE_LIBRARY_KEY), AsyncStorage.getItem(BRIDGE_VISTA_LIBRARY_KEY), AsyncStorage.getItem(WALDO_LIBRARY_KEY), AsyncStorage.getItem(SKIN_UNLOCKS_V2_KEY), AsyncStorage.getItem('trap-game-skin-unlocks-v1'), AsyncStorage.getItem(MANUAL_SAVE_KEY), AsyncStorage.getItem(VISTA_UNLOCKS_KEY), AsyncStorage.getItem(BRIDGE_INTERIOR_VARIANT_KEY)]);
+        setBridgeInteriorVariant(bridgeInteriorSave === 'cathedral' ? 'cathedral' : 'original');
+        const pairedVistaIds = BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => scene.id);
+        const restoredVistaIds: string[] = vistaUnlocksSave ? JSON.parse(vistaUnlocksSave) : [];
+        const validUnlockedVistaIds = restoredVistaIds.filter(id => pairedVistaIds.includes(id));
+        unlockedVistaIdsRef.current = validUnlockedVistaIds;
+        setUnlockedVistaIds(validUnlockedVistaIds);
         if (settingsSave) {
           const rawSettings = JSON.parse(settingsSave) as Partial<MechanicsSettings>; const legacyStorageSettings = rawSettings.resourceStorageUpgradeBaseCost === undefined; const savedSettings = normalizeMechanicsSettings(rawSettings); if (legacyStorageSettings) { if (savedSettings.overflowCreditValues.speed === 0) savedSettings.overflowCreditValues.speed = DEFAULT_MECHANICS.overflowCreditValues.speed; if (savedSettings.overflowCreditValues.ram === 0) savedSettings.overflowCreditValues.ram = DEFAULT_MECHANICS.overflowCreditValues.ram; }
           setTuning(savedSettings);
@@ -584,7 +620,7 @@ export default function App() {
         skinProgressionRef.current = progression;
         setSkinProgression(progression);
         if (pictureLibrarySave) { const entries = JSON.parse(pictureLibrarySave) as PictureLibraryEntry[]; pictureLibraryRef.current = entries; setPictureLibraryState(entries); setPictureLibrary(entries); }
-        if (bridgeVistaSave) { const savedVista = JSON.parse(bridgeVistaSave) as { entries?: BridgeVistaEntry[]; selectedId?: string | null }; const entries = Array.isArray(savedVista) ? savedVista as unknown as BridgeVistaEntry[] : savedVista.entries ?? []; setBridgeVistaLibrary(entries); setSelectedBridgeVistaId(savedVista.selectedId && entries.some(entry => entry.id === savedVista.selectedId) ? savedVista.selectedId : null); }
+        if (bridgeVistaSave) { const savedVista = JSON.parse(bridgeVistaSave) as { entries?: BridgeVistaEntry[]; selectedId?: string | null }; const entries = Array.isArray(savedVista) ? savedVista as unknown as BridgeVistaEntry[] : savedVista.entries ?? []; setBridgeVistaLibrary(entries); setSelectedBridgeVistaId(savedVista.selectedId && (entries.some(entry => entry.id === savedVista.selectedId) || (validUnlockedVistaIds.includes(savedVista.selectedId) && BUILT_IN_BRIDGE_VISTAS.some(scene => scene.id === savedVista.selectedId))) ? savedVista.selectedId : null); }
         if (waldoLibrarySave) { const entries = JSON.parse(waldoLibrarySave) as WaldoLibraryEntry[]; waldoLibraryRef.current = entries; setWaldoLibraryState(entries); setWaldoLibrary(entries); }
         if (save) { const parsed = JSON.parse(save) as Run; const legacyStorageRun = parsed.speedCapacityBonus === undefined; parsed.speedCharges ??= 0; parsed.ramCharges ??= 0; parsed.chargeCharges ??= 0; parsed.chargeCapacityBonus ??= 0; parsed.chargeCapacityPurchases ??= 0; parsed.overflowProcessingUpgradePurchases ??= 0; parsed.levelClearBubbleTimerMs ??= 0; parsed.levelClearBubbleAccumulatorMs ??= 0; parsed.levelClearAnimationRemainingMs ??= 0; parsed.levelEvent ??= 'none'; parsed.levelEventBannerUntilMs ??= 0; parsed.containmentMutations ??= []; parsed.containmentMutationScanRemainingMs ??= 0; parsed.chargeReadyUntil ??= null; parsed.speedCapacityBonus ??= 0; parsed.speedCapacityPurchases ??= parsed.speedCapacityBonus; parsed.ramCapacityBonus ??= 0; parsed.ramCapacityPurchases ??= parsed.ramCapacityBonus; parsed.waldoEventPending ??= false; parsed.mechanics = normalizeMechanicsSettings(parsed.mechanics); parsed.skinDiscovery ??= null; parsed.totalTerritoryClaimed ??= 0; parsed.ballsDestroyed ??= 0; parsed.ballsContained ??= 0; parsed.pickupsCaptured ??= 0; parsed.containedBallIds ??= []; parsed.containedCountedThisLevel ??= false; if (legacyStorageRun) { if (parsed.mechanics.overflowCreditValues.speed === 0) parsed.mechanics.overflowCreditValues.speed = DEFAULT_MECHANICS.overflowCreditValues.speed; if (parsed.mechanics.overflowCreditValues.ram === 0) parsed.mechanics.overflowCreditValues.ram = DEFAULT_MECHANICS.overflowCreditValues.ram; } parsed.lifeCapacity = Math.max(parsed.lives, parsed.lifeCapacity ?? parsed.mechanics.lifeStorageBaseCapacity); parsed.lifeCapacityPurchases ??= Math.max(0, parsed.lifeCapacity - parsed.mechanics.lifeStorageBaseCapacity); parsed.overflowJobs ??= []; parsed.overflowSuccessChance = Math.max(0, Math.min(100, parsed.overflowSuccessChance ?? parsed.mechanics.overflowBaseSuccessChance)); parsed.overflowUpgradePurchases ??= Math.max(0, Math.floor((parsed.overflowSuccessChance - parsed.mechanics.overflowBaseSuccessChance) / Math.max(1, parsed.mechanics.overflowUpgradeChanceIncrease))); parsed.waldoEligible ??= Math.random() >= parsed.mechanics.waldoIneligibleChance; parsed.merchantTokens ??= 0; parsed.credits ??= 0; parsed.powerBars ??= 0; parsed.powerBarsPurchased ??= 0; parsed.merchantUpgrades ??= { life: 0, speed: 0, ram: 0, treasure: 0, waldo: 0 }; parsed.merchantUpgrades.waldo ??= 0; for (const kind of Object.keys(DEFAULT_MECHANICS.containmentMutationPickupEnabled)) { parsed.merchantUpgrades[`mutationAffinity:${kind}`] ??= 0; parsed.merchantUpgrades[`mutationAttraction:${kind}`] ??= 0; } parsed.petEggs ??= 0; parsed.petEggVisitProgress ??= 0; parsed.pets ??= []; parsed.pets = parsed.pets.map(pet => ({ ...pet, species: pet.species ?? 'engi', paintings: pet.paintings ?? [] })); parsed.petIncubations ??= []; parsed.isotypesContained ??= false; parsed.isotypesNoticeUntilMs ??= 0; parsed.petNotice ??= null; parsed.petNoticeUntilMs ??= 0; parsed.levelClearPending ??= false; parsed.speedReadyUntil ??= null; parsed.captureEvents ??= []; parsed.wallBreakEvents ??= []; parsed.territoryGainEvents ??= []; parsed.creditGainEvents ??= []; parsed.treasureEligible ??= Math.random() < MECHANICS.treasureLevelEligibilityChance; parsed.treasureHuntPending ??= false; parsed.treasureHunt ??= null; if (parsed.treasureHunt) parsed.treasureHunt.revealed ??= false; parsed.pictureEvent ??= null; parsed.boardWidth ??= BOARD_W; parsed.boardHeight ??= 1100; parsed.gridCols ??= 48; parsed.gridRows ??= 72; parsed.walls = parsed.walls.map(w => ({ ...w, speedMultiplier: w.speedMultiplier ?? 1 })); parsed.powerups = (parsed.powerups ?? []).map(p => ({ ...p, skinId: p.kind === 'engi-egg' ? p.skinId ?? randomEngiCocoonSkin() : p.skinId, despawnAtMs: p.despawnAtMs ?? powerupDespawnAt(p.kind, parsed.elapsedMs ?? 0, parsed.mechanics) })); if (parsed.levelClearPending && !parsed.powerups.some(p => p.kind === 'exit')) parsed.powerups.push({ id: parsed.nextId++, kind: 'exit', x: parsed.boardWidth * 0.5, y: parsed.boardHeight * 0.5, vx: 0, vy: 0 }); if (!parsed.ended) { setMechanicsSettings(parsed.mechanics); const layout = boardLayoutFor(stageSizeRef.current.width, stageSizeRef.current.height); const restored = layout.displayWidth ? resizeRunBoard(parsed, layout.worldWidth, layout.worldHeight) : parsed; const capacitySafe = enforceChargeCapacities(restored); runRef.current = capacitySafe; setRun(capacitySafe); setHasSave(true); } }
         if (manualSaveData) setManualSave(JSON.parse(manualSaveData) as Run);
@@ -595,6 +631,7 @@ export default function App() {
   }, []);
 
   useEffect(() => { if (loaded) AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(tuning)).catch(() => {}); }, [loaded, tuning]);
+  useEffect(() => { if (loaded) AsyncStorage.setItem(BRIDGE_INTERIOR_VARIANT_KEY, bridgeInteriorVariant).catch(() => {}); }, [loaded, bridgeInteriorVariant]);
   useEffect(() => { if (loaded) AsyncStorage.setItem(PROFILES_KEY, JSON.stringify(profiles)).catch(() => {}); }, [loaded, profiles]);
   useEffect(() => {
     const settings = normalizeMechanicsSettings(tuning);
@@ -612,10 +649,19 @@ export default function App() {
   useEffect(() => { skinSelectionsRef.current = skinSelections; }, [skinSelections]);
   useEffect(() => { if (loaded) AsyncStorage.setItem(SKINS_KEY, JSON.stringify(skinSelections)).catch(() => {}); }, [loaded, skinSelections]);
   useEffect(() => { skinProgressionRef.current = skinProgression; if (loaded) AsyncStorage.setItem(SKIN_UNLOCKS_V2_KEY, JSON.stringify(skinProgression)).catch(() => {}); }, [loaded, skinProgression]);
+  useEffect(() => { unlockedVistaIdsRef.current = unlockedVistaIds; if (loaded) AsyncStorage.setItem(VISTA_UNLOCKS_KEY, JSON.stringify(unlockedVistaIds)).catch(() => {}); }, [loaded, unlockedVistaIds]);
+  useEffect(() => { setPictureEventVistas(BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => scene.id)); }, []);
 
   const nextLevelAfterClear = useCallback((current: Run) => {
     exitTransitionPending.current = false;
     if (!current.levelClearPending || current.ended) return;
+    const vistaId = current.pictureEvent?.vistaId;
+    if (vistaId && !unlockedVistaIdsRef.current.includes(vistaId)) {
+      const updatedVistaIds = [...unlockedVistaIdsRef.current, vistaId];
+      unlockedVistaIdsRef.current = updatedVistaIds;
+      setUnlockedVistaIds(updatedVistaIds);
+      setVistaAchievement(vistaId);
+    }
     const discovery = current.skinDiscovery;
     if (discovery && current.claimed >= discovery.requiredClaimed && (!discovery.requiresIsotypes || current.isotypesContained) && !skinProgressionRef.current.unlocked[discovery.category]?.includes(discovery.skinId)) {
       const updated = { ...skinProgressionRef.current, unlocked: { ...skinProgressionRef.current.unlocked, [discovery.category]: [...(skinProgressionRef.current.unlocked[discovery.category] ?? []), discovery.skinId] } };
@@ -627,7 +673,7 @@ export default function App() {
     const next = newRun(current.level + 1, current.boardWidth, current.boardHeight, current.waldoEventPending);
     const continued = attachSkinDiscovery({ ...next, lives: current.lives, lifeCapacity: current.lifeCapacity, lifeCapacityPurchases: current.lifeCapacityPurchases, speedCapacityBonus: current.speedCapacityBonus, speedCapacityPurchases: current.speedCapacityPurchases, ramCapacityBonus: current.ramCapacityBonus, ramCapacityPurchases: current.ramCapacityPurchases, chargeCapacityBonus: current.chargeCapacityBonus, chargeCapacityPurchases: current.chargeCapacityPurchases, chargeCharges: current.chargeCharges, overflowProcessingUpgradePurchases: current.overflowProcessingUpgradePurchases, overflowJobs: current.overflowJobs, overflowSuccessChance: current.overflowSuccessChance, overflowUpgradePurchases: current.overflowUpgradePurchases, speedCharges: current.speedCharges, ramCharges: current.ramCharges, merchantTokens: current.merchantTokens, credits: current.credits, powerBars: current.powerBars, powerBarsPurchased: current.powerBarsPurchased, merchantUpgrades: current.merchantUpgrades, petEggs: current.petEggs, petEggVisitProgress: current.petEggVisitProgress, petIncubations: current.petIncubations, pets: current.pets.map(pet => ({ ...pet, deployed: false, vx: 0, vy: 0, repairedThisLevel: false, ...(pet.species === 'waldo' ? { paintings: [], nextPaintingAtMs: next.elapsedMs + next.mechanics.waldoPetPaintingIntervalMs } : {}) })), totalTerritoryClaimed: current.totalTerritoryClaimed, ballsDestroyed: current.ballsDestroyed, ballsContained: current.ballsContained, pickupsCaptured: current.pickupsCaptured, containedBallIds: [], isotypesContained: false, containedCountedThisLevel: false, isotypesNoticeUntilMs: 0, treasureHunt: pendingTreasure ? { x: randomBetween(40, current.boardWidth - 40), y: randomBetween(40, current.boardHeight - 40), remainingMs: current.mechanics.treasureHuntDurationMs, revealed: false } : null, territoryGainEvents: [], creditGainEvents: current.creditGainEvents, levelClearPending: false }, skinProgressionRef.current);
     commit(continued); setLevelClearAnimation(null); setMerchantOpenedAtClear(false); setPaused(false); queuedWalls.current = []; setQueuedWallPreview([]); setRunning(true); setNotice(`Stage ${String(continued.level).padStart(2, '0')} underway`);
-  }, [commit, setLevelClearAnimation, setSkinAchievement, setSkinProgression]);
+  }, [commit, setLevelClearAnimation, setSkinAchievement, setSkinProgression, setVistaAchievement]);
 
   useEffect(() => {
     if (!running) return;
@@ -784,6 +830,10 @@ export default function App() {
     for (const category of SKIN_CATEGORY_KEYS) unlocked[category] = [...new Set([...(unlocked[category] ?? []), ...SKIN_ARCHIVE.filter(node => node.category === category).map(node => node.id)])];
     const next = { ...skinProgressionRef.current, unlocked };
     skinProgressionRef.current = next; setSkinProgression(next);
+  };
+  const setVistaDeveloperUnlock = (id: string, unlocked: boolean) => {
+    const next = unlocked ? [...new Set([...unlockedVistaIdsRef.current, id])] : unlockedVistaIdsRef.current.filter(existing => existing !== id);
+    unlockedVistaIdsRef.current = next; setUnlockedVistaIds(next);
   };
   const beginEngiIncubation = () => { const skin = ENGI_PET_SKINS[Math.floor(Math.random() * ENGI_PET_SKINS.length)]; commit(startEngiIncubation(runRef.current, skin.id), true); };
   const purchaseEngi = () => { const skin = ENGI_PET_SKINS[Math.floor(Math.random() * ENGI_PET_SKINS.length)]; commit(hireEngi(runRef.current, skin.id)); };
@@ -1044,6 +1094,7 @@ export default function App() {
   const backgroundCycleIndex = (run.level - 1) % BACKGROUND_SKINS.length;
   const discoveryBackground = run.skinDiscovery?.category === 'background';
   const pictureEntry = run.pictureEvent?.pictureId ? pictureLibrary.find(entry => entry.id === run.pictureEvent?.pictureId) : undefined;
+  const pictureVistaScene = run.pictureEvent?.vistaId ? BUILT_IN_BRIDGE_VISTAS.find(scene => scene.id === run.pictureEvent?.vistaId) : undefined;
   const tint = discoveryBackground ? selectedBackground.color : tuning.autoBackground
     ? legacyDefaultPalette ? BACKGROUND_SKINS[backgroundCycleIndex].color : runSettings.backgroundColors[(run.level - 1) % runSettings.backgroundColors.length]
     : selectedBackground.color;
@@ -1072,23 +1123,26 @@ export default function App() {
     : pictureEntry?.uri ? { uri: pictureEntry.uri }
       : (pictureEntry?.generatedBackdropId ?? run.pictureEvent?.generatedBackdropId) !== undefined
         ? GENERATED_PICTURE_BACKDROPS[(pictureEntry?.generatedBackdropId ?? run.pictureEvent?.generatedBackdropId ?? 0) % GENERATED_PICTURE_BACKDROPS.length]
-        : undefined;
+        : pictureVistaScene?.source && !(typeof pictureVistaScene.source === 'object' && 'type' in pictureVistaScene.source) ? pictureVistaScene.source as ImageSourcePropType
+          : undefined;
   const pinnedBridgeVista = bridgeVistaLibrary.find(entry => entry.id === selectedBridgeVistaId);
-  const bridgeVistaScenes = useMemo(() => [
+  const bridgeVistaScenes = useMemo<BridgeVistaScene[]>(() => [
     ...BUILT_IN_BRIDGE_VISTAS,
     ...bridgeVistaLibrary.map(entry => ({ id: entry.id, name: entry.name, source: { uri: entry.uri } as ImageSourcePropType, ambience: undefined })),
   ], [bridgeVistaLibrary]);
+  const availableBridgeVistaScenes = useMemo(() => bridgeVistaScenes.filter(scene => !scene.pictureEventUnlock || unlockedVistaIds.includes(scene.id)), [bridgeVistaScenes, unlockedVistaIds]);
   useEffect(() => {
-    if (menuPage !== 'home' || selectedBridgeVistaId || developerVistaId || bridgeSimView === 'window' || bridgeVistaScenes.length < 2) return;
-    const timer = setInterval(() => setBridgeVistaIndex(index => (index + 1) % bridgeVistaScenes.length), 18000);
+    if (menuPage !== 'home' || selectedBridgeVistaId || developerVistaId || bridgeSimView === 'window' || availableBridgeVistaScenes.length < 2) return;
+    const timer = setInterval(() => setBridgeVistaIndex(index => (index + 1) % availableBridgeVistaScenes.length), 18000);
     return () => clearInterval(timer);
-  }, [menuPage, selectedBridgeVistaId, developerVistaId, bridgeSimView, bridgeVistaScenes]);
+  }, [menuPage, selectedBridgeVistaId, developerVistaId, bridgeSimView, availableBridgeVistaScenes]);
   const bridgeExteriorScene = useMemo(() => {
     const developerSelection = developerVistaId ? bridgeVistaScenes.find(scene => scene.id === developerVistaId) : undefined;
-    return developerSelection ?? (pinnedBridgeVista
+    const pinnedBuiltIn = selectedBridgeVistaId ? bridgeVistaScenes.find(scene => scene.id === selectedBridgeVistaId && (!scene.pictureEventUnlock || unlockedVistaIds.includes(scene.id))) : undefined;
+    return developerSelection ?? pinnedBuiltIn ?? (pinnedBridgeVista
       ? { id: pinnedBridgeVista.id, name: pinnedBridgeVista.name, source: { uri: pinnedBridgeVista.uri } as ImageSourcePropType }
-      : bridgeVistaScenes[bridgeVistaIndex % Math.max(bridgeVistaScenes.length, 1)]);
-  }, [developerVistaId, pinnedBridgeVista, bridgeVistaScenes, bridgeVistaIndex]);
+      : availableBridgeVistaScenes[bridgeVistaIndex % Math.max(availableBridgeVistaScenes.length, 1)]);
+  }, [developerVistaId, selectedBridgeVistaId, unlockedVistaIds, pinnedBridgeVista, bridgeVistaScenes, availableBridgeVistaScenes, bridgeVistaIndex]);
   const claimRects = useMemo(() => {
     const cols = run.gridCols, rows = run.gridRows, rects: { key: string; x: number; y: number; width: number }[] = [];
     for (let y = 0; y < rows; y++) {
@@ -1231,7 +1285,7 @@ export default function App() {
           <View ref={boardRef} style={[styles.board, { backgroundColor: tint }, { touchAction: 'none', ...(Platform.OS === 'web' && !phoneViewport ? { cursor: 'none' } : {}) } as any]} onLayout={e => { setBoard({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height }); requestAnimationFrame(() => boardRef.current?.measureInWindow((x, y, width, height) => { boardScreenRect.current = { x, y, width, height }; })); }}
           onTouchStart={e => collectTouches(e, 'start')} onTouchEnd={e => collectTouches(e, 'end')} onTouchCancel={e => collectTouches(e, 'cancel')}
           {...(Platform.OS === 'web' ? { onPointerDown: (e: any) => pointerGesture(e, 'start'), onPointerUp: (e: any) => pointerGesture(e, 'end'), onPointerCancel: (e: any) => pointerGesture(e, 'cancel') } : {}) as any}>
-          {run.pictureEvent?.isWaldo ? <WaldoArtwork seed={run.pictureEvent.seed} width={board.width} height={board.height} waldoX={run.pictureEvent.waldoX ?? 0.5} waldoY={run.pictureEvent.waldoY ?? 0.5} found={!!run.pictureEvent.waldoFound} /> : run.pictureEvent && (pictureEntry?.uri ? <View pointerEvents="none" style={[FULL_BOARD_ART_STYLE, { backgroundColor: tint }]}><Image source={{ uri: pictureEntry.uri }} resizeMode="stretch" style={FULL_STAGE_IMAGE_STYLE} /></View> : (pictureEntry?.generatedBackdropId ?? run.pictureEvent.generatedBackdropId) !== undefined ? <View pointerEvents="none" style={[FULL_BOARD_ART_STYLE, { backgroundColor: tint }]}><Image source={GENERATED_PICTURE_BACKDROPS[(pictureEntry?.generatedBackdropId ?? run.pictureEvent.generatedBackdropId ?? 0) % GENERATED_PICTURE_BACKDROPS.length]} resizeMode="stretch" style={[FULL_STAGE_IMAGE_STYLE, { opacity: 0.92 }]} /></View> : <PictureArtwork seed={run.pictureEvent.seed} width={board.width} height={board.height} />)}
+          {run.pictureEvent?.isWaldo ? <WaldoArtwork seed={run.pictureEvent.seed} width={board.width} height={board.height} waldoX={run.pictureEvent.waldoX ?? 0.5} waldoY={run.pictureEvent.waldoY ?? 0.5} found={!!run.pictureEvent.waldoFound} /> : run.pictureEvent && (pictureEntry?.uri ? <View pointerEvents="none" style={[FULL_BOARD_ART_STYLE, { backgroundColor: tint }]}><Image source={{ uri: pictureEntry.uri }} resizeMode="stretch" style={FULL_STAGE_IMAGE_STYLE} /></View> : pictureVistaScene && !(typeof pictureVistaScene.source === 'object' && 'type' in pictureVistaScene.source) ? <View pointerEvents="none" style={[FULL_BOARD_ART_STYLE, { backgroundColor: tint }]}><Image source={pictureVistaScene.source as ImageSourcePropType} resizeMode="stretch" style={FULL_STAGE_IMAGE_STYLE} /></View> : (pictureEntry?.generatedBackdropId ?? run.pictureEvent.generatedBackdropId) !== undefined ? <View pointerEvents="none" style={[FULL_BOARD_ART_STYLE, { backgroundColor: tint }]}><Image source={GENERATED_PICTURE_BACKDROPS[(pictureEntry?.generatedBackdropId ?? run.pictureEvent.generatedBackdropId ?? 0) % GENERATED_PICTURE_BACKDROPS.length]} resizeMode="stretch" style={[FULL_STAGE_IMAGE_STYLE, { opacity: 0.92 }]} /></View> : <PictureArtwork seed={run.pictureEvent.seed} width={board.width} height={board.height} />)}
           {run.pictureEvent
             ? openRectFractions.map(rect => <View key={rect.key} pointerEvents="none" style={[styles.unclaimedMask, { backgroundColor: tint, left: `${rect.left * 100}%`, top: `${rect.top * 100}%`, width: `${rect.width * 100}%`, height: `${rect.height * 100}%` }]} />)
             : claimRects.map(rect => <View key={rect.key} pointerEvents="none" style={[styles.claimedCell, { backgroundColor: runSettings.claimedColor, opacity: runSettings.claimedFillOpacity, left: rect.x * run.boardWidth / run.gridCols * sx, top: rect.y * run.boardHeight / run.gridRows * sy, width: rect.width * run.boardWidth / run.gridCols * sx, height: run.boardHeight / run.gridRows * sy }]} />)}
@@ -1309,6 +1363,9 @@ export default function App() {
         <Text style={styles.sectionTitle}>BRIDGE WINDOW PREVIEW</Text>
         <Text style={styles.devHint}>Pin a built-in or uploaded vista while inspecting it from HOME. AUTO returns to your current vista selection; unpinned scenes rotate normally.</Text>
         <SettingChoiceRow label="Window theme" value={developerVistaId ?? 'auto'} options={[{ id: 'auto', label: 'AUTO ROTATION' }, ...bridgeVistaScenes.map(scene => ({ id: scene.id, label: scene.name }))]} onChange={value => setDeveloperVistaId(value === 'auto' ? null : value)} />
+        <Text style={styles.sectionTitle}>BRIDGE INTERIOR</Text>
+        <Text style={styles.devHint}>Switch the bridge interior independently of the outside vista. The selected interior is saved on this device.</Text>
+        <SettingChoiceRow label="Interior layout" value={bridgeInteriorVariant} options={[{ id: 'original', label: 'ORIGINAL BRIDGE' }, { id: 'cathedral', label: 'CATHEDRAL ALTERNATIVE' }]} onChange={value => setBridgeInteriorVariant(value === 'cathedral' ? 'cathedral' : 'original')} />
         <Text style={styles.sectionTitle}>SKIN CATALOG</Text>
         <SkinSelectRow label="Arena background" value={skinSelections.background} previewKind="background" options={BACKGROUND_SKINS} onChange={id => {
           const index = BACKGROUND_SKINS.findIndex(skin => skin.id === id);
@@ -1338,6 +1395,10 @@ export default function App() {
       </>}
       {devTab === 'events' && <>
         <Text style={styles.devTitle}>EVENTS</Text>
+        <Text style={styles.sectionTitle}>PICTURE EVENT VISTA PLAYTESTING</Text>
+        <Text style={styles.devHint}>These controls bypass level-clear rewards for testing. They only affect scenes paired with a Picture Event; existing bridge vistas remain available as usual.</Text>
+        <View style={styles.profileRow}><Pressable style={styles.smallAction} onPress={() => { const ids = BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => scene.id); unlockedVistaIdsRef.current = ids; setUnlockedVistaIds(ids); }}><Text style={styles.smallActionText}>UNLOCK ALL EVENT VISTAS</Text></Pressable><Pressable style={styles.smallAction} onPress={() => { unlockedVistaIdsRef.current = []; setUnlockedVistaIds([]); }}><Text style={styles.smallActionText}>RESET EVENT VISTAS</Text></Pressable></View>
+        {BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).length ? BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => <ToggleRow key={scene.id} label={scene.name} value={unlockedVistaIds.includes(scene.id)} onChange={value => setVistaDeveloperUnlock(scene.id, value)} />) : <Text style={styles.devHint}>No paired scenes yet. Mark a future built-in vista with pictureEventUnlock to add it to Picture Event rotation, this collection, and these per-scene controls.</Text>}
         <Text style={styles.devHint}>Tune level events, their procedural or saved art, containment mutations, and level-clear sequences in one place. Event chance rolls apply when a new level starts unless a setting says otherwise.</Text>
         <Text style={styles.sectionTitle}>EVENT FREQUENCY & SOURCES</Text>
         <Text style={styles.devHint}>Treasure and Picture events roll independently, so both can occur together. Elimination and Drift Swarm are mutually exclusive. A collected Waldo pickup guarantees the next Picture event is Waldo.</Text>
@@ -1569,7 +1630,7 @@ export default function App() {
         onPointerDown={event => pointerGesture(event, 'start')}
         onPointerUp={event => pointerGesture(event, 'end')}
         onPointerCancel={event => pointerGesture(event, 'cancel')} />}
-      <BridgeInterior />
+      <BridgeInterior variant={bridgeInteriorVariant} />
       <View pointerEvents="none" style={styles.commandImageShade} />
       {bridgeSimView === 'window' && bridgeWindowBounds && bridgeStageBounds && <View pointerEvents="box-none" style={[styles.bridgeWindowControls, { left: bridgeToolbarOnTop ? bridgeWindowBounds.left : bridgeStageBounds.left + bridgeStageBounds.width, top: bridgeToolbarOnTop ? bridgeWindowBounds.top : bridgeWindowBounds.top, width: bridgeToolbarOnTop ? bridgeWindowBounds.width : bridgeToolbarSize, height: bridgeToolbarOnTop ? bridgeToolbarSize : bridgeWindowBounds.height }]}>
         <View style={[styles.bridgeWindowControlBar, { flexDirection: bridgeToolbarOnTop ? 'row' : 'column', justifyContent: bridgeToolbarOnTop ? 'space-between' : 'center', height: '100%', paddingHorizontal: bridgeToolbarOnTop ? 4 : 2, paddingVertical: bridgeToolbarOnTop ? 1 : 4 }]}>
@@ -1585,7 +1646,7 @@ export default function App() {
       <View pointerEvents="box-none" style={[styles.commandLayout, { flexDirection: portraitBridge ? 'column' : 'row' }]}>
         {bridgeRailVisible && <View style={[styles.commandRail, { width: portraitBridge ? '100%' : uiWidth < 620 ? 166 : uiWidth < 920 ? 205 : 258, maxHeight: portraitBridge ? '48%' : undefined, paddingHorizontal: compactBridge ? 11 : 19, paddingVertical: compactBridge ? 10 : 18 }]}>
           <ScrollView style={styles.commandRailScroll} contentContainerStyle={styles.commandRailContent} showsVerticalScrollIndicator={false}>
-            <View style={styles.bridgeBrandBlock}><View style={styles.bridgeBrandGlyph}><Text style={styles.bridgeBrandGlyphText}>✧</Text></View><View><Text style={styles.menuEyebrow}>TRAP / SURVIVAL</Text><Text style={[styles.commandBrand, compactBridge && styles.commandBrandCompact]}>Containment</Text><Text style={styles.commandSubBrand}>STARSHIP COMMAND</Text></View></View>
+            <View style={styles.bridgeBrandBlock}><View style={styles.bridgeBrandGlyph}><Text style={styles.bridgeBrandGlyphText}>✧</Text></View><View><Text style={styles.menuEyebrow}>TRAP / SURVIVAL</Text><Text style={[styles.commandBrand, compactBridge && styles.commandBrandCompact]}>Containment</Text><Text style={styles.commandSubBrand}>STARSHIP COMMAND</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Close Bay Navigation Console" onPress={() => setBridgeRailVisible(false)} style={{ marginLeft: 'auto', width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#456070', borderRadius: 14, backgroundColor: '#0b1b27' }}><Text style={{ color: '#a6c0ce', fontSize: 17, fontWeight: '700', lineHeight: 20 }}>×</Text></Pressable></View>
             <Text style={[styles.commandSectionLabel, styles.bridgeSectionLabel]}>RUN CONTROL</Text>
             <Pressable disabled={!hasSave || run.ended} style={[styles.bridgeRailAction, styles.bridgeRailResume, (!hasSave || run.ended) && styles.bridgeRailDisabled]} onPress={resume}><Text style={styles.bridgeRailGlyph}>▶</Text><View style={styles.bridgeRailCopy}><Text style={styles.bridgeRailTitle}>RESUME ACTIVE RUN</Text><Text style={styles.bridgeRailDetail}>{hasSave && !run.ended ? `Stage ${String(run.level).padStart(2, '0')} · ${running ? 'simulation live' : paused ? 'simulation paused' : 'ready to resume'}` : 'No active sector'}</Text></View><BridgePulse /></Pressable>
             {!!manualSave && <Pressable style={styles.bridgeRailAction} onPress={loadManualRun}><Text style={styles.bridgeRailGlyph}>◫</Text><View style={styles.bridgeRailCopy}><Text style={styles.bridgeRailTitle}>LOAD SAVED RUN</Text><Text style={styles.bridgeRailDetail}>Checkpoint · stage {String(manualSave.level).padStart(2, '0')}</Text></View></Pressable>}
@@ -1606,16 +1667,28 @@ export default function App() {
           {bridgeSimView === 'mini' && <BridgeStagePreview run={run} hasActiveRun={hasSave && !run.ended} simulationRunning={running} defaultBackground={activeBackground.asset ?? undefined} onPress={openSimulationWindow} />}
           <View style={[styles.bridgeArtifactDock, styles.bridgeArtifactDockConsole, compactBridge && styles.bridgeArtifactDockConsoleCompact]}>
             <Text style={styles.bridgeDockHeading}>SHIP SYSTEMS · SELECT A CONSOLE</Text>
-            <View style={styles.bridgeArtifactRow}>
-              <BridgeArtifact title="THEMES" detail="SKIN CONSTELLATIONS" glyph="✦" color="#75e8db" onPress={() => setMenuPage('themes')} />
-              <BridgeArtifact title="SCORES" detail="FLIGHT RECORDS" glyph="⌁" color="#94bbff" onPress={() => setMenuPage('scores')} />
-              <BridgeArtifact title="PLAY MODE" detail="SECTOR RULES" glyph="◈" color="#f6cd7c" onPress={() => setMenuPage('settings')} />
-              <BridgeArtifact title="DEVELOPER" detail="SYSTEMS ACCESS" glyph="⌘" color="#c9a5ff" onPress={() => { setMenuPage(null); setActiveTab('developer'); }} />
-              <BridgeArtifact title="NAV CONSOLE" detail={bridgeRailVisible ? 'HIDE SIDE PANEL' : 'RESTORE SIDE PANEL'} glyph={bridgeRailVisible ? '⇤' : '⇥'} color="#8ed4ff" onPress={() => setBridgeRailVisible(visible => !visible)} />
+            <View style={[styles.bridgeArtifactRow, { justifyContent: 'center' }]}>
+              <View style={{ width: compactBridge ? '44%' : '26%', maxWidth: 170 }}>
+                <BridgeArtifact title="DEVELOPER" detail="SYSTEMS ACCESS" glyph="⌘" color="#c9a5ff" onPress={() => { setMenuPage(null); setActiveTab('developer'); }} />
+              </View>
             </View>
           </View>
         </View>
       </View>
+      {bridgeArtWidth > 0 && bridgeArtHeight > 0 && <View pointerEvents="box-none" style={{ position: 'absolute', zIndex: 80, left: (bridgeCanvasSize.width - bridgeArtWidth) / 2, top: (bridgeCanvasSize.height - bridgeArtHeight) / 2, width: bridgeArtWidth, height: bridgeArtHeight }}>
+        <BridgeInteriorAmbience
+          width={bridgeArtWidth}
+          height={bridgeArtHeight}
+          onThemes={() => setMenuPage('themes')}
+          onScores={() => setMenuPage('scores')}
+          onPlayMode={() => setMenuPage('settings')}
+          onNavConsole={() => setBridgeRailVisible(visible => !visible)}
+          themeValue={Object.entries(themeSelectionMap).filter(([category, id]) => id !== SKIN_DEFAULTS[category]).length ? 'CUSTOM LOADOUT' : 'STANDARD'}
+          scoreValue={scores[0] ? `STAGE ${String(scores[0].level).padStart(2, '0')}` : 'NO RECORD'}
+          playModeValue={tuning.easyMode ? 'EASY' : tuning.hardMode ? 'HARD' : 'NORMAL'}
+          navConsoleOpen={bridgeRailVisible}
+        />
+      </View>}
     </View>}
     {bridgeVistaOpen && <View style={styles.bridgeVistaScrim}><View style={styles.bridgeVistaPanel}>
       <View style={styles.menuPanelHeader}><View><Text style={styles.menuEyebrow}>COMMAND BRIDGE · EXTERIOR</Text><Text style={styles.bridgeVistaTitle}>Vista archive</Text></View><Pressable style={styles.menuBack} onPress={() => setBridgeVistaOpen(false)}><Text style={styles.menuBackText}>CLOSE</Text></Pressable></View>
@@ -1629,8 +1702,9 @@ export default function App() {
     </View></View>}
     {menuPage === 'scores' && <View style={styles.mainMenuScrim}><View style={styles.scorePanel}><View style={styles.menuPanelHeader}><View><Text style={styles.menuEyebrow}>RUN ARCHIVE · TOP FIVE</Text><Text style={styles.menuTitle}>Scores</Text></View><Pressable style={styles.menuBack} onPress={() => setMenuPage('home')}><Text style={styles.menuBackText}>HOME</Text></Pressable></View><Text style={styles.menuSubhead}>Ranked by Score (currently the level reached), then by total balls contained.</Text>{scores.length ? scores.map((entry, index) => <View key={`${entry.timestamp}-${index}`} style={styles.menuScoreCard}><View style={styles.menuScoreRank}><Text style={styles.menuScoreRankText}>{String(index + 1).padStart(2, '0')}</Text></View><View style={styles.scoreMain}><Text style={styles.scoreLevel}>SCORE {entry.score} · STAGE {String(entry.level).padStart(2, '0')}</Text><Text style={styles.scoreDetails}>{entry.totalTerritoryClaimed.toFixed(1)}% total claimed · {entry.ballsContained} balls contained · {entry.ballsDestroyed} destroyed · {entry.pickupsCaptured} pickups</Text></View><Text style={styles.scoreClaim}>{entry.claimed.toFixed(1)}%</Text></View>) : <Text style={styles.menuEmpty}>No completed runs yet. Scores are recorded when a run ends.</Text>}</View></View>}
     {menuPage === 'settings' && <View style={styles.mainMenuScrim}><View style={styles.scorePanel}><View style={styles.menuPanelHeader}><View><Text style={styles.menuEyebrow}>PLAYER SETTINGS</Text><Text style={styles.menuTitle}>Play mode</Text></View><Pressable style={styles.menuBack} onPress={() => setMenuPage('home')}><Text style={styles.menuBackText}>HOME</Text></Pressable></View><Text style={styles.menuSubhead}>Choose the baseline rules for your next run. Active runs keep their saved settings.</Text><View style={styles.modeRow}>{(['easy', 'normal', 'hard'] as const).map(mode => { const active = mode === 'easy' ? tuning.easyMode : mode === 'hard' ? tuning.hardMode : !tuning.easyMode && !tuning.hardMode; return <Pressable key={mode} style={[styles.modeCard, active && styles.modeCardActive]} onPress={() => setTuning(old => ({ ...old, easyMode: mode === 'easy', hardMode: mode === 'hard' }))}><Text style={[styles.modeTitle, active && styles.modeTitleActive]}>{mode.toUpperCase()}</Text><Text style={styles.menuButtonCopy}>{mode === 'easy' ? 'Balls added between levels only.' : mode === 'normal' ? 'A chance to add a ball after capture.' : 'Additional ball on every completed wall.'}</Text></Pressable>; })}</View></View></View>}
-    {menuPage === 'themes' && <ThemeTreeScreen unlocks={skinProgression} selections={themeSelectionMap} onEquip={equipArchiveSkin} onClose={() => setMenuPage('home')} renderPreview={renderThemePreview} />}
+    {menuPage === 'themes' && <ThemeTreeScreen unlocks={skinProgression} selections={themeSelectionMap} onEquip={equipArchiveSkin} onClose={() => setMenuPage('home')} renderPreview={renderThemePreview} vistaScenes={BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock)} unlockedVistaIds={unlockedVistaIds} onSelectVista={scene => { setSelectedBridgeVistaId(scene.id); setMenuPage('home'); }} />}
     {skinAchievement && <Pressable style={styles.skinAchievementScrim} onPress={() => setSkinAchievement(null)}><View style={styles.skinAchievementCard}><Text style={styles.menuEyebrow}>CONSTELLATION DISCOVERED</Text><Text style={styles.achievementGlyph}>✦</Text><Text style={styles.menuTitle}>{skinAchievement.name}</Text><Text style={styles.menuSubhead}>{skinAchievement.categoryName} · TIER {skinAchievement.tier}</Text><Text style={styles.menuButtonCopy}>This skin is permanently available in THEMES.</Text><Text style={styles.menuConfirmText}>TAP TO CONTINUE</Text></View></Pressable>}
+    {vistaAchievement && !skinAchievement && <Pressable style={styles.skinAchievementScrim} onPress={() => setVistaAchievement(null)}><View style={styles.skinAchievementCard}><Text style={styles.menuEyebrow}>PICTURE EVENT · LEVEL CLEARED</Text><Text style={styles.achievementGlyph}>✧</Text><Text style={styles.menuTitle}>{BUILT_IN_BRIDGE_VISTAS.find(scene => scene.id === vistaAchievement)?.name ?? 'NEW WINDOW VISTA'}</Text><Text style={styles.menuSubhead}>VISTA UNLOCKED</Text><Text style={styles.menuButtonCopy}>This scene is permanently available in THEMES and your bridge window rotation.</Text><Text style={styles.menuConfirmText}>TAP TO CONTINUE</Text></View></Pressable>}
     </View>
   );
 }

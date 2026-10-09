@@ -22,10 +22,10 @@ Use this as the inventory for brainstorming and generating replacement or altern
 - New built-in panorama plates (all optimized to 1536×864 JPEG) are registered in `bridgeVistaCatalog.ts`: `pelagic-megacity` (`assets/bridge-vistas/pelagic-megacity.jpg`), `emberline-shipyard` (`assets/bridge-vistas/emberline-shipyard.jpg`), `nacre-ice-giant` (`assets/bridge-vistas/nacre-ice-giant.jpg`), and `eventide-binary-eclipse` (`assets/bridge-vistas/eventide-binary-eclipse.jpg`). Reusable renderer profiles add gentle weather/rain and city glints, shipyard beacon glints, drifting aurora/ring glints, and a soft eclipse-corona pulse respectively; all retain panorama drift and independently routed traffic.
 - Generated bridge vista plates (1672×941 PNG) are registered in `bridgeVistaCatalog.ts`: `glass-desert-dawn` → `glass-desert`, `pilgrim-beacons` → `pilgrim-beacons`, `aurora-reef` → `aurora-reef`, `comet-caravan` → `comet-caravan`, `blue-meridian` → `blue-meridian`, `vesper-horizon` → `vesper-horizon`, `blueworld-patrol` → `blueworld-patrol`, `dawnward-escort` → `dawnward-escort`, `emberfall-frontier` → `emberfall-frontier`, and `leviathan-orbit` → `leviathan-orbit`; each file is under `assets/bridge-vistas/<scene-id>.png`.
 - `cinder-comet-shoals` and `copperline-orbital-foundry` currently use the shared panorama drift only. Their experimental crack and lamp overlays were removed because they did not create enough convincing motion at normal viewing size.
-- The shared bridge drift runs on both the browser JS animation driver and the native driver. Each scene gets a seeded sequence of varied lateral, vertical, and diagonal routes, with a gentle randomized zoom, easing, short pauses, and 18–86 second legs. Preserve this behavior for new uploaded and built-in vistas.
+- The shared bridge drift runs on both the browser JS animation driver and the native driver. Each scene gets a seeded, continuous random walk toward changing safe edges of the panorama, with varied directions, a gentle randomized zoom, eased 30–82 second legs, and brief pauses. At each edge it chooses a new direction without snapping to a starting point. Preserve this behavior for uploaded and built-in vistas.
 - Future scene motion should start with an approved feature map from the actual source: identify one or two visible subjects, mark their precise source-image bounds, and prepare an image-based motion sample before writing renderer code. Prefer a short image-to-video loop for organic motion such as clouds, fire, or moving machinery. Use code overlays only for effects that can be convincingly registered and previewed at normal window size. Do not spend time refining a mask if a two-frame browser comparison cannot clearly show the effect.
 - Keep the preview path short: use the existing local server, pin one vista in Developer, capture the still and motion sample, and ask for a visual decision before expanding to the next scene. Reuse a common player for approved loops/masks; do not add one-off animated components until a source-based preview is accepted.
-- The current image-generation tool produces still images, not video. The app does not currently include a video playback package. For a generated loop, prepare a short, seamless, silent local clip (WebM for browser; confirm native codec support or provide numbered frames) and integrate it behind the bridge foreground. Avoid spending time hand-coding an imitation when the desired motion depends on organic scene changes.
+- The bridge vista player supports still panoramas and local MP4 video scenes through `expo-video` (SDK 57). The Krea test scene `krea-space-scape` is `assets/bridge-vistas/krea-space-scape.mp4` (2560×1440, H.264/AAC, 6.58 seconds, 9,034,760 bytes); it autoplays muted and loops under the existing clipped window mask and varied drift. The clip loop repeats, but its endpoints are not guaranteed to be seamless. Keep video assets short and test their playback in browser and native builds.
 - Uploaded bridge vistas keep the existing saved archive format. The renderer selects a stable ambience profile from descriptive filename/name terms, then a deterministic per-image fallback when terms are inconclusive. The profile adds restrained scene effects; the panorama itself keeps a seeded, randomized drift route so each uploaded scene has distinct direction, travel, zoom, easing, and duration. This is filename-based routing, not semantic recognition of image pixels; independent movement of a specific photographed object requires preparing a separate cutout/background layer.
 - Reusable `nebula-clouds` and `asteroid-belt` profiles add independent, slow cloud-form drift and small debris passes. Keep them behind the bridge foreground, clipped to the existing panorama bounds, with per-scene seeded placement/timing and the browser-safe JS animation driver on web.
 - The playable board occupies the center viewing area only. Side panes continue to show the exterior. Game Picture events belong to the game board and must not override the menu's exterior vista.
@@ -258,3 +258,69 @@ Attach to `ENGI_PET_SKINS`; each gets the shared task slots listed above:
 | `...` | `pickup` / `effect` / `pet` / `background` | `...` | `...` | `...` | `...` |
 
 One row per file/animation. Keep one concept per stable ID and slot, then add lettered or numbered concept suffixes for alternatives, such as `vital-seed_capture_concept-a_01.png` and `vital-seed_capture_concept-b_01.png`.
+
+### New exterior vistas (2026-10-08)
+
+Seven user-supplied 1376×768 images were optimized as JPEG plates under `assets/bridge-vistas/` and added to `bridgeVistaCatalog.ts`. These are still-image scenes with `ambience: 'none'`, so each gets the shared bridge drift only:
+
+- `violet-rimlands` — `violet-rimlands.jpg` (146,342 bytes)
+- `quiet-supernova` — `quiet-supernova.jpg` (162,624 bytes)
+- `pilgrim-ring-station` — `pilgrim-ring-station.jpg` (114,474 bytes)
+- `umbral-shardfield` — `umbral-shardfield.jpg` (75,007 bytes)
+- `roseglass-observation-deck` — `roseglass-observation-deck.jpg` (170,526 bytes; intentionally depicts an observation-deck interior/window as a special nested vista)
+- `midnight-anchorage` — `midnight-anchorage.jpg` (141,898 bytes)
+- `somber-nebula` — `somber-nebula.jpg` (93,618 bytes)
+
+### Picture Event vista unlocks
+
+Future built-in vista art can join both Picture Event rotation and the bridge archive by setting `pictureEventUnlock: true` on its `bridgeVistaCatalog.ts` entry. That single static image is used for the board event and the exterior vista. The player earns its permanent, cross-run unlock after collecting the level-clear beacon; the Themes tab lists independent locked stars with no fixed order. Developer → Events has unlock-all, reset, and per-scene switches for paired entries. Existing scenes remain freely available unless explicitly marked for this reward path.
+
+### New generated exterior vistas (2026-10-08)
+
+Six generated 1672×941 PNG scenes were added as new Picture Event rewards and window vistas. Each uses the existing continuous bridge drift (`ambience: 'none'`) without scene-specific animation. Clearing the level after discovering its Picture Event permanently unlocks the matching vista in the Themes → Window Vistas tree. Developer event controls can unlock/reset each scene for playtesting:
+
+- `amber-ringworld` — `assets/bridge-vistas/amber-ringworld.png` (2,453,919 bytes)
+- `violet-giant` — `assets/bridge-vistas/violet-giant.png` (2,325,417 bytes)
+- `emerald-ocean` — `assets/bridge-vistas/emerald-ocean.png` (2,402,661 bytes)
+- `ancient-megastructure` — `assets/bridge-vistas/ancient-megastructure.png` (2,332,990 bytes)
+- `eclipse-over-fire` — `assets/bridge-vistas/eclipse-over-fire.png` (2,509,609 bytes)
+- `star-nursery` — `assets/bridge-vistas/star-nursery.png` (2,757,890 bytes)
+
+### New approved vista collection and traffic craft (2026-10-08)
+
+Ten user-approved generated vista concepts are registered as Picture Event rewards (`pictureEventUnlock: true`) and use the shared bridge drift only. Photo plates were downsampled to 1536×864 JPEG at quality 91 for web/mobile size:
+
+- `broken-halo` — `assets/bridge-vistas/broken-halo.jpg` (308,526 bytes)
+- `wandering-world` — `assets/bridge-vistas/wandering-world.jpg` (191,305 bytes)
+- `glass-sea` — `assets/bridge-vistas/glass-sea.jpg` (267,944 bytes)
+- `red-dwarf-shadow` — `assets/bridge-vistas/red-dwarf-shadow.jpg` (260,735 bytes)
+- `great-storm` — `assets/bridge-vistas/great-storm.jpg` (327,276 bytes)
+- `pilgrim-fleet` — `assets/bridge-vistas/pilgrim-fleet.jpg` (205,553 bytes)
+- `gravity-well` — `assets/bridge-vistas/gravity-well.jpg` (279,921 bytes)
+- `hanging-gardens` — `assets/bridge-vistas/hanging-gardens.jpg` (395,913 bytes)
+- `silent-wreck` — `assets/bridge-vistas/silent-wreck.jpg` (357,098 bytes)
+- `far-lanterns` — `assets/bridge-vistas/far-lanterns.jpg` (292,812 bytes)
+
+Three isolated transparent craft were added to `BRIDGE_SHIP_SKINS`; existing random selection and the four-craft simultaneous cap remain in effect:
+
+- `pilgrim-courier` — `assets/bridge-vistas/ships/pilgrim-courier.png` (1983×793, 1,422,127 bytes)
+- `greenline-surveyor` — `assets/bridge-vistas/ships/greenline-surveyor.png` (1774×887, 1,272,490 bytes)
+- `asteroid-salvage-tug` — `assets/bridge-vistas/ships/asteroid-salvage-tug.png` (1774×887, 2,184,534 bytes)
+
+Vista drift uses randomized eased legs of 18–100 seconds and zoom targets from 1.005× to 1.10× to widen the motion/speed variation.
+
+### Bridge console controls and registered light layer (2026-10-08)
+
+Interactive Themes, Scores, Play Mode, and Nav Console controls are mapped to the four built-in bridge console faces. The transparent foreground is 1672×941; panel bounds are normalized in `BridgeInteriorAmbience.tsx`. `assets/bridge-ambient-emission.png` (1672×941, 174,005 bytes) is derived from the cyan and amber fixture pixels in `assets/bridge-command-foreground.png`, with spill clipped against the foreground alpha so the window remains clear. Regenerate it with `node scripts/build-bridge-emission.cjs`; the app animates the registered layer with a restrained irregular flicker.
+
+
+### Alternative bridge interior (2026-10-09)
+
+A selectable Cathedral bridge interior was added without replacing the original. Developer → Gameplay → Bridge Interior switches between ORIGINAL BRIDGE and CATHEDRAL ALTERNATIVE; the choice persists on this device. The original remains the default. Both alternate image layers use the original 1672×941 canvas. The alternate foreground alpha was clipped to the original foreground alpha so the window opening remains transparent and the exterior vista/drift renderer stays independent.
+
+The Cathedral alternative reuses the original foreground through the window sill, then blends into its new lower bridge interior. This keeps the original window frame, aperture, and vista alignment unchanged while preserving the alternate steps and floor. Its four screen faces now display separate idle holograms for Themes, Scores, Play Mode, and Bay Navigation, with each screen's symbol, name, live value, and click action integrated in the same control.
+
+- assets/bridge-command-cathedral-alt.png (1672×941; 1502490 bytes)
+- assets/bridge-ambient-emission-cathedral-alt.png (1672×941; 1460656 bytes)
+- Stable selector id: cathedral
+- This is an interior variant, not a vista; exterior scene selection and drift are unchanged.

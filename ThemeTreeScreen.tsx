@@ -1,6 +1,7 @@
 import React from 'react';
-import { Animated, PanResponder, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Animated, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { reachableSkin, SkinArchiveNode, SkinUnlocks, SKIN_ARCHIVE, SKIN_THEME_NAMES } from './themeCatalog';
+import type { BridgeVistaScene } from './bridgeVistaCatalog';
 
 const C = { ink: '#050913', star: '#e9f1ff', blue: '#93c9ff', mint: '#72e9d0', gold: '#ffd884', dim: '#7790aa' };
 const NODE_SIZE = 30;
@@ -60,15 +61,19 @@ function lineStyle(x1: number, y1: number, x2: number, y2: number, color: string
   return { position: 'absolute' as const, left: (x1 + x2) / 2 - length / 2, top: (y1 + y2) / 2, width: length, height: 1.5, backgroundColor: color, opacity, transform: [{ rotate: angle }], shadowColor: color, shadowOpacity: opacity > .6 ? .75 : .15, shadowRadius: opacity > .6 ? 7 : 2 };
 }
 
-export function ThemeTreeScreen({ unlocks, selections, onEquip, onClose, renderPreview }: {
+export function ThemeTreeScreen({ unlocks, selections, onEquip, onClose, renderPreview, vistaScenes = [], unlockedVistaIds = [], onSelectVista }: {
   unlocks: SkinUnlocks;
   selections: Record<string, string>;
   onEquip: (node: SkinArchiveNode) => void;
   onClose: () => void;
   renderPreview: (node: SkinArchiveNode) => React.ReactNode;
+  vistaScenes?: BridgeVistaScene[];
+  unlockedVistaIds?: string[];
+  onSelectVista?: (scene: BridgeVistaScene) => void;
 }) {
   const { width, height } = useWindowDimensions();
   const [theme, setTheme] = React.useState<string | null>(null);
+  const [showVistaTree, setShowVistaTree] = React.useState(false);
   const [selected, setSelected] = React.useState<SkinArchiveNode | null>(null);
   const cameraRef = React.useRef({ x: 0, y: 0 });
   const panOrigin = React.useRef({ x: 0, y: 0 });
@@ -119,7 +124,7 @@ export function ThemeTreeScreen({ unlocks, selections, onEquip, onClose, renderP
     ]).start();
   };
   const returnToSky = () => {
-    setTheme(null); setSelected(null);
+    setTheme(null); setSelected(null); setShowVistaTree(false);
     zoom.setValue(1.12); sceneFade.setValue(0.35);
     Animated.parallel([
       Animated.spring(zoom, { toValue: 1, useNativeDriver: true, speed: 8, bounciness: 6 }),
@@ -127,6 +132,7 @@ export function ThemeTreeScreen({ unlocks, selections, onEquip, onClose, renderP
     ]).start();
   };
 
+  const activeThemeName = theme ?? SKIN_THEME_NAMES[0];
   const themeNodes = theme ? SKIN_ARCHIVE.filter(node => node.theme === theme) : [];
   const categories = [...new Set(themeNodes.map(node => node.category))];
   const activeMapWidth = Math.max(width * 1.05, categories.length * (compact ? 150 : 184) + 130);
@@ -157,7 +163,7 @@ export function ThemeTreeScreen({ unlocks, selections, onEquip, onClose, renderP
         const tierProgress = tier / 3;
         const centerX = Math.max(42, Math.min(activeMapWidth - 42, branchX + siblingOffset + lean));
         const y = activeMapHeight * (.91 - tierProgress * .8) + Math.sin(branchIndex * 2 + tier) * (compact ? 7 : 12);
-        const placed = { node, tier, x: centerX, y, routeOnly: node.theme !== theme };
+        const placed = { node, tier, x: centerX, y, routeOnly: node.theme !== activeThemeName };
         branch.push(placed); positioned.push(placed);
       });
     }
@@ -199,10 +205,10 @@ export function ThemeTreeScreen({ unlocks, selections, onEquip, onClose, renderP
       {Array.from({ length: 46 }, (_, i) => <StarDot key={`distant-${i}`} x={(i * 67.73 + 4) % 100} y={(i * 41.19 + 6) % 100} size={i % 11 === 0 ? 3 : i % 3 === 0 ? 2 : 1.4} delay={(i * 83) % 900} />)}
     </View>
 
-    {!theme ? <>
+    {!theme && !showVistaTree ? <>
       <View style={[s.skyHeader, { height: skyHeaderHeight, minHeight: skyHeaderHeight, paddingHorizontal: compact ? 12 : 26, paddingVertical: compact ? 5 : 18 }]}>
         <View style={compact && s.compactHeading}><Text style={[s.eyebrow, compact && s.compactEyebrow]}>THEMES · COSMETIC CONSTELLATIONS</Text><Text style={[s.skyTitle, compact && s.compactSkyTitle]}>CHART THE SKINFIELD</Text>{!compact && <Text style={s.skySub}>Select a constellation to travel into its unlock paths.</Text>}</View>
-        <Pressable onPress={onClose} style={[s.backButton, compact && s.compactBackButton]}><Text style={[s.backButtonText, compact && s.compactButtonText]}>BACK TO BRIDGE</Text></Pressable>
+        <View style={s.archiveHeaderActions}><Pressable onPress={() => setShowVistaTree(true)} style={[s.backButton, compact && s.compactBackButton]}><Text style={[s.backButtonText, compact && s.compactButtonText]}>WINDOW VISTAS · {unlockedVistaIds.length}/{vistaScenes.length}</Text></Pressable><Pressable onPress={onClose} style={[s.backButton, compact && s.compactBackButton]}><Text style={[s.backButtonText, compact && s.compactButtonText]}>BACK TO BRIDGE</Text></Pressable></View>
       </View>
       <View style={[s.skyCanvas, { top: skyHeaderHeight, bottom: skyFooterHeight }]}>
         {constellationCenters.map(({ name, x, y, size }) => {
@@ -224,23 +230,48 @@ export function ThemeTreeScreen({ unlocks, selections, onEquip, onClose, renderP
         })}
       </View>
       <Text style={[s.skyFooter, compact && s.compactFooter]}>STARS RECORD YOUR DISCOVERIES · DRAG INSIDE A TREE TO LOOK AROUND</Text>
+    </> : showVistaTree ? <>
+      <View style={[s.treeTopBar, { height: treeTopHeight, minHeight: treeTopHeight, paddingHorizontal: compact ? 8 : 18 }]}>
+        <Pressable onPress={returnToSky} style={[s.returnSky, compact && s.compactReturnSky]}><Text style={[s.returnSkyGlyph, compact && s.compactReturnGlyph]}>‹</Text><Text style={[s.returnSkyText, compact && s.compactButtonText]}>ALL THEMES</Text></Pressable>
+        <View style={s.treeTitleWrap}><Text style={[s.eyebrow, compact && s.compactEyebrow, { color: C.mint }]}>NON-LINEAR COLLECTION</Text><Text style={[s.treeTitle, compact && s.compactTreeTitle]}>WINDOW VISTAS</Text></View>
+        <Pressable onPress={onClose} style={[s.backButton, compact && s.compactBackButton]}><Text style={[s.backButtonText, compact && s.compactButtonText]}>BACK</Text></Pressable>
+      </View>
+      <ScrollView style={[s.vistaTreeScroll, { top: treeTopHeight, bottom: skyFooterHeight + 8 }]} contentContainerStyle={s.vistaTreeContent}>
+        <View style={s.vistaTreeIntro}><Text style={s.vistaTreeIntroTitle}>SCENES FOUND IN THE FIELD</Text><Text style={s.vistaTreeIntroCopy}>Discover a Picture Event, then clear that level to add its vista to your permanent bridge library.</Text></View>
+        {vistaScenes.length === 0 ? <View style={s.vistaTreeEmpty}><Text style={s.vistaTreeEmptyGlyph}>✧</Text><Text style={s.vistaTreeEmptyTitle}>THE SIGNALS ARE QUIET</Text><Text style={s.vistaTreeIntroCopy}>Future Picture Event scenes will appear here as independent stars. There is no fixed unlock order.</Text></View> : <View style={s.vistaNodeField}>
+          <View pointerEvents="none" style={s.vistaFieldCore}><Text style={s.vistaFieldCoreText}>✦</Text></View>
+          {vistaScenes.map((scene, index) => {
+            const unlocked = unlockedVistaIds.includes(scene.id);
+            const angle = (index / Math.max(1, vistaScenes.length)) * Math.PI * 2 - Math.PI / 2;
+            const left = `${50 + Math.cos(angle) * (width < 540 ? 31 : 37)}%` as `${number}%`;
+            const top = `${50 + Math.sin(angle) * (width < 540 ? 31 : 34)}%` as `${number}%`;
+            const imageSource = scene.source && typeof scene.source === 'object' && 'type' in scene.source ? null : scene.source;
+            return <Pressable key={scene.id} disabled={!unlocked} onPress={() => onSelectVista?.(scene)} accessibilityRole="button" accessibilityLabel={unlocked ? `${scene.name}, unlocked` : 'Undiscovered window vista'} style={[s.vistaNode, { left, top }, unlocked && s.vistaNodeUnlocked]}>
+              {imageSource && unlocked ? <Image source={imageSource} resizeMode="cover" style={s.vistaNodeImage} /> : <Text style={[s.vistaNodeGlyph, unlocked && s.vistaNodeGlyphUnlocked]}>{unlocked ? '✦' : '✧'}</Text>}
+              <Text numberOfLines={1} style={s.vistaNodeName}>{unlocked ? scene.name.toUpperCase() : 'UNDISCOVERED'}</Text>
+              <Text style={s.vistaNodeStatus}>{unlocked ? 'AVAILABLE' : 'CLEAR EVENT LEVEL'}</Text>
+            </Pressable>;
+          })}
+        </View>}
+      </ScrollView>
+      <Text style={[s.skyFooter, compact && s.compactFooter]}>EACH EVENT VISTA IS AN INDEPENDENT DISCOVERY · NO REQUIRED ORDER</Text>
     </> : <>
       <View style={[s.treeTopBar, { height: treeTopHeight, minHeight: treeTopHeight, paddingHorizontal: compact ? 8 : 18 }]}>
         <Pressable onPress={returnToSky} style={[s.returnSky, compact && s.compactReturnSky]}><Text style={[s.returnSkyGlyph, compact && s.compactReturnGlyph]}>‹</Text><Text style={[s.returnSkyText, compact && s.compactButtonText]}>ALL CONSTELLATIONS</Text></Pressable>
-        <View style={s.treeTitleWrap}><Text style={[s.eyebrow, compact && s.compactEyebrow, { color: THEME_COLORS[theme] ?? C.blue }]}>CONSTELLATION PATH</Text><Text style={[s.treeTitle, compact && s.compactTreeTitle]}>{theme.toUpperCase()}</Text></View>
+        <View style={s.treeTitleWrap}><Text style={[s.eyebrow, compact && s.compactEyebrow, { color: THEME_COLORS[activeThemeName] ?? C.blue }]}>CONSTELLATION PATH</Text><Text style={[s.treeTitle, compact && s.compactTreeTitle]}>{activeThemeName.toUpperCase()}</Text></View>
         <Pressable onPress={onClose} style={[s.backButton, compact && s.compactBackButton]}><Text style={[s.backButtonText, compact && s.compactButtonText]}>BACK</Text></Pressable>
       </View>
       <View style={[s.treeViewport, { top: treeTopHeight, bottom: detailHeight + 12 }]} {...(pan?.panHandlers ?? {})}>
         <Animated.View style={[s.treeCanvas, { width: activeMapWidth, height: activeMapHeight, opacity: sceneFade, transform: [{ translateX: cameraMotion.x }, { translateY: cameraMotion.y }, { scale: zoom }] }]}>
-          <View pointerEvents="none" style={[s.themeAura, { backgroundColor: `${THEME_COLORS[theme] ?? C.blue}0a`, shadowColor: THEME_COLORS[theme] ?? C.blue, left: activeMapWidth * .22, top: activeMapHeight * .14 }]} />
+          <View pointerEvents="none" style={[s.themeAura, { backgroundColor: `${THEME_COLORS[activeThemeName] ?? C.blue}0a`, shadowColor: THEME_COLORS[activeThemeName] ?? C.blue, left: activeMapWidth * .22, top: activeMapHeight * .14 }]} />
           {constellationForm.slice(1).map((point, index) => {
             const previous = constellationForm[index];
             const x1 = formLeft + previous[0] * formWidth; const y1 = formTop + previous[1] * formHeight;
             const x2 = formLeft + point[0] * formWidth; const y2 = formTop + point[1] * formHeight;
-            return <View key={`form-line-${index}`} pointerEvents="none" style={lineStyle(x1, y1, x2, y2, THEME_COLORS[theme] ?? C.blue, .11)} />;
+            return <View key={`form-line-${index}`} pointerEvents="none" style={lineStyle(x1, y1, x2, y2, THEME_COLORS[activeThemeName] ?? C.blue, .11)} />;
           })}
-          {constellationForm.map(([px, py], index) => <View key={`form-star-${index}`} pointerEvents="none" style={[s.formStar, { left: formLeft + px * formWidth - 2, top: formTop + py * formHeight - 2, backgroundColor: THEME_COLORS[theme] ?? C.blue }]} />)}
-          {edges.map((edge, i) => <View key={`edge-${i}`} pointerEvents="none" style={lineStyle(edge.from.x, edge.from.y, edge.to.x, edge.to.y, THEME_COLORS[theme] ?? C.blue, edge.active ? .88 : .25)} />)}
+          {constellationForm.map(([px, py], index) => <View key={`form-star-${index}`} pointerEvents="none" style={[s.formStar, { left: formLeft + px * formWidth - 2, top: formTop + py * formHeight - 2, backgroundColor: THEME_COLORS[activeThemeName] ?? C.blue }]} />)}
+          {edges.map((edge, i) => <View key={`edge-${i}`} pointerEvents="none" style={lineStyle(edge.from.x, edge.from.y, edge.to.x, edge.to.y, THEME_COLORS[activeThemeName] ?? C.blue, edge.active ? .88 : .25)} />)}
           {positioned.map(({ node, tier, x, y, routeOnly }) => {
             const unlocked = (unlocks.unlocked[node.category] ?? []).includes(node.id);
             const reachable = reachableSkin(node, unlocks.unlocked, unlocks.tiers);
@@ -256,7 +287,7 @@ export function ThemeTreeScreen({ unlocks, selections, onEquip, onClose, renderP
         {selected ? <>
           <View style={[s.previewBox, compact && s.compactPreviewBox]}><View style={[s.previewStage, compact && s.compactPreviewStage]}>{renderPreview(selected)}</View></View>
           <View style={s.detailTextBlock}>
-            <Text style={[s.detailKicker, { color: THEME_COLORS[theme] ?? C.blue }]}>{selected.categoryName.toUpperCase()} · {selectedTier === 0 ? 'STARTER STAR' : `TIER ${selectedTier}`}{selected.theme !== theme ? ' · ROUTE STAR' : ''}</Text>
+            <Text style={[s.detailKicker, { color: THEME_COLORS[activeThemeName] ?? C.blue }]}>{selected.categoryName.toUpperCase()} · {selectedTier === 0 ? 'STARTER STAR' : `TIER ${selectedTier}`}{selected.theme !== activeThemeName ? ' · ROUTE STAR' : ''}</Text>
             <Text style={s.detailTitle}>{selected.name.toUpperCase()}</Text>
             <Text numberOfLines={2} style={s.detailDescription}>{selected.description}</Text>
             <Text style={[s.unlockState, selectedUnlocked ? s.unlockedText : selectedReachable ? s.reachableText : s.sealedText]}>{selectedEquipped ? 'EQUIPPED · ACTIVE ACROSS YOUR GAME' : selectedUnlocked ? 'DISCOVERED · READY TO EQUIP' : selectedReachable ? 'THIS STAR MAY APPEAR IN A LIVE SECTOR' : 'SEALED · LIGHT THE PREVIOUS STAR FIRST'}</Text>
@@ -274,7 +305,8 @@ const s = StyleSheet.create({
   nebulaB: { position: 'absolute', width: 380, height: 400, top: '30%', right: '7%', borderRadius: 999, backgroundColor: '#40235418', shadowColor: '#673780', shadowOpacity: .5, shadowRadius: 95 },
   nebulaC: { position: 'absolute', width: 280, height: 230, bottom: '8%', left: '43%', borderRadius: 999, backgroundColor: '#1d584c15', shadowColor: '#2b9d81', shadowOpacity: .4, shadowRadius: 80 },
   distantStar: { position: 'absolute', borderRadius: 999, backgroundColor: '#d9e9ff', shadowColor: '#b8d5ff', shadowOpacity: .9, shadowRadius: 4 },
-  skyHeader: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 3, minHeight: 94, paddingHorizontal: 26, paddingVertical: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderColor: '#6b87a222', backgroundColor: '#05091366' }, compactHeading: { flex: 1, minWidth: 0 }, compactEyebrow: { fontSize: 6, letterSpacing: 1.2 }, compactSkyTitle: { fontSize: 15, letterSpacing: 2, marginTop: 1 }, compactBackButton: { paddingHorizontal: 9, paddingVertical: 7 }, compactButtonText: { fontSize: 6, letterSpacing: .7 },
+  skyHeader: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 3, minHeight: 94, paddingHorizontal: 26, paddingVertical: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderColor: '#6b87a222', backgroundColor: '#05091366' }, compactHeading: { flex: 1, minWidth: 0 }, archiveHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: 6 }, compactEyebrow: { fontSize: 6, letterSpacing: 1.2 }, compactSkyTitle: { fontSize: 15, letterSpacing: 2, marginTop: 1 }, compactBackButton: { paddingHorizontal: 9, paddingVertical: 7 }, compactButtonText: { fontSize: 6, letterSpacing: .7 },
+  vistaTreeScroll: { position: 'absolute', left: 0, right: 0 }, vistaTreeContent: { minHeight: '100%', padding: 18, alignItems: 'center', justifyContent: 'center' }, vistaTreeIntro: { maxWidth: 480, alignItems: 'center', marginBottom: 12 }, vistaTreeIntroTitle: { color: C.mint, fontSize: 9, fontWeight: '900', letterSpacing: 1.7, textAlign: 'center' }, vistaTreeIntroCopy: { color: '#95a9bc', fontSize: 10, lineHeight: 15, marginTop: 5, textAlign: 'center', maxWidth: 430 }, vistaTreeEmpty: { width: '100%', maxWidth: 440, minHeight: 170, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#4d6d8066', borderRadius: 18, backgroundColor: '#081522aa', padding: 20 }, vistaTreeEmptyGlyph: { color: '#8194a8', fontSize: 40, textShadowColor: '#88baff', textShadowRadius: 15 }, vistaTreeEmptyTitle: { color: '#b8cadb', fontSize: 10, fontWeight: '900', letterSpacing: 1.5, marginTop: 8, marginBottom: 5 }, vistaNodeField: { width: '100%', maxWidth: 660, height: 310, position: 'relative', alignSelf: 'center', marginVertical: 10 }, vistaFieldCore: { position: 'absolute', left: '45%', top: '42%', width: 64, height: 64, borderRadius: 999, borderWidth: 1, borderColor: '#67e7d077', backgroundColor: '#11302caa', alignItems: 'center', justifyContent: 'center', shadowColor: C.mint, shadowOpacity: .55, shadowRadius: 25 }, vistaFieldCoreText: { color: C.mint, fontSize: 30, textShadowColor: C.mint, textShadowRadius: 15 }, vistaNode: { position: 'absolute', width: 100, height: 96, marginLeft: -50, marginTop: -48, alignItems: 'center', justifyContent: 'center', borderRadius: 50 }, vistaNodeUnlocked: { backgroundColor: '#0b2528bb', borderWidth: 1, borderColor: '#62e8cd99', shadowColor: C.mint, shadowOpacity: .5, shadowRadius: 16 }, vistaNodeImage: { position: 'absolute', top: 9, width: 48, height: 42, borderRadius: 999, borderWidth: 1, borderColor: C.mint }, vistaNodeGlyph: { color: '#8b9bad', fontSize: 30, textShadowColor: '#93b3d3', textShadowRadius: 11 }, vistaNodeGlyphUnlocked: { color: C.mint, textShadowColor: C.mint, textShadowRadius: 15 }, vistaNodeName: { maxWidth: 96, color: '#dce9f5', fontSize: 6, fontWeight: '900', letterSpacing: .45, marginTop: 5, textAlign: 'center' }, vistaNodeStatus: { color: '#8095aa', fontSize: 5, fontWeight: '900', letterSpacing: .4, marginTop: 2 },
   eyebrow: { color: '#a2c7ec', fontSize: 8, fontWeight: '900', letterSpacing: 2 }, skyTitle: { color: '#edf4ff', fontSize: 24, fontWeight: '300', letterSpacing: 3, marginTop: 4 }, skySub: { color: '#8b9eb4', fontSize: 10, marginTop: 4 }, backButton: { borderWidth: 1, borderColor: '#7892ab66', borderRadius: 5, paddingHorizontal: 13, paddingVertical: 9, backgroundColor: '#08111dbb' }, backButtonText: { color: '#c9d9ea', fontSize: 8, fontWeight: '800', letterSpacing: 1.1 },
   skyCanvas: { position: 'absolute', top: 94, bottom: 30, left: 0, right: 0 }, skyConstellation: { position: 'absolute', alignItems: 'center', justifyContent: 'center' }, skyStar: { position: 'absolute', width: 7, height: 7, borderRadius: 999, borderWidth: 1, shadowOpacity: .9, shadowRadius: 8 }, skyFocus: { position: 'absolute', width: 44, height: 44, borderRadius: 999, borderWidth: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a142378', shadowOpacity: .7, shadowRadius: 22 }, skyFocusGlyph: { fontSize: 28, textShadowColor: '#fff', textShadowRadius: 12 }, skyThemeName: { position: 'absolute', bottom: -13, fontSize: 8, fontWeight: '900', letterSpacing: 1.35, textShadowColor: '#000', textShadowRadius: 6 }, skyThemeProgress: { position: 'absolute', bottom: -22, color: '#8396aa', fontSize: 5, fontWeight: '900', letterSpacing: .8 }, skyThemePrompt: { position: 'absolute', bottom: -32, color: '#657a91', fontSize: 5, fontWeight: '800', letterSpacing: .8 }, skyFooter: { position: 'absolute', bottom: 9, alignSelf: 'center', color: '#577089', fontSize: 7, fontWeight: '800', letterSpacing: 1.1 }, compactFooter: { fontSize: 5, bottom: 5, letterSpacing: .5 },
   treeTopBar: { position: 'absolute', zIndex: 4, top: 0, left: 0, right: 0, minHeight: 76, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderColor: '#6b87a222', backgroundColor: '#05091370' }, returnSky: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 150 }, compactReturnSky: { minWidth: 0, gap: 3 }, returnSkyGlyph: { color: C.blue, fontSize: 28, fontWeight: '300' }, compactReturnGlyph: { fontSize: 21 }, returnSkyText: { color: '#a6bed4', fontSize: 7, fontWeight: '900', letterSpacing: .8 }, treeTitleWrap: { alignItems: 'center', minWidth: 0 }, treeTitle: { color: '#f0f5fc', fontSize: 18, fontWeight: '300', letterSpacing: 2, marginTop: 2 }, compactTreeTitle: { fontSize: 11, letterSpacing: 1, marginTop: 0 },

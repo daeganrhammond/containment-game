@@ -10,7 +10,7 @@ Version 0.4.0 adds the command-bridge main menu, a live clickable run preview, a
 
 The command bridge now uses a transparent foreground cutout over an independently selected exterior vista. Auto rotation includes built-in scenes and imported photos; the active game board stays in the center viewing area, and Picture events remain on the board. See [`ART_ASSET_HANDOFF.md`](ART_ASSET_HANDOFF.md) for the bridge asset and layering contract.
 
-The first ambient vista prototype adds a compressed 16:9 ringworld scene, independently animated star glints, and a small shuttle that makes a slow, randomized pass across built-in space vistas. Vista content and ambient profiles live in `bridgeVistaCatalog.ts`; `BridgeVistaRenderer.tsx` owns the reusable scene layers. Uploaded and pinned photos currently remain free of generated ambient overlays.
+The bridge vista catalog supports still panoramas and local muted, looping MP4 scenes through `expo-video`. Images and video share the same clipped window bounds and randomized bridge drift; still vistas travel toward randomly selected safe edges, then choose a new direction without snapping back to a start point. Vista content and ambient profiles live in `bridgeVistaCatalog.ts`; `BridgeVistaRenderer.tsx` owns the reusable scene layers. Uploaded and pinned photos remain free of generated ambient overlays.
 
 ## Run it
 

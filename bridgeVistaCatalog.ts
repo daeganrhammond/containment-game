@@ -1,11 +1,14 @@
 import type { ImageSourcePropType } from 'react-native';
 
-export type BridgeAmbienceProfile = 'deep-space' | 'pelagic-megacity' | 'emberline-shipyard' | 'nacre-ice-giant' | 'eventide-eclipse' | 'glass-desert' | 'pilgrim-beacons' | 'aurora-reef' | 'comet-caravan' | 'blue-meridian' | 'vesper-horizon' | 'blueworld-patrol' | 'dawnward-escort' | 'emberfall-frontier' | 'leviathan-orbit' | 'nebula-clouds' | 'asteroid-belt' | 'cinder-comet-shoals' | 'copperline-orbital-foundry';
+export type BridgeAmbienceProfile = 'none' | 'deep-space' | 'pelagic-megacity' | 'emberline-shipyard' | 'nacre-ice-giant' | 'eventide-eclipse' | 'glass-desert' | 'pilgrim-beacons' | 'aurora-reef' | 'comet-caravan' | 'blue-meridian' | 'vesper-horizon' | 'blueworld-patrol' | 'dawnward-escort' | 'emberfall-frontier' | 'leviathan-orbit' | 'nebula-clouds' | 'asteroid-belt' | 'cinder-comet-shoals' | 'copperline-orbital-foundry';
+export type BridgeVistaSource = ImageSourcePropType | { type: 'video'; asset: number };
 export type BridgeVistaScene = {
   id: string;
   name: string;
-  source: ImageSourcePropType;
+  source: BridgeVistaSource;
   ambience?: BridgeAmbienceProfile;
+  /** Opt-in pairing for future Picture Event rewards. Existing vistas stay public. */
+  pictureEventUnlock?: boolean;
 };
 
 // Built-in vista art is a clean exterior plate. The ship interior and window
@@ -31,4 +34,28 @@ export const BUILT_IN_BRIDGE_VISTAS: BridgeVistaScene[] = [
   { id: 'dawnward-escort', name: 'Dawnward Escort', source: require('./assets/bridge-vistas/dawnward-escort.png'), ambience: 'dawnward-escort' },
   { id: 'emberfall-frontier', name: 'Emberfall Frontier', source: require('./assets/bridge-vistas/emberfall-frontier.png'), ambience: 'emberfall-frontier' },
   { id: 'leviathan-orbit', name: 'Leviathan Orbit', source: require('./assets/bridge-vistas/leviathan-orbit.png'), ambience: 'leviathan-orbit' },
+  { id: 'krea-space-scape', name: 'Krea Space Scape', source: { type: 'video', asset: require('./assets/bridge-vistas/krea-space-scape.mp4') } },
+  { id: 'violet-rimlands', name: 'Violet Rimlands', source: require('./assets/bridge-vistas/violet-rimlands.jpg'), ambience: 'none' },
+  { id: 'quiet-supernova', name: 'Quiet Supernova', source: require('./assets/bridge-vistas/quiet-supernova.jpg'), ambience: 'none' },
+  { id: 'pilgrim-ring-station', name: 'Pilgrim Ring Station', source: require('./assets/bridge-vistas/pilgrim-ring-station.jpg'), ambience: 'none' },
+  { id: 'umbral-shardfield', name: 'Umbral Shardfield', source: require('./assets/bridge-vistas/umbral-shardfield.jpg'), ambience: 'none' },
+  { id: 'roseglass-observation-deck', name: 'Roseglass Observation Deck', source: require('./assets/bridge-vistas/roseglass-observation-deck.jpg'), ambience: 'none' },
+  { id: 'midnight-anchorage', name: 'Midnight Anchorage', source: require('./assets/bridge-vistas/midnight-anchorage.jpg'), ambience: 'none' },
+  { id: 'somber-nebula', name: 'Somber Nebula', source: require('./assets/bridge-vistas/somber-nebula.jpg'), ambience: 'none' },
+  { id: 'amber-ringworld', name: 'Amber Ringworld', source: require('./assets/bridge-vistas/amber-ringworld.png'), ambience: 'none', pictureEventUnlock: true },
+  { id: 'violet-giant', name: 'Violet Giant', source: require('./assets/bridge-vistas/violet-giant.png'), ambience: 'none', pictureEventUnlock: true },
+  { id: 'emerald-ocean', name: 'Emerald Ocean', source: require('./assets/bridge-vistas/emerald-ocean.png'), ambience: 'none', pictureEventUnlock: true },
+  { id: 'ancient-megastructure', name: 'Ancient Megastructure', source: require('./assets/bridge-vistas/ancient-megastructure.png'), ambience: 'none', pictureEventUnlock: true },
+  { id: 'eclipse-over-fire', name: 'Eclipse over Fire', source: require('./assets/bridge-vistas/eclipse-over-fire.png'), ambience: 'none', pictureEventUnlock: true },
+  { id: 'star-nursery', name: 'Star Nursery', source: require('./assets/bridge-vistas/star-nursery.png'), ambience: 'none', pictureEventUnlock: true },
+  { id: 'broken-halo', name: 'The Broken Halo', source: require('./assets/bridge-vistas/broken-halo.jpg'), ambience: 'none', pictureEventUnlock: true },
+  { id: 'wandering-world', name: 'The Wandering World', source: require('./assets/bridge-vistas/wandering-world.jpg'), ambience: 'none', pictureEventUnlock: true },
+  { id: 'glass-sea', name: 'The Glass Sea', source: require('./assets/bridge-vistas/glass-sea.jpg'), ambience: 'none', pictureEventUnlock: true },
+  { id: 'red-dwarf-shadow', name: 'The Red Dwarf’s Shadow', source: require('./assets/bridge-vistas/red-dwarf-shadow.jpg'), ambience: 'none', pictureEventUnlock: true },
+  { id: 'great-storm', name: 'The Great Storm', source: require('./assets/bridge-vistas/great-storm.jpg'), ambience: 'none', pictureEventUnlock: true },
+  { id: 'pilgrim-fleet', name: 'The Pilgrim Fleet', source: require('./assets/bridge-vistas/pilgrim-fleet.jpg'), ambience: 'none', pictureEventUnlock: true },
+  { id: 'gravity-well', name: 'The Gravity Well', source: require('./assets/bridge-vistas/gravity-well.jpg'), ambience: 'none', pictureEventUnlock: true },
+  { id: 'hanging-gardens', name: 'The Hanging Gardens', source: require('./assets/bridge-vistas/hanging-gardens.jpg'), ambience: 'none', pictureEventUnlock: true },
+  { id: 'silent-wreck', name: 'The Silent Wreck', source: require('./assets/bridge-vistas/silent-wreck.jpg'), ambience: 'none', pictureEventUnlock: true },
+  { id: 'far-lanterns', name: 'The Far Lanterns', source: require('./assets/bridge-vistas/far-lanterns.jpg'), ambience: 'none', pictureEventUnlock: true },
 ];
