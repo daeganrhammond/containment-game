@@ -12,6 +12,8 @@ import { BridgeVistaRenderer } from './BridgeVistaRenderer';
 import { BUILT_IN_BRIDGE_VISTAS } from './bridgeVistaCatalog';
 import type { BridgeVistaScene } from './bridgeVistaCatalog';
 import { BridgeInteriorAmbience } from './BridgeInteriorAmbience';
+import { RouteAtlasScreen, SectorMapScreen, SectorSelectScreen } from './SectorMapScreen';
+import { archiveSectorRoute, createSector, generateSectorChoices, hiddenFrontierBeacons, openSectorMap, reachableBeacons, scanNextFrontier, SECTOR_MAP_CONFIG, SECTOR_VISUALS, SectorRouteRecord, SectorType, visitBeacon } from './sectorMap';
 
 const SAVE_KEY = 'trap-game-save-v1';
 const SETTINGS_KEY = 'trap-game-dev-settings-v1';
@@ -467,7 +469,7 @@ function attachCaptureSkins(events: CaptureEvent[], selections: SkinSelections, 
 
 export default function App() {
   const nativeDimensions = useWindowDimensions();
-  const [run, setRun] = useState<Run>(() => newRun());
+  const [run, setRun] = useState<Run>(() => newRun(1, 900, 1100, false, { suppressRandomEvents: true }));
   const runRef = useRef<Run>(run);
   const gestures = useRef<Record<string, Gesture>>({});
   const savedRef = useRef(false);
@@ -519,6 +521,9 @@ export default function App() {
   const [wallBreakEffects, setWallBreakEffects] = useState<WallBreakEvent[]>([]);
   const [territoryEffects, setTerritoryEffects] = useState<TerritoryGainEvent[]>([]);
   const [creditGainEffects, setCreditGainEffects] = useState<CreditGainEvent[]>([]);
+  const [gainToast, setGainToast] = useState<{ id: number; text: string; tone: 'credit' | 'pickup' | 'module' } | null>(null);
+  const gainToastSequence = useRef(0);
+  const showGainToast = useCallback((text: string, tone: 'credit' | 'pickup' | 'module' = 'pickup') => setGainToast({ id: ++gainToastSequence.current, text, tone }), []);
   const [activeTab, setActiveTab] = useState<'game' | 'developer'>('game');
   const [developerOverlay, setDeveloperOverlay] = useState(false);
   const [cursorSkin, setCursorSkin] = useState<'crosshair' | 'spark' | 'halo'>('crosshair');
@@ -541,7 +546,10 @@ export default function App() {
   const [merchantOpenedAtClear, setMerchantOpenedAtClear] = useState(false);
   const [skinProgression, setSkinProgression] = useState<SkinProgression>(() => defaultSkinUnlocks());
   const skinProgressionRef = useRef(skinProgression);
-  const [menuPage, setMenuPage] = useState<'home' | 'themes' | 'scores' | 'settings' | null>('home');
+  const [menuPage, setMenuPage] = useState<'home' | 'themes' | 'scores' | 'settings' | 'sector-map' | 'sector-select' | 'route-atlas' | null>('home');
+  const [sectorChoiceOptions, setSectorChoiceOptions] = useState<SectorType[]>([]);
+  const [jumpTransitionActive, setJumpTransitionActive] = useState(false);
+  const [jumpDestinationName, setJumpDestinationName] = useState('UNKNOWN BEACON');
   const [bridgeSimView, setBridgeSimView] = useState<'mini' | 'window' | 'fullscreen'>('mini');
   const [bridgeCanvasSize, setBridgeCanvasSize] = useState({ width: 0, height: 0 });
   const [bridgeRailVisible, setBridgeRailVisible] = useState(true);
@@ -560,10 +568,8 @@ export default function App() {
   const skinSelectionsRef = useRef(skinSelections);
   const visualSkinSelectionsRef = useRef(skinSelections);
   const levelClearSequence = useRef(0);
-  const exitTransitionPending = useRef(false);
-  const exitTransitionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [levelClearAnimation, setLevelClearAnimation] = useState<{ id: number; level: number; style: MechanicsSettings['levelClearStyle']; durationMs: number } | null>(null);
-  const commit = useCallback((next: Run, playCaptureEvents = false) => { const oldCredits = new Set((runRef.current.creditGainEvents ?? []).map(event => event.id)); const newCreditEvents = (next.creditGainEvents ?? []).filter(event => !oldCredits.has(event.id)); runRef.current = next; setRun({ ...next, balls: [...next.balls], walls: [...next.walls], powerups: [...next.powerups] }); if (newCreditEvents.length) setCreditGainEffects(old => [...old, ...newCreditEvents].slice(-6)); if (playCaptureEvents && next.captureEvents.length) setCaptureEffects(old => [...old, ...attachCaptureSkins(next.captureEvents, visualSkinSelectionsRef.current, next.skinDiscovery)].slice(-8)); }, []);
+  const commit = useCallback((next: Run, playCaptureEvents = false) => { const oldCredits = new Set((runRef.current.creditGainEvents ?? []).map(event => event.id)); const newCreditEvents = (next.creditGainEvents ?? []).filter(event => !oldCredits.has(event.id)); runRef.current = next; setRun({ ...next, balls: [...next.balls], walls: [...next.walls], powerups: [...next.powerups] }); if (newCreditEvents.length) { setCreditGainEffects(old => [...old, ...newCreditEvents].slice(-6)); showGainToast(`+${newCreditEvents.reduce((sum, event) => sum + event.amount, 0)} CREDITS`, 'credit'); } if (playCaptureEvents && next.captureEvents.length) setCaptureEffects(old => [...old, ...attachCaptureSkins(next.captureEvents, visualSkinSelectionsRef.current, next.skinDiscovery)].slice(-8)); }, [showGainToast]);
   const [profiles, setProfiles] = useState<TuningProfile[]>([]);
   const [profileName, setProfileName] = useState('');
   const [selectedProfileName, setSelectedProfileName] = useState<string | null>(null);
@@ -622,7 +628,7 @@ export default function App() {
         if (pictureLibrarySave) { const entries = JSON.parse(pictureLibrarySave) as PictureLibraryEntry[]; pictureLibraryRef.current = entries; setPictureLibraryState(entries); setPictureLibrary(entries); }
         if (bridgeVistaSave) { const savedVista = JSON.parse(bridgeVistaSave) as { entries?: BridgeVistaEntry[]; selectedId?: string | null }; const entries = Array.isArray(savedVista) ? savedVista as unknown as BridgeVistaEntry[] : savedVista.entries ?? []; setBridgeVistaLibrary(entries); setSelectedBridgeVistaId(savedVista.selectedId && (entries.some(entry => entry.id === savedVista.selectedId) || (validUnlockedVistaIds.includes(savedVista.selectedId) && BUILT_IN_BRIDGE_VISTAS.some(scene => scene.id === savedVista.selectedId))) ? savedVista.selectedId : null); }
         if (waldoLibrarySave) { const entries = JSON.parse(waldoLibrarySave) as WaldoLibraryEntry[]; waldoLibraryRef.current = entries; setWaldoLibraryState(entries); setWaldoLibrary(entries); }
-        if (save) { const parsed = JSON.parse(save) as Run; const legacyStorageRun = parsed.speedCapacityBonus === undefined; parsed.speedCharges ??= 0; parsed.ramCharges ??= 0; parsed.chargeCharges ??= 0; parsed.chargeCapacityBonus ??= 0; parsed.chargeCapacityPurchases ??= 0; parsed.overflowProcessingUpgradePurchases ??= 0; parsed.levelClearBubbleTimerMs ??= 0; parsed.levelClearBubbleAccumulatorMs ??= 0; parsed.levelClearAnimationRemainingMs ??= 0; parsed.levelEvent ??= 'none'; parsed.levelEventBannerUntilMs ??= 0; parsed.containmentMutations ??= []; parsed.containmentMutationScanRemainingMs ??= 0; parsed.chargeReadyUntil ??= null; parsed.speedCapacityBonus ??= 0; parsed.speedCapacityPurchases ??= parsed.speedCapacityBonus; parsed.ramCapacityBonus ??= 0; parsed.ramCapacityPurchases ??= parsed.ramCapacityBonus; parsed.waldoEventPending ??= false; parsed.mechanics = normalizeMechanicsSettings(parsed.mechanics); parsed.skinDiscovery ??= null; parsed.totalTerritoryClaimed ??= 0; parsed.ballsDestroyed ??= 0; parsed.ballsContained ??= 0; parsed.pickupsCaptured ??= 0; parsed.containedBallIds ??= []; parsed.containedCountedThisLevel ??= false; if (legacyStorageRun) { if (parsed.mechanics.overflowCreditValues.speed === 0) parsed.mechanics.overflowCreditValues.speed = DEFAULT_MECHANICS.overflowCreditValues.speed; if (parsed.mechanics.overflowCreditValues.ram === 0) parsed.mechanics.overflowCreditValues.ram = DEFAULT_MECHANICS.overflowCreditValues.ram; } parsed.lifeCapacity = Math.max(parsed.lives, parsed.lifeCapacity ?? parsed.mechanics.lifeStorageBaseCapacity); parsed.lifeCapacityPurchases ??= Math.max(0, parsed.lifeCapacity - parsed.mechanics.lifeStorageBaseCapacity); parsed.overflowJobs ??= []; parsed.overflowSuccessChance = Math.max(0, Math.min(100, parsed.overflowSuccessChance ?? parsed.mechanics.overflowBaseSuccessChance)); parsed.overflowUpgradePurchases ??= Math.max(0, Math.floor((parsed.overflowSuccessChance - parsed.mechanics.overflowBaseSuccessChance) / Math.max(1, parsed.mechanics.overflowUpgradeChanceIncrease))); parsed.waldoEligible ??= Math.random() >= parsed.mechanics.waldoIneligibleChance; parsed.merchantTokens ??= 0; parsed.credits ??= 0; parsed.powerBars ??= 0; parsed.powerBarsPurchased ??= 0; parsed.merchantUpgrades ??= { life: 0, speed: 0, ram: 0, treasure: 0, waldo: 0 }; parsed.merchantUpgrades.waldo ??= 0; for (const kind of Object.keys(DEFAULT_MECHANICS.containmentMutationPickupEnabled)) { parsed.merchantUpgrades[`mutationAffinity:${kind}`] ??= 0; parsed.merchantUpgrades[`mutationAttraction:${kind}`] ??= 0; } parsed.petEggs ??= 0; parsed.petEggVisitProgress ??= 0; parsed.pets ??= []; parsed.pets = parsed.pets.map(pet => ({ ...pet, species: pet.species ?? 'engi', paintings: pet.paintings ?? [] })); parsed.petIncubations ??= []; parsed.isotypesContained ??= false; parsed.isotypesNoticeUntilMs ??= 0; parsed.petNotice ??= null; parsed.petNoticeUntilMs ??= 0; parsed.levelClearPending ??= false; parsed.speedReadyUntil ??= null; parsed.captureEvents ??= []; parsed.wallBreakEvents ??= []; parsed.territoryGainEvents ??= []; parsed.creditGainEvents ??= []; parsed.treasureEligible ??= Math.random() < MECHANICS.treasureLevelEligibilityChance; parsed.treasureHuntPending ??= false; parsed.treasureHunt ??= null; if (parsed.treasureHunt) parsed.treasureHunt.revealed ??= false; parsed.pictureEvent ??= null; parsed.boardWidth ??= BOARD_W; parsed.boardHeight ??= 1100; parsed.gridCols ??= 48; parsed.gridRows ??= 72; parsed.walls = parsed.walls.map(w => ({ ...w, speedMultiplier: w.speedMultiplier ?? 1 })); parsed.powerups = (parsed.powerups ?? []).map(p => ({ ...p, skinId: p.kind === 'engi-egg' ? p.skinId ?? randomEngiCocoonSkin() : p.skinId, despawnAtMs: p.despawnAtMs ?? powerupDespawnAt(p.kind, parsed.elapsedMs ?? 0, parsed.mechanics) })); if (parsed.levelClearPending && !parsed.powerups.some(p => p.kind === 'exit')) parsed.powerups.push({ id: parsed.nextId++, kind: 'exit', x: parsed.boardWidth * 0.5, y: parsed.boardHeight * 0.5, vx: 0, vy: 0 }); if (!parsed.ended) { setMechanicsSettings(parsed.mechanics); const layout = boardLayoutFor(stageSizeRef.current.width, stageSizeRef.current.height); const restored = layout.displayWidth ? resizeRunBoard(parsed, layout.worldWidth, layout.worldHeight) : parsed; const capacitySafe = enforceChargeCapacities(restored); runRef.current = capacitySafe; setRun(capacitySafe); setHasSave(true); } }
+        if (save) { const parsed = JSON.parse(save) as Run; parsed.routeAtlas ??= []; parsed.scanCharges ??= 1; parsed.beaconStreak ??= 0; parsed.beaconStreakBest ??= parsed.beaconStreak; const legacyStorageRun = parsed.speedCapacityBonus === undefined; parsed.speedCharges ??= 0; parsed.ramCharges ??= 0; parsed.chargeCharges ??= 0; parsed.chargeCapacityBonus ??= 0; parsed.chargeCapacityPurchases ??= 0; parsed.overflowProcessingUpgradePurchases ??= 0; parsed.levelClearBubbleTimerMs ??= 0; parsed.levelClearBubbleAccumulatorMs ??= 0; parsed.levelClearAnimationRemainingMs ??= 0; parsed.levelEvent ??= 'none'; parsed.levelEventBannerUntilMs ??= 0; parsed.containmentMutations ??= []; parsed.containmentMutationScanRemainingMs ??= 0; parsed.chargeReadyUntil ??= null; parsed.speedCapacityBonus ??= 0; parsed.speedCapacityPurchases ??= parsed.speedCapacityBonus; parsed.ramCapacityBonus ??= 0; parsed.ramCapacityPurchases ??= parsed.ramCapacityBonus; parsed.waldoEventPending ??= false; parsed.mechanics = normalizeMechanicsSettings(parsed.mechanics); parsed.sector ??= createSector(0, 'Civilian', BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => ({ id: scene.id, name: scene.name }))); parsed.sector.scanCount ??= 0; parsed.jumpReady ??= false; parsed.baseMechanics = normalizeMechanicsSettings(parsed.baseMechanics ?? parsed.mechanics); parsed.currentVistaId ??= BUILT_IN_BRIDGE_VISTAS.find(scene => !scene.pictureEventUnlock)?.id; parsed.pendingSectorChoices ??= undefined; parsed.skinDiscovery ??= null; parsed.totalTerritoryClaimed ??= 0; parsed.ballsDestroyed ??= 0; parsed.ballsContained ??= 0; parsed.pickupsCaptured ??= 0; parsed.containedBallIds ??= []; parsed.containedCountedThisLevel ??= false; if (legacyStorageRun) { if (parsed.mechanics.overflowCreditValues.speed === 0) parsed.mechanics.overflowCreditValues.speed = DEFAULT_MECHANICS.overflowCreditValues.speed; if (parsed.mechanics.overflowCreditValues.ram === 0) parsed.mechanics.overflowCreditValues.ram = DEFAULT_MECHANICS.overflowCreditValues.ram; } parsed.lifeCapacity = Math.max(parsed.lives, parsed.lifeCapacity ?? parsed.mechanics.lifeStorageBaseCapacity); parsed.lifeCapacityPurchases ??= Math.max(0, parsed.lifeCapacity - parsed.mechanics.lifeStorageBaseCapacity); parsed.overflowJobs ??= []; parsed.overflowSuccessChance = Math.max(0, Math.min(100, parsed.overflowSuccessChance ?? parsed.mechanics.overflowBaseSuccessChance)); parsed.overflowUpgradePurchases ??= Math.max(0, Math.floor((parsed.overflowSuccessChance - parsed.mechanics.overflowBaseSuccessChance) / Math.max(1, parsed.mechanics.overflowUpgradeChanceIncrease))); parsed.waldoEligible ??= Math.random() >= parsed.mechanics.waldoIneligibleChance; parsed.merchantTokens ??= 0; parsed.credits ??= 0; parsed.powerBars ??= 0; parsed.powerBarsPurchased ??= 0; parsed.merchantUpgrades ??= { life: 0, speed: 0, ram: 0, treasure: 0, waldo: 0 }; parsed.merchantUpgrades.waldo ??= 0; for (const kind of Object.keys(DEFAULT_MECHANICS.containmentMutationPickupEnabled)) { parsed.merchantUpgrades[`mutationAffinity:${kind}`] ??= 0; parsed.merchantUpgrades[`mutationAttraction:${kind}`] ??= 0; } parsed.petEggs ??= 0; parsed.petEggVisitProgress ??= 0; parsed.pets ??= []; parsed.pets = parsed.pets.map(pet => ({ ...pet, species: pet.species ?? 'engi', paintings: pet.paintings ?? [] })); parsed.petIncubations ??= []; parsed.isotypesContained ??= false; parsed.isotypesNoticeUntilMs ??= 0; parsed.petNotice ??= null; parsed.petNoticeUntilMs ??= 0; parsed.levelClearPending ??= false; parsed.speedReadyUntil ??= null; parsed.captureEvents ??= []; parsed.wallBreakEvents ??= []; parsed.territoryGainEvents ??= []; parsed.creditGainEvents ??= []; parsed.treasureEligible ??= Math.random() < MECHANICS.treasureLevelEligibilityChance; parsed.treasureHuntPending ??= false; parsed.treasureHunt ??= null; if (parsed.treasureHunt) parsed.treasureHunt.revealed ??= false; parsed.pictureEvent ??= null; parsed.boardWidth ??= BOARD_W; parsed.boardHeight ??= 1100; parsed.gridCols ??= 48; parsed.gridRows ??= 72; parsed.walls = parsed.walls.map(w => ({ ...w, speedMultiplier: w.speedMultiplier ?? 1 })); parsed.powerups = (parsed.powerups ?? []).map(p => ({ ...p, skinId: p.kind === 'engi-egg' ? p.skinId ?? randomEngiCocoonSkin() : p.skinId, despawnAtMs: p.despawnAtMs ?? powerupDespawnAt(p.kind, parsed.elapsedMs ?? 0, parsed.mechanics) })); if (parsed.levelClearPending && !parsed.powerups.some(p => p.kind === 'exit')) parsed.powerups.push({ id: parsed.nextId++, kind: 'exit', x: parsed.boardWidth * 0.5, y: parsed.boardHeight * 0.5, vx: 0, vy: 0 }); if (!parsed.ended) { setMechanicsSettings(parsed.mechanics); const layout = boardLayoutFor(stageSizeRef.current.width, stageSizeRef.current.height); const restored = layout.displayWidth ? resizeRunBoard(parsed, layout.worldWidth, layout.worldHeight) : parsed; const capacitySafe = enforceChargeCapacities(restored); runRef.current = capacitySafe; setRun(capacitySafe); setHasSave(true); } }
         if (manualSaveData) setManualSave(JSON.parse(manualSaveData) as Run);
         if (boardScores) { const parsedScores = JSON.parse(boardScores) as Partial<ScoreEntry>[]; setScores(parsedScores.map(normalizeScoreEntry).sort((a, b) => b.score - a.score || b.ballsContained - a.ballsContained).slice(0, 5)); }
       } catch { setNotice('Could not load the saved run'); }
@@ -652,9 +658,50 @@ export default function App() {
   useEffect(() => { unlockedVistaIdsRef.current = unlockedVistaIds; if (loaded) AsyncStorage.setItem(VISTA_UNLOCKS_KEY, JSON.stringify(unlockedVistaIds)).catch(() => {}); }, [loaded, unlockedVistaIds]);
   useEffect(() => { setPictureEventVistas(BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => scene.id)); }, []);
 
-  const nextLevelAfterClear = useCallback((current: Run) => {
-    exitTransitionPending.current = false;
-    if (!current.levelClearPending || current.ended) return;
+  const grantLevelClearRewards = useCallback((current: Run): { run: Run; summary: string[] } => {
+    let rewarded = current;
+    const summary: string[] = [];
+    const clearedBeacon = current.sector?.beacons.find(beacon => beacon.id === current.sector?.currentBeaconId);
+    const streakQualified = !!clearedBeacon && ((clearedBeacon.riskRating ?? 1) >= 3 || ['picture', 'jackpot', 'waldo', 'engi'].includes(clearedBeacon.event.kind));
+    const beaconStreak = streakQualified ? current.beaconStreak + 1 : 0;
+    rewarded = { ...rewarded, beaconStreak, beaconStreakBest: Math.max(current.beaconStreakBest, beaconStreak) };
+    if (beaconStreak >= 2) {
+      const streakCredits = beaconStreak * 6, streakScore = beaconStreak * 20;
+      rewarded = { ...rewarded, credits: rewarded.credits + streakCredits, beaconBonusScore: (rewarded.beaconBonusScore ?? 0) + streakScore };
+      summary.push(`RISK STREAK ×${beaconStreak} · +${streakCredits} CREDITS · +${streakScore} SCORE`);
+    }
+    for (const effect of clearedBeacon?.effects ?? []) {
+      if (effect.compensation?.kind === 'credits') { rewarded = { ...rewarded, credits: rewarded.credits + effect.compensation.amount }; summary.push(`+${effect.compensation.amount} CREDITS`); }
+      if (effect.compensation?.kind === 'score') { rewarded = { ...rewarded, beaconBonusScore: (rewarded.beaconBonusScore ?? 0) + effect.compensation.amount }; summary.push(`+${effect.compensation.amount} SCORE`); }
+      if (effect.resourceReward) {
+        const { kind, amount } = effect.resourceReward;
+        if (kind === 'life') { const gained = Math.min(amount, Math.max(0, rewarded.lifeCapacity - rewarded.lives)); rewarded = { ...rewarded, lives: rewarded.lives + gained, credits: rewarded.credits + (amount - gained) * (rewarded.mechanics.overflowCreditValues.life ?? 0) }; summary.push(`+${gained} ${gained === 1 ? 'LIFE' : 'LIVES'}`); }
+        else {
+          const capacity = chargeCapacity(rewarded, kind);
+          const key = kind === 'speed' ? 'speedCharges' : kind === 'ram' ? 'ramCharges' : 'chargeCharges';
+          const gained = Math.min(amount, Math.max(0, capacity - rewarded[key]));
+          rewarded = { ...rewarded, [key]: rewarded[key] + gained, credits: rewarded.credits + (amount - gained) * (rewarded.mechanics.overflowCreditValues[kind] ?? 0) };
+          summary.push(`+${gained} ${kind.toUpperCase()}`);
+        }
+      }
+      if (effect.upgradeReward) {
+        const upgrade = effect.upgradeReward;
+        if (upgrade === 'smelter-speed') {
+          const nextMs = Math.max(rewarded.mechanics.overflowProcessingMinimumMs, Math.ceil(rewarded.mechanics.overflowProcessingMs * (1 - rewarded.mechanics.overflowProcessingReductionPercent / 100)));
+          rewarded = { ...rewarded, mechanics: { ...rewarded.mechanics, overflowProcessingMs: nextMs }, overflowProcessingUpgradePurchases: rewarded.overflowProcessingUpgradePurchases + 1 };
+          summary.push(`SMELTER CYCLE −${rewarded.mechanics.overflowProcessingReductionPercent}%`);
+        } else if (upgrade === 'life-capacity') { rewarded = { ...rewarded, lifeCapacity: rewarded.lifeCapacity + 1, lifeCapacityPurchases: rewarded.lifeCapacityPurchases + 1 }; summary.push('LIFE VAULT +1 SLOT'); }
+        else if (upgrade === 'speed-capacity') { rewarded = { ...rewarded, speedCapacityBonus: rewarded.speedCapacityBonus + 1, speedCapacityPurchases: rewarded.speedCapacityPurchases + 1 }; summary.push('SPEED HOLD +1 SLOT'); }
+        else if (upgrade === 'ram-capacity') { rewarded = { ...rewarded, ramCapacityBonus: rewarded.ramCapacityBonus + 1, ramCapacityPurchases: rewarded.ramCapacityPurchases + 1 }; summary.push('RAM HOLD +1 SLOT'); }
+        else { rewarded = { ...rewarded, chargeCapacityBonus: rewarded.chargeCapacityBonus + 1, chargeCapacityPurchases: rewarded.chargeCapacityPurchases + 1 }; summary.push('CHARGE HOLD +1 SLOT'); }
+      }
+      if (effect.scanChargeReward) {
+        const gained = Math.min(effect.scanChargeReward, Math.max(0, SECTOR_MAP_CONFIG.maxScanCharges - rewarded.scanCharges));
+        const overflowCredits = (effect.scanChargeReward - gained) * 10;
+        rewarded = { ...rewarded, scanCharges: rewarded.scanCharges + gained, credits: rewarded.credits + overflowCredits };
+        summary.push(`+${gained} SCAN${overflowCredits ? ` · +${overflowCredits} CREDITS (SCAN OVERFLOW)` : ''}`);
+      }
+    }
     const vistaId = current.pictureEvent?.vistaId;
     if (vistaId && !unlockedVistaIdsRef.current.includes(vistaId)) {
       const updatedVistaIds = [...unlockedVistaIdsRef.current, vistaId];
@@ -669,11 +716,50 @@ export default function App() {
       const unlockedNode = SKIN_ARCHIVE.find(node => node.category === discovery.category && node.id === discovery.skinId);
       setSkinAchievement(unlockedNode ? { ...unlockedNode, tier: updated.tiers[`${discovery.category}:${discovery.skinId}`] ?? unlockedNode.tier } : null);
     }
-    const pendingTreasure = current.treasureHuntPending;
-    const next = newRun(current.level + 1, current.boardWidth, current.boardHeight, current.waldoEventPending);
-    const continued = attachSkinDiscovery({ ...next, lives: current.lives, lifeCapacity: current.lifeCapacity, lifeCapacityPurchases: current.lifeCapacityPurchases, speedCapacityBonus: current.speedCapacityBonus, speedCapacityPurchases: current.speedCapacityPurchases, ramCapacityBonus: current.ramCapacityBonus, ramCapacityPurchases: current.ramCapacityPurchases, chargeCapacityBonus: current.chargeCapacityBonus, chargeCapacityPurchases: current.chargeCapacityPurchases, chargeCharges: current.chargeCharges, overflowProcessingUpgradePurchases: current.overflowProcessingUpgradePurchases, overflowJobs: current.overflowJobs, overflowSuccessChance: current.overflowSuccessChance, overflowUpgradePurchases: current.overflowUpgradePurchases, speedCharges: current.speedCharges, ramCharges: current.ramCharges, merchantTokens: current.merchantTokens, credits: current.credits, powerBars: current.powerBars, powerBarsPurchased: current.powerBarsPurchased, merchantUpgrades: current.merchantUpgrades, petEggs: current.petEggs, petEggVisitProgress: current.petEggVisitProgress, petIncubations: current.petIncubations, pets: current.pets.map(pet => ({ ...pet, deployed: false, vx: 0, vy: 0, repairedThisLevel: false, ...(pet.species === 'waldo' ? { paintings: [], nextPaintingAtMs: next.elapsedMs + next.mechanics.waldoPetPaintingIntervalMs } : {}) })), totalTerritoryClaimed: current.totalTerritoryClaimed, ballsDestroyed: current.ballsDestroyed, ballsContained: current.ballsContained, pickupsCaptured: current.pickupsCaptured, containedBallIds: [], isotypesContained: false, containedCountedThisLevel: false, isotypesNoticeUntilMs: 0, treasureHunt: pendingTreasure ? { x: randomBetween(40, current.boardWidth - 40), y: randomBetween(40, current.boardHeight - 40), remainingMs: current.mechanics.treasureHuntDurationMs, revealed: false } : null, territoryGainEvents: [], creditGainEvents: current.creditGainEvents, levelClearPending: false }, skinProgressionRef.current);
-    commit(continued); setLevelClearAnimation(null); setMerchantOpenedAtClear(false); setPaused(false); queuedWalls.current = []; setQueuedWallPreview([]); setRunning(true); setNotice(`Stage ${String(continued.level).padStart(2, '0')} underway`);
-  }, [commit, setLevelClearAnimation, setSkinAchievement, setSkinProgression, setVistaAchievement]);
+    return { run: rewarded, summary };
+  }, [setSkinAchievement, setSkinProgression, setVistaAchievement]);
+
+  const jumpToBeacon = useCallback((targetId: string) => {
+    const ready = runRef.current;
+    if (!ready.jumpReady || !ready.levelClearPending || ready.ended || !ready.sector || !reachableBeacons(ready.sector).some(beacon => beacon.id === targetId)) return;
+    setJumpDestinationName(ready.sector.beacons.find(beacon => beacon.id === targetId)?.event.title.toUpperCase() ?? 'UNKNOWN BEACON');
+    setMenuPage(null);
+    setRunning(false);
+    setPaused(true);
+    setJumpTransitionActive(true);
+    setTimeout(() => {
+      try {
+      const current = runRef.current;
+      if (!current.jumpReady || !current.sector) { setJumpTransitionActive(false); return; }
+      const currentSector = current.sector;
+      const target = reachableBeacons(currentSector).find(beacon => beacon.id === targetId);
+      if (!target) { setJumpTransitionActive(false); return; }
+      const pendingTreasure = current.treasureHuntPending;
+      const creditReward = target.effects.reduce((sum, effect) => sum + (effect.creditsDelta ?? 0), 0);
+      const podReward = target.effects.reduce((sum, effect) => sum + (effect.engiPodReward ?? 0), 0);
+      const lifeRecovery = target.effects.reduce((sum, effect) => sum + (effect.livesDelta ?? 0), 0);
+      const sector = visitBeacon(currentSector, target.id);
+      const pictureVistaId = target.event.kind === 'picture' ? target.vistaId : undefined;
+      const next = newRun(current.level + 1, current.boardWidth, current.boardHeight, target.event.kind === 'waldo' || current.waldoEventPending, { effects: target.effects, pictureVistaId, jackpot: target.event.kind === 'jackpot', waldo: target.event.kind === 'waldo', suppressRandomPictureEvent: true, suppressRandomEvents: true, difficultyDepth: currentSector.depth }, current.baseMechanics ?? current.mechanics);
+      const scenePool = [
+        ...BUILT_IN_BRIDGE_VISTAS.filter(scene => !scene.pictureEventUnlock || unlockedVistaIdsRef.current.includes(scene.id)),
+        ...bridgeVistaLibrary.map(entry => ({ id: entry.id })),
+      ];
+      const sceneChoices = scenePool.filter(scene => scene.id !== current.currentVistaId);
+      const currentVistaId = (sceneChoices.length ? sceneChoices : scenePool)[Math.floor(Math.random() * Math.max(1, sceneChoices.length || scenePool.length))]?.id ?? current.currentVistaId;
+      const continued = attachSkinDiscovery({ ...next, sector, baseMechanics: { ...(current.baseMechanics ?? current.mechanics), overflowProcessingMs: current.mechanics.overflowProcessingMs }, mechanics: { ...next.mechanics, overflowProcessingMs: current.mechanics.overflowProcessingMs }, currentVistaId, routeAtlas: current.routeAtlas ?? [], jumpReady: false, beaconBonusScore: current.beaconBonusScore ?? 0, scanCharges: current.scanCharges, beaconStreak: current.beaconStreak, beaconStreakBest: current.beaconStreakBest, lives: Math.min(current.lifeCapacity, current.lives + lifeRecovery), lifeCapacity: current.lifeCapacity, lifeCapacityPurchases: current.lifeCapacityPurchases, speedCapacityBonus: current.speedCapacityBonus, speedCapacityPurchases: current.speedCapacityPurchases, ramCapacityBonus: current.ramCapacityBonus, ramCapacityPurchases: current.ramCapacityPurchases, chargeCapacityBonus: current.chargeCapacityBonus, chargeCapacityPurchases: current.chargeCapacityPurchases, chargeCharges: current.chargeCharges, overflowProcessingUpgradePurchases: current.overflowProcessingUpgradePurchases, overflowJobs: current.overflowJobs, overflowSuccessChance: current.overflowSuccessChance, overflowUpgradePurchases: current.overflowUpgradePurchases, speedCharges: current.speedCharges, ramCharges: current.ramCharges, merchantTokens: current.merchantTokens, credits: current.credits + creditReward, powerBars: current.powerBars, powerBarsPurchased: current.powerBarsPurchased, merchantUpgrades: current.merchantUpgrades, petEggs: current.petEggs + podReward, petEggVisitProgress: current.petEggVisitProgress, petIncubations: current.petIncubations, pets: current.pets.map(pet => ({ ...pet, deployed: false, vx: 0, vy: 0, repairedThisLevel: false, ...(pet.species === 'waldo' ? { paintings: [], nextPaintingAtMs: next.elapsedMs + next.mechanics.waldoPetPaintingIntervalMs } : {}) })), totalTerritoryClaimed: current.totalTerritoryClaimed, ballsDestroyed: current.ballsDestroyed, ballsContained: current.ballsContained, pickupsCaptured: current.pickupsCaptured, containedBallIds: [], isotypesContained: false, isotypesNoticeUntilMs: 0, treasureHunt: pendingTreasure ? { x: randomBetween(40, current.boardWidth - 40), y: randomBetween(40, current.boardHeight - 40), remainingMs: current.mechanics.treasureHuntDurationMs, revealed: false } : null, territoryGainEvents: [], creditGainEvents: current.creditGainEvents, levelClearPending: false, levelClearAnimationRemainingMs: 0, levelClearBubbleTimerMs: 0, levelClearBubbleAccumulatorMs: 0 }, skinProgressionRef.current);
+      commit(continued);
+      void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(continued));
+      setMenuPage(null); setActiveTab('game'); setBridgeSimView('fullscreen'); setLevelClearAnimation(null); setMerchantOpenedAtClear(false); setPaused(false); queuedWalls.current = []; setQueuedWallPreview([]); setRunning(true); setNotice([`Jump complete · Stage ${String(continued.level).padStart(2, '0')} underway`, podReward ? `ENGI POD SECURED +${podReward}` : '', creditReward ? `+${creditReward} CREDITS` : ''].filter(Boolean).join(' · ')); if (creditReward || podReward) showGainToast([creditReward ? `+${creditReward} CREDITS` : '', podReward ? `+${podReward} ENGI POD` : ''].filter(Boolean).join(' · '), 'credit'); setJumpTransitionActive(false);
+      } catch (error) {
+        console.error('Jump transition failed', error);
+        setJumpTransitionActive(false);
+        setPaused(true);
+        setMenuPage('sector-map');
+        setNotice('Jump drive fault · select a reachable beacon and retry');
+      }
+    }, 1450);
+  }, [bridgeVistaLibrary, commit, setActiveTab, setBridgeSimView, setJumpTransitionActive, setLevelClearAnimation, setMenuPage, setMerchantOpenedAtClear, setNotice, setPaused, setQueuedWallPreview, setRunning, showGainToast]);
 
   useEffect(() => {
     if (!running) return;
@@ -683,19 +769,25 @@ export default function App() {
       const current = runRef.current;
       const next = stepRun(current, Math.min(40, now - last), current.boardWidth, current.boardHeight);
       last = now;
-      if (exitTransitionPending.current) return;
       if (!next.ended && next.captureEvents.some(event => event.kind === 'exit')) {
-        exitTransitionPending.current = true;
-        runRef.current = next;
-        setRun({ ...next, balls: [...next.balls], walls: [...next.walls], powerups: [...next.powerups] });
+        const result = grantLevelClearRewards({ ...next, jumpReady: true });
+        const cleared = result.run;
+        runRef.current = cleared;
+        setRun({ ...cleared, balls: [...cleared.balls], walls: [...cleared.walls], powerups: [...cleared.powerups] });
+        void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(cleared));
         setCaptureEffects(old => [...old, ...attachCaptureSkins(next.captureEvents, visualSkinSelectionsRef.current, next.skinDiscovery)].slice(-8));
-        exitTransitionTimer.current = setTimeout(() => nextLevelAfterClear(next), 1450);
+        setNotice(['Jump drive ready · open the Starmap Jump console when you are ready', ...result.summary].join(' · '));
+        if (result.summary.length) showGainToast(result.summary.join(' · '), result.summary.some(item => item.includes('SLOT') || item.includes('SMELTER')) ? 'module' : 'pickup');
         return;
       }
       if ((!current.levelClearPending && next.levelClearPending) || next.level > current.level) setLevelClearAnimation({ id: ++levelClearSequence.current, level: current.level, style: current.mechanics.levelClearStyle, durationMs: current.mechanics.levelClearAnimationDurationMs });
-      if (!current.levelClearPending && next.levelClearPending) setNotice('Sector clear · capture the route beacon to continue');
+      if (!current.levelClearPending && next.levelClearPending) setNotice('Sector clear · capture the route beacon to prepare a jump');
       runRef.current = next;
       setRun({ ...next, balls: [...next.balls], walls: [...next.walls], powerups: [...next.powerups] });
+      const pickupCounts = next.captureEvents.reduce<Record<string, number>>((counts, event) => { if (['life', 'speed', 'ram', 'charge', 'treasure', 'merchant', 'bubble', 'waldo', 'engi-egg'].includes(event.kind)) counts[event.kind] = (counts[event.kind] ?? 0) + 1; return counts; }, {});
+      const pickupCallout = Object.entries(pickupCounts).map(([kind, amount]) => `+${amount} ${kind.toUpperCase()}`);
+      const creditCallout = next.creditGainEvents.length ? `+${next.creditGainEvents.reduce((sum, event) => sum + event.amount, 0)} CREDITS` : '';
+      if (pickupCallout.length || creditCallout) showGainToast([...pickupCallout, creditCallout].filter(Boolean).join(' · '), creditCallout ? 'credit' : 'pickup');
       if (next.creditGainEvents.length) setCreditGainEffects(old => [...old, ...next.creditGainEvents].slice(-6));
       if (next.captureEvents.length) setCaptureEffects(old => [...old, ...attachCaptureSkins(next.captureEvents, visualSkinSelectionsRef.current, next.skinDiscovery)].slice(-8));
       if (next.wallBreakEvents.length) setWallBreakEffects(old => [...old, ...next.wallBreakEvents].slice(-6));
@@ -705,8 +797,8 @@ export default function App() {
         setNotice('Run over — start a new run when you are ready');
       }
     }, 33);
-    return () => { clearInterval(timer); if (exitTransitionTimer.current) clearTimeout(exitTransitionTimer.current); exitTransitionTimer.current = null; exitTransitionPending.current = false; };
-  }, [running, nextLevelAfterClear]);
+    return () => { clearInterval(timer); };
+  }, [running, grantLevelClearRewards, showGainToast]);
 
   useEffect(() => {
     if (!loaded || run.ended) return;
@@ -718,7 +810,7 @@ export default function App() {
     if (!run.ended || savedRef.current) return;
     savedRef.current = true;
     (async () => {
-      const entry: ScoreEntry = { score: run.level, level: run.level, claimed: run.claimed, totalTerritoryClaimed: run.totalTerritoryClaimed, ballsDestroyed: run.ballsDestroyed, ballsContained: run.ballsContained, pickupsCaptured: run.pickupsCaptured, timestamp: Date.now() };
+      const entry: ScoreEntry = { score: run.level + (run.beaconBonusScore ?? 0), level: run.level, claimed: run.claimed, totalTerritoryClaimed: run.totalTerritoryClaimed, ballsDestroyed: run.ballsDestroyed, ballsContained: run.ballsContained, pickupsCaptured: run.pickupsCaptured, timestamp: Date.now() };
       const previous = await AsyncStorage.getItem(`${SAVE_KEY}-scores`);
       const next = [...(previous ? (JSON.parse(previous) as Partial<ScoreEntry>[]).map(normalizeScoreEntry) : []), entry]
         .sort((a, b) => b.score - a.score || b.ballsContained - a.ballsContained || a.timestamp - b.timestamp)
@@ -735,9 +827,42 @@ export default function App() {
     const runTuning = { ...tuning, backgroundColorIndex: backgroundIndex >= 0 ? backgroundIndex : 0, backgroundColors: BACKGROUND_SKINS.map(skin => skin.color) };
     setMechanicsSettings(runTuning);
     const layout = boardLayoutFor(stageSize.width, stageSize.height);
-    const fresh = attachSkinDiscovery(newRun(1, layout.worldWidth, layout.worldHeight), skinProgressionRef.current);
+    const sector = createSector(0, 'Civilian', BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => ({ id: scene.id, name: scene.name })));
+    const scenePool = [...BUILT_IN_BRIDGE_VISTAS.filter(scene => !scene.pictureEventUnlock), ...bridgeVistaLibrary];
+    const currentVistaId = scenePool[Math.floor(Math.random() * scenePool.length)]?.id;
+    const fresh = attachSkinDiscovery({ ...newRun(1, layout.worldWidth, layout.worldHeight, false, { suppressRandomEvents: true }), sector, baseMechanics: getMechanicsSettings(), currentVistaId, routeAtlas: [], jumpReady: false }, skinProgressionRef.current);
     runRef.current = fresh; setRun(fresh); setHasSave(true); savedRef.current = false; void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(fresh)); queuedWalls.current = []; setQueuedWallPreview([]); setPaused(false); setLevelClearAnimation(null); setMenuPage(null); setActiveTab('game'); setBridgeSimView('fullscreen'); setRunning(true);
     setNotice('Complete walls to claim regions without balls');
+  };
+  const scanMapFrontier = () => {
+    const current = runRef.current;
+    if (!current.sector || current.scanCharges < 1 || !hiddenFrontierBeacons(current.sector).length) return;
+    const result = scanNextFrontier(current.sector);
+    if (!result.revealed) return;
+    const next = { ...current, scanCharges: current.scanCharges - 1, sector: result.sector };
+    runRef.current = next; setRun(next); void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(next));
+    setNotice(`Deep scan complete · ${result.revealed.event.markerLabel ?? 'signal'} detected at beacon ${result.revealed.depth}`);
+  };
+  const openJumpConsole = () => {
+    const current = runRef.current;
+    if (!current.jumpReady || !current.sector || current.ended) return;
+    if (current.sector.beacons.find(beacon => beacon.id === current.sector?.currentBeaconId)?.exit) {
+      const options = current.pendingSectorChoices ?? generateSectorChoices(current.sector.type, current.sector.depth + 1, undefined, current.sector.typeHistory);
+      setSectorChoiceOptions(options);
+      const next = { ...current, pendingSectorChoices: options };
+      runRef.current = next; setRun(next); void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(next)); setMenuPage('sector-select');
+      return;
+    }
+    const pictureVistas = BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => ({ id: scene.id, name: scene.name }));
+    const next = { ...current, sector: openSectorMap(current.sector, pictureVistas) };
+    runRef.current = next; setRun(next); void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(next)); setMenuPage('sector-map');
+  };
+  const chooseNextSector = (type: SectorType) => {
+    const current = runRef.current;
+    if (!current.sector || !current.jumpReady || !current.pendingSectorChoices?.includes(type)) return;
+    const sector = createSector(current.sector.depth + 1, type, BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => ({ id: scene.id, name: scene.name })), undefined, current.sector.typeHistory);
+    const next = { ...current, sector: openSectorMap(sector, BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => ({ id: scene.id, name: scene.name }))), routeAtlas: [...(current.routeAtlas ?? []), archiveSectorRoute(current.sector)], pendingSectorChoices: undefined };
+    runRef.current = next; setRun(next); void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(next)); setMenuPage('sector-map');
   };
   const saveActiveRunToSlot = async () => {
     const snapshot = JSON.parse(JSON.stringify(runRef.current)) as Run;
@@ -746,8 +871,8 @@ export default function App() {
   };
   const loadManualRun = () => {
     if (!manualSave) return;
-    const restored = { ...manualSave, mechanics: normalizeMechanicsSettings(manualSave.mechanics), skinDiscovery: manualSave.skinDiscovery ?? null, totalTerritoryClaimed: manualSave.totalTerritoryClaimed ?? 0, ballsDestroyed: manualSave.ballsDestroyed ?? 0, ballsContained: manualSave.ballsContained ?? 0, pickupsCaptured: manualSave.pickupsCaptured ?? 0, containedBallIds: manualSave.containedBallIds ?? [], containedCountedThisLevel: manualSave.containedCountedThisLevel ?? false };
-    setMechanicsSettings(restored.mechanics); runRef.current = restored; setRun(restored); setHasSave(true); savedRef.current = false; void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(restored)); setMenuPage(null); setActiveTab('game'); setBridgeSimView('fullscreen'); setPaused(false); setRunning(!restored.ended); setNotice('Manual run save loaded');
+    const restored = { ...manualSave, routeAtlas: manualSave.routeAtlas ?? [], scanCharges: manualSave.scanCharges ?? 1, beaconStreak: manualSave.beaconStreak ?? 0, beaconStreakBest: manualSave.beaconStreakBest ?? 0, sector: manualSave.sector ?? createSector(0, 'Civilian', BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => ({ id: scene.id, name: scene.name }))), jumpReady: manualSave.jumpReady ?? false, baseMechanics: normalizeMechanicsSettings(manualSave.baseMechanics ?? manualSave.mechanics), currentVistaId: manualSave.currentVistaId ?? BUILT_IN_BRIDGE_VISTAS.find(scene => !scene.pictureEventUnlock)?.id, mechanics: normalizeMechanicsSettings(manualSave.mechanics), skinDiscovery: manualSave.skinDiscovery ?? null, totalTerritoryClaimed: manualSave.totalTerritoryClaimed ?? 0, ballsDestroyed: manualSave.ballsDestroyed ?? 0, ballsContained: manualSave.ballsContained ?? 0, pickupsCaptured: manualSave.pickupsCaptured ?? 0, containedBallIds: manualSave.containedBallIds ?? [], containedCountedThisLevel: manualSave.containedCountedThisLevel ?? false };
+    restored.sector.scanCount ??= 0; setMechanicsSettings(restored.mechanics); runRef.current = restored; setRun(restored); setHasSave(true); savedRef.current = false; void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(restored)); setMenuPage(null); setActiveTab('game'); setBridgeSimView('fullscreen'); setPaused(false); setRunning(!restored.ended); setNotice('Manual run save loaded');
   };
   const openMainMenu = (page: 'home' | 'themes' | 'scores' | 'settings' = 'home') => { setMerchantOpen(false); setMenuPage(page); setBridgeSimView('mini'); setConfirmOverwriteSave(false); };
   const resume = () => { setMenuPage(null); setActiveTab('game'); setBridgeSimView('fullscreen'); setPaused(false); setRunning(!runRef.current.ended); setNotice(runRef.current.ended ? 'Run ended · start a new run to continue' : 'Run resumed'); };
@@ -1132,17 +1257,18 @@ export default function App() {
   ], [bridgeVistaLibrary]);
   const availableBridgeVistaScenes = useMemo(() => bridgeVistaScenes.filter(scene => !scene.pictureEventUnlock || unlockedVistaIds.includes(scene.id)), [bridgeVistaScenes, unlockedVistaIds]);
   useEffect(() => {
-    if (menuPage !== 'home' || selectedBridgeVistaId || developerVistaId || bridgeSimView === 'window' || availableBridgeVistaScenes.length < 2) return;
+    if (menuPage !== 'home' || hasSave || selectedBridgeVistaId || developerVistaId || bridgeSimView === 'window' || availableBridgeVistaScenes.length < 2) return;
     const timer = setInterval(() => setBridgeVistaIndex(index => (index + 1) % availableBridgeVistaScenes.length), 18000);
     return () => clearInterval(timer);
-  }, [menuPage, selectedBridgeVistaId, developerVistaId, bridgeSimView, availableBridgeVistaScenes]);
+  }, [menuPage, hasSave, selectedBridgeVistaId, developerVistaId, bridgeSimView, availableBridgeVistaScenes]);
   const bridgeExteriorScene = useMemo(() => {
     const developerSelection = developerVistaId ? bridgeVistaScenes.find(scene => scene.id === developerVistaId) : undefined;
     const pinnedBuiltIn = selectedBridgeVistaId ? bridgeVistaScenes.find(scene => scene.id === selectedBridgeVistaId && (!scene.pictureEventUnlock || unlockedVistaIds.includes(scene.id))) : undefined;
-    return developerSelection ?? pinnedBuiltIn ?? (pinnedBridgeVista
+    const activeLevelScene = hasSave && run.currentVistaId ? bridgeVistaScenes.find(scene => scene.id === run.currentVistaId && (!scene.pictureEventUnlock || unlockedVistaIds.includes(scene.id))) : undefined;
+    return developerSelection ?? activeLevelScene ?? pinnedBuiltIn ?? (pinnedBridgeVista
       ? { id: pinnedBridgeVista.id, name: pinnedBridgeVista.name, source: { uri: pinnedBridgeVista.uri } as ImageSourcePropType }
-      : availableBridgeVistaScenes[bridgeVistaIndex % Math.max(availableBridgeVistaScenes.length, 1)]);
-  }, [developerVistaId, selectedBridgeVistaId, unlockedVistaIds, pinnedBridgeVista, bridgeVistaScenes, availableBridgeVistaScenes, bridgeVistaIndex]);
+      : activeLevelScene ?? availableBridgeVistaScenes[bridgeVistaIndex % Math.max(availableBridgeVistaScenes.length, 1)]);
+  }, [developerVistaId, selectedBridgeVistaId, unlockedVistaIds, pinnedBridgeVista, bridgeVistaScenes, availableBridgeVistaScenes, bridgeVistaIndex, hasSave, run.currentVistaId]);
   const claimRects = useMemo(() => {
     const cols = run.gridCols, rows = run.gridRows, rects: { key: string; x: number; y: number; width: number }[] = [];
     for (let y = 0; y < rows; y++) {
@@ -1320,6 +1446,7 @@ export default function App() {
           {wallBreakEffects.map((effect, index) => <WallBreakBurst key={`${effect.id}-${index}`} event={effect} sx={sx} sy={sy} onDone={() => setWallBreakEffects(old => old.filter(e => e !== effect))} />)}
           {territoryEffects.map((effect, index) => <TerritoryGainPopup key={`${effect.id}-${index}`} event={effect} sx={sx} sy={sy} placement={runSettings.territoryPopupPlacement} onDone={() => setTerritoryEffects(old => old.filter(e => e !== effect))} />)}
           {creditGainEffects.map((effect, index) => <CreditGainPopup key={`${effect.id}-${index}`} event={effect} sx={sx} sy={sy} stageWidth={run.boardWidth * sx} stageHeight={run.boardHeight * sy} creditSkin={visualSkins.credit} style={run.mechanics.creditGainStyle} onDone={() => setCreditGainEffects(old => old.filter(item => item !== effect))} />)}
+          {gainToast && <GainCallout key={gainToast.id} entry={gainToast} onDone={() => setGainToast(current => current?.id === gainToast.id ? null : current)} />}
           {!running && !paused && !run.levelClearPending && <View pointerEvents="none" style={styles.pauseBadge}><Text style={styles.pauseText}>{run.ended ? 'RUN ENDED' : 'READY'}</Text></View>}
           {run.isotypesContained && run.isotypesNoticeUntilMs > run.elapsedMs && <View pointerEvents="none" style={styles.isotypesBanner}><Text style={styles.isotypesBannerText}>Isotypes Contained</Text></View>}
           </View>
@@ -1649,13 +1776,16 @@ export default function App() {
             <View style={styles.bridgeBrandBlock}><View style={styles.bridgeBrandGlyph}><Text style={styles.bridgeBrandGlyphText}>✧</Text></View><View><Text style={styles.menuEyebrow}>TRAP / SURVIVAL</Text><Text style={[styles.commandBrand, compactBridge && styles.commandBrandCompact]}>Containment</Text><Text style={styles.commandSubBrand}>STARSHIP COMMAND</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Close Bay Navigation Console" onPress={() => setBridgeRailVisible(false)} style={{ marginLeft: 'auto', width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#456070', borderRadius: 14, backgroundColor: '#0b1b27' }}><Text style={{ color: '#a6c0ce', fontSize: 17, fontWeight: '700', lineHeight: 20 }}>×</Text></Pressable></View>
             <Text style={[styles.commandSectionLabel, styles.bridgeSectionLabel]}>RUN CONTROL</Text>
             <Pressable disabled={!hasSave || run.ended} style={[styles.bridgeRailAction, styles.bridgeRailResume, (!hasSave || run.ended) && styles.bridgeRailDisabled]} onPress={resume}><Text style={styles.bridgeRailGlyph}>▶</Text><View style={styles.bridgeRailCopy}><Text style={styles.bridgeRailTitle}>RESUME ACTIVE RUN</Text><Text style={styles.bridgeRailDetail}>{hasSave && !run.ended ? `Stage ${String(run.level).padStart(2, '0')} · ${running ? 'simulation live' : paused ? 'simulation paused' : 'ready to resume'}` : 'No active sector'}</Text></View><BridgePulse /></Pressable>
+            {hasSave && !run.ended && <Pressable disabled={!run.jumpReady} style={[styles.bridgeRailAction, run.jumpReady && styles.bridgeRailResume, !run.jumpReady && styles.bridgeRailDisabled]} onPress={openJumpConsole}><Text style={styles.bridgeRailGlyph}>⇢</Text><View style={styles.bridgeRailCopy}><Text style={styles.bridgeRailTitle}>STARMAP JUMP</Text><Text style={styles.bridgeRailDetail}>{run.jumpReady ? `Exit captured · ${run.scanCharges} scans stored` : `Scan reserve ${run.scanCharges} · capture exit to unlock`}</Text></View>{run.jumpReady && <BridgePulse />}</Pressable>}
             {!!manualSave && <Pressable style={styles.bridgeRailAction} onPress={loadManualRun}><Text style={styles.bridgeRailGlyph}>◫</Text><View style={styles.bridgeRailCopy}><Text style={styles.bridgeRailTitle}>LOAD SAVED RUN</Text><Text style={styles.bridgeRailDetail}>Checkpoint · stage {String(manualSave.level).padStart(2, '0')}</Text></View></Pressable>}
             {!!hasSave && !run.ended && <Pressable style={styles.bridgeRailAction} onPress={() => manualSave ? confirmOverwriteSave ? void saveActiveRunToSlot() : setConfirmOverwriteSave(true) : void saveActiveRunToSlot()}><Text style={styles.bridgeRailGlyph}>▣</Text><View style={styles.bridgeRailCopy}><Text style={styles.bridgeRailTitle}>{confirmOverwriteSave ? 'CONFIRM SAVE OVERWRITE' : manualSave ? 'SAVE ACTIVE RUN OVER SLOT' : 'SAVE ACTIVE RUN'}</Text><Text style={styles.bridgeRailDetail}>{confirmOverwriteSave ? 'Replace the manual checkpoint' : 'Copy the live sector to your save slot'}</Text></View></Pressable>}
             {confirmOverwriteSave && <Text style={styles.bridgeRailWarning}>This replaces the saved checkpoint.</Text>}
             <Pressable style={[styles.bridgeRailAction, styles.bridgeRailNew, confirmNewRun && styles.commandActionWarn]} onPress={() => { if (hasSave && !run.ended && !confirmNewRun) setConfirmNewRun(true); else { setConfirmNewRun(false); startFresh(); } }}><Text style={styles.bridgeRailGlyph}>✧</Text><View style={styles.bridgeRailCopy}><Text style={styles.bridgeRailTitle}>{confirmNewRun ? 'CONFIRM NEW RUN' : 'START NEW RUN'}</Text><Text style={styles.bridgeRailDetail}>{confirmNewRun ? 'The active run will be replaced' : 'Deploy into a fresh sector'}</Text></View></Pressable>
             <Pressable disabled={!hasSave || run.ended || (!running && !paused)} style={[styles.bridgePauseLink, (!running && !paused) && styles.bridgeRailDisabled]} onPress={togglePause}><Text style={styles.bridgePauseGlyph}>{running ? 'Ⅱ' : '▶'}</Text><Text style={styles.bridgePauseText}>{running ? 'PAUSE LIVE SIMULATION' : paused ? 'RESUME LIVE SIMULATION' : 'SIMULATION STANDBY'}</Text></Pressable>
             <View style={styles.bridgeReadoutGroup}>
-              <Pressable style={styles.bridgeReadout} onPress={() => setMenuPage('settings')}><View style={styles.bridgeReadoutHeading}><Text style={styles.bridgeReadoutGlyph}>◈</Text><Text style={styles.bridgeReadoutLabel}>PLAY MODE</Text></View><Text style={styles.bridgeReadoutValue}>{tuning.easyMode ? 'EASY' : tuning.hardMode ? 'HARD' : 'NORMAL'}</Text></Pressable>
+              <Pressable disabled={!run.jumpReady || run.ended} style={[styles.bridgeReadout, !run.jumpReady && styles.bridgeRailDisabled]} onPress={openJumpConsole}><View style={styles.bridgeReadoutHeading}><Text style={styles.bridgeReadoutGlyph}>⇢</Text><Text style={styles.bridgeReadoutLabel}>NAVIGATION · {run.sector?.type.toUpperCase() ?? 'NO SECTOR'}</Text></View><Text style={styles.bridgeReadoutValue}>{run.jumpReady ? `OPEN MAP · ${run.scanCharges} SCANS` : `STAGE ${String(run.level).padStart(2, '0')} · ${run.beaconStreak ? `STREAK ×${run.beaconStreak}` : 'ROUTE LOCKED'}`}</Text></Pressable>
+              {run.sector && <Pressable style={styles.bridgeReadout} onPress={() => setMenuPage('route-atlas')}><View style={styles.bridgeReadoutHeading}><Text style={styles.bridgeReadoutGlyph}>⌖</Text><Text style={styles.bridgeReadoutLabel}>FLIGHT PATH ATLAS</Text></View><Text style={styles.bridgeReadoutValue}>{(run.routeAtlas?.length ?? 0) + 1} SECTORS · {run.sector.visitedBeaconIds.length - 1} JUMPS IN THIS SECTOR</Text></Pressable>}
+              <Pressable style={styles.bridgeReadout} onPress={() => setMenuPage('settings')}><View style={styles.bridgeReadoutHeading}><Text style={styles.bridgeReadoutGlyph}>◈</Text><Text style={styles.bridgeReadoutLabel}>{hasSave && !run.ended ? 'RUN MODE · LOCKED' : 'NEXT RUN MODE'}</Text></View><Text style={styles.bridgeReadoutValue}>{(hasSave && !run.ended ? run.mechanics : tuning).easyMode ? 'EASY' : (hasSave && !run.ended ? run.mechanics : tuning).hardMode ? 'HARD' : 'NORMAL'}</Text></Pressable>
               <Pressable style={styles.bridgeReadout} onPress={() => setMenuPage('themes')}><View style={styles.bridgeReadoutHeading}><Text style={styles.bridgeReadoutGlyph}>✦</Text><Text style={styles.bridgeReadoutLabel}>THEME LOADOUT</Text></View><Text style={styles.bridgeReadoutValue}>{Object.entries(themeSelectionMap).filter(([category, id]) => id !== SKIN_DEFAULTS[category]).length || 'STANDARD'}</Text></Pressable>
               <Pressable style={styles.bridgeReadout} onPress={() => setMenuPage('scores')}><View style={styles.bridgeReadoutHeading}><Text style={styles.bridgeReadoutGlyph}>⌁</Text><Text style={styles.bridgeReadoutLabel}>BEST RUN</Text></View><Text style={styles.bridgeReadoutValue}>{scores[0] ? `STAGE ${String(scores[0].level).padStart(2, '0')}` : 'NO RECORD'}</Text></Pressable>
             </View>
@@ -1681,15 +1811,19 @@ export default function App() {
           height={bridgeArtHeight}
           onThemes={() => setMenuPage('themes')}
           onScores={() => setMenuPage('scores')}
-          onPlayMode={() => setMenuPage('settings')}
+          onJump={openJumpConsole}
+          jumpReady={run.jumpReady === true}
           onNavConsole={() => setBridgeRailVisible(visible => !visible)}
           themeValue={Object.entries(themeSelectionMap).filter(([category, id]) => id !== SKIN_DEFAULTS[category]).length ? 'CUSTOM LOADOUT' : 'STANDARD'}
           scoreValue={scores[0] ? `STAGE ${String(scores[0].level).padStart(2, '0')}` : 'NO RECORD'}
-          playModeValue={tuning.easyMode ? 'EASY' : tuning.hardMode ? 'HARD' : 'NORMAL'}
           navConsoleOpen={bridgeRailVisible}
         />
       </View>}
     </View>}
+    {menuPage === 'sector-map' && run.sector && <SectorMapScreen sector={run.sector} routeAtlas={run.routeAtlas ?? []} scanCharges={run.scanCharges} beaconStreak={run.beaconStreak} pictureVistas={BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock && !(typeof scene.source === 'object' && scene.source !== null && 'type' in scene.source)).map(scene => ({ id: scene.id, name: scene.name, source: scene.source as ImageSourcePropType }))} onBack={() => setMenuPage('home')} onJump={jumpToBeacon} onScan={scanMapFrontier} />}
+    {menuPage === 'route-atlas' && run.sector && <RouteAtlasScreen routeAtlas={run.routeAtlas ?? []} activeSector={run.sector} onBack={() => setMenuPage('home')} />}
+    {menuPage === 'sector-select' && run.sector && <SectorSelectScreen options={sectorChoiceOptions} currentType={run.sector.type} depth={run.sector.depth} onChoose={chooseNextSector} onCancel={() => setMenuPage('home')} />}
+    {jumpTransitionActive && <JumpTransitionBoundary destination={jumpDestinationName} sector={run.sector?.type ?? 'Civilian'} />}
     {bridgeVistaOpen && <View style={styles.bridgeVistaScrim}><View style={styles.bridgeVistaPanel}>
       <View style={styles.menuPanelHeader}><View><Text style={styles.menuEyebrow}>COMMAND BRIDGE · EXTERIOR</Text><Text style={styles.bridgeVistaTitle}>Vista archive</Text></View><Pressable style={styles.menuBack} onPress={() => setBridgeVistaOpen(false)}><Text style={styles.menuBackText}>CLOSE</Text></Pressable></View>
        <Text style={styles.menuSubhead}>One continuous exterior scene shows through the main and side windows. Game Picture events stay on the game board and do not replace the bridge vista.</Text>
@@ -1702,7 +1836,7 @@ export default function App() {
     </View></View>}
     {menuPage === 'scores' && <View style={styles.mainMenuScrim}><View style={styles.scorePanel}><View style={styles.menuPanelHeader}><View><Text style={styles.menuEyebrow}>RUN ARCHIVE · TOP FIVE</Text><Text style={styles.menuTitle}>Scores</Text></View><Pressable style={styles.menuBack} onPress={() => setMenuPage('home')}><Text style={styles.menuBackText}>HOME</Text></Pressable></View><Text style={styles.menuSubhead}>Ranked by Score (currently the level reached), then by total balls contained.</Text>{scores.length ? scores.map((entry, index) => <View key={`${entry.timestamp}-${index}`} style={styles.menuScoreCard}><View style={styles.menuScoreRank}><Text style={styles.menuScoreRankText}>{String(index + 1).padStart(2, '0')}</Text></View><View style={styles.scoreMain}><Text style={styles.scoreLevel}>SCORE {entry.score} · STAGE {String(entry.level).padStart(2, '0')}</Text><Text style={styles.scoreDetails}>{entry.totalTerritoryClaimed.toFixed(1)}% total claimed · {entry.ballsContained} balls contained · {entry.ballsDestroyed} destroyed · {entry.pickupsCaptured} pickups</Text></View><Text style={styles.scoreClaim}>{entry.claimed.toFixed(1)}%</Text></View>) : <Text style={styles.menuEmpty}>No completed runs yet. Scores are recorded when a run ends.</Text>}</View></View>}
     {menuPage === 'settings' && <View style={styles.mainMenuScrim}><View style={styles.scorePanel}><View style={styles.menuPanelHeader}><View><Text style={styles.menuEyebrow}>PLAYER SETTINGS</Text><Text style={styles.menuTitle}>Play mode</Text></View><Pressable style={styles.menuBack} onPress={() => setMenuPage('home')}><Text style={styles.menuBackText}>HOME</Text></Pressable></View><Text style={styles.menuSubhead}>Choose the baseline rules for your next run. Active runs keep their saved settings.</Text><View style={styles.modeRow}>{(['easy', 'normal', 'hard'] as const).map(mode => { const active = mode === 'easy' ? tuning.easyMode : mode === 'hard' ? tuning.hardMode : !tuning.easyMode && !tuning.hardMode; return <Pressable key={mode} style={[styles.modeCard, active && styles.modeCardActive]} onPress={() => setTuning(old => ({ ...old, easyMode: mode === 'easy', hardMode: mode === 'hard' }))}><Text style={[styles.modeTitle, active && styles.modeTitleActive]}>{mode.toUpperCase()}</Text><Text style={styles.menuButtonCopy}>{mode === 'easy' ? 'Balls added between levels only.' : mode === 'normal' ? 'A chance to add a ball after capture.' : 'Additional ball on every completed wall.'}</Text></Pressable>; })}</View></View></View>}
-    {menuPage === 'themes' && <ThemeTreeScreen unlocks={skinProgression} selections={themeSelectionMap} onEquip={equipArchiveSkin} onClose={() => setMenuPage('home')} renderPreview={renderThemePreview} vistaScenes={BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock)} unlockedVistaIds={unlockedVistaIds} onSelectVista={scene => { setSelectedBridgeVistaId(scene.id); setMenuPage('home'); }} />}
+    {menuPage === 'themes' && <ThemeTreeScreen unlocks={skinProgression} selections={themeSelectionMap} onEquip={equipArchiveSkin} onClose={() => setMenuPage('home')} renderPreview={renderThemePreview} vistaScenes={BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock)} unlockedVistaIds={unlockedVistaIds} equippedVistaId={selectedBridgeVistaId ?? run.currentVistaId ?? null} onSelectVista={scene => { setSelectedBridgeVistaId(scene.id); setMenuPage('home'); }} />}
     {skinAchievement && <Pressable style={styles.skinAchievementScrim} onPress={() => setSkinAchievement(null)}><View style={styles.skinAchievementCard}><Text style={styles.menuEyebrow}>CONSTELLATION DISCOVERED</Text><Text style={styles.achievementGlyph}>✦</Text><Text style={styles.menuTitle}>{skinAchievement.name}</Text><Text style={styles.menuSubhead}>{skinAchievement.categoryName} · TIER {skinAchievement.tier}</Text><Text style={styles.menuButtonCopy}>This skin is permanently available in THEMES.</Text><Text style={styles.menuConfirmText}>TAP TO CONTINUE</Text></View></Pressable>}
     {vistaAchievement && !skinAchievement && <Pressable style={styles.skinAchievementScrim} onPress={() => setVistaAchievement(null)}><View style={styles.skinAchievementCard}><Text style={styles.menuEyebrow}>PICTURE EVENT · LEVEL CLEARED</Text><Text style={styles.achievementGlyph}>✧</Text><Text style={styles.menuTitle}>{BUILT_IN_BRIDGE_VISTAS.find(scene => scene.id === vistaAchievement)?.name ?? 'NEW WINDOW VISTA'}</Text><Text style={styles.menuSubhead}>VISTA UNLOCKED</Text><Text style={styles.menuButtonCopy}>This scene is permanently available in THEMES and your bridge window rotation.</Text><Text style={styles.menuConfirmText}>TAP TO CONTINUE</Text></View></Pressable>}
     </View>
@@ -2625,6 +2759,68 @@ function LevelClearTransition({ event, onDone }: { event: { id: number; level: n
   </View>;
 }
 
+function GainCallout({ entry, onDone }: { entry: { id: number; text: string; tone: 'credit' | 'pickup' | 'module' }; onDone: () => void }) {
+  const animation = useRef(new Animated.Value(0)).current;
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
+  useEffect(() => {
+    animation.setValue(0);
+    Animated.sequence([
+      Animated.timing(animation, { toValue: 1, duration: 180, useNativeDriver: true }),
+      Animated.delay(1000),
+      Animated.timing(animation, { toValue: 0, duration: 260, useNativeDriver: true }),
+    ]).start(({ finished }) => { if (finished) onDoneRef.current(); });
+  }, [animation, entry.id]);
+  const opacity = animation.interpolate({ inputRange: [0, 0.08, 0.88, 1], outputRange: [0, 1, 1, 0] });
+  const translateY = animation.interpolate({ inputRange: [0, 1], outputRange: [-11, 0] });
+  const toneStyle = entry.tone === 'credit' ? styles.gainCredit : entry.tone === 'module' ? styles.gainModule : styles.gainPickup;
+  return <Animated.View pointerEvents="none" style={[styles.gainCallout, toneStyle, { opacity, transform: [{ translateY }, { scale: animation.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0.96, 1.03, 1] }) }] }]}>
+    <Text style={styles.gainKicker}>{entry.tone === 'credit' ? 'CARGO TRANSFER' : entry.tone === 'module' ? 'SHIP MODULE INSTALLED' : 'PICKUP SECURED'}</Text>
+    <Text numberOfLines={2} style={styles.gainText}>{entry.text}</Text>
+  </Animated.View>;
+}
+
+function JumpDriveTransition({ destination, sector }: { destination: string; sector: SectorType }) {
+  const accent = SECTOR_VISUALS[sector].accent;
+  return <View pointerEvents="auto" style={jumpTransitionStyles.scrim}>
+    <Text style={[jumpTransitionStyles.kicker, { color: accent }]}>{sector.toUpperCase()} SECTOR · NAV DRIVE</Text>
+    <View style={jumpTransitionStyles.reactor}>
+      <View style={[jumpTransitionStyles.outerRing, { borderColor: accent }]} />
+      <View style={[jumpTransitionStyles.innerRing, { borderColor: '#d9fbff' }]} />
+      <View style={[jumpTransitionStyles.core, { backgroundColor: accent }]}><Text style={jumpTransitionStyles.coreGlyph}>✧</Text></View>
+    </View>
+    <Text style={jumpTransitionStyles.title}>JUMP DRIVE ENGAGED</Text>
+    <View style={jumpTransitionStyles.routeRow}><Text style={jumpTransitionStyles.routeNode}>HERE</Text><View style={jumpTransitionStyles.routeLine}><View style={[jumpTransitionStyles.routeFill, { backgroundColor: accent, width: '66%' }]} /></View><Text numberOfLines={1} style={[jumpTransitionStyles.routeNode, { color: accent }]}>{destination}</Text></View>
+    <Text style={jumpTransitionStyles.status}>COORDINATES LOCKED · EXIT VECTOR STABLE</Text>
+  </View>;
+}
+
+class JumpTransitionBoundary extends React.Component<{ destination: string; sector: SectorType }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(error: Error) { console.error('Jump transition render failed', error); }
+  render() {
+    if (this.state.failed) return <View pointerEvents="auto" style={jumpTransitionStyles.scrim}><Text style={jumpTransitionStyles.kicker}>NAVIGATION SYSTEMS</Text><Text style={jumpTransitionStyles.title}>SYNCHRONIZING JUMP</Text></View>;
+    return <JumpDriveTransition destination={this.props.destination} sector={this.props.sector} />;
+  }
+}
+
+const jumpTransitionStyles = StyleSheet.create({
+  scrim: { position: 'absolute', zIndex: 240, left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: '#02070d', paddingHorizontal: 24 },
+  kicker: { fontSize: 8, fontWeight: '900', letterSpacing: 2 },
+  reactor: { width: 126, height: 126, marginTop: 22, alignItems: 'center', justifyContent: 'center' },
+  outerRing: { position: 'absolute', width: 118, height: 118, borderWidth: 1, borderRadius: 64, borderStyle: 'dashed', shadowOpacity: 0.85, shadowRadius: 16 },
+  innerRing: { position: 'absolute', width: 84, height: 84, borderWidth: 2, borderRadius: 48, shadowOpacity: 0.75, shadowRadius: 10 },
+  core: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 22, opacity: 0.85 },
+  coreGlyph: { color: '#07111a', fontSize: 24, fontWeight: '900' },
+  title: { color: '#e9f5f7', fontSize: 18, fontWeight: '900', letterSpacing: 2.3, marginTop: 20 },
+  routeRow: { width: '100%', maxWidth: 470, flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 26 },
+  routeNode: { maxWidth: 115, color: '#9fb0bd', fontSize: 7, fontWeight: '900', letterSpacing: 0.8 },
+  routeLine: { height: 2, flex: 1, overflow: 'hidden', backgroundColor: '#223845' },
+  routeFill: { height: '100%' },
+  status: { color: '#71909b', fontSize: 7, fontWeight: '900', letterSpacing: 1.2, marginTop: 17 },
+});
+
 function CreditGainPopup({ event, sx, sy, stageWidth, stageHeight, creditSkin, style, onDone }: { event: CreditGainEvent; sx: number; sy: number; stageWidth: number; stageHeight: number; creditSkin: string; style: MechanicsSettings['creditGainStyle']; onDone: () => void }) {
   const [progress] = useState(() => new Animated.Value(0));
   const [drift] = useState(() => {
@@ -3288,6 +3484,7 @@ const styles = StyleSheet.create({
   footerText: { color: '#8ea0b4', fontSize: 8, letterSpacing: 1.1, fontWeight: '800' },
   controls: { paddingTop: 11 },
   notice: { color: '#9badc0', textAlign: 'center', fontSize: 11, marginBottom: 8 },
+  gainCallout: { position: 'absolute', zIndex: 160, top: 20, alignSelf: 'center', minWidth: 180, maxWidth: '86%', paddingHorizontal: 13, paddingVertical: 8, alignItems: 'center', borderWidth: 1, borderRadius: 4, backgroundColor: 'rgba(4,16,23,0.96)' }, gainCredit: { borderColor: '#75e5a1', shadowColor: '#53eb91', shadowOpacity: 0.45, shadowRadius: 12 }, gainPickup: { borderColor: '#68d7c7', shadowColor: '#50dccb', shadowOpacity: 0.38, shadowRadius: 10 }, gainModule: { borderColor: '#dfbd75', shadowColor: '#e0bc69', shadowOpacity: 0.4, shadowRadius: 10 }, gainKicker: { color: '#829aa8', fontSize: 6, fontWeight: '900', letterSpacing: 1.1 }, gainText: { color: '#e8fff4', fontSize: 10, fontWeight: '900', letterSpacing: 0.55, textAlign: 'center', marginTop: 3 },
   buttonRow: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginBottom: 9 }, topGameActions: { justifyContent: 'flex-end', marginTop: -3, marginBottom: 7 },
   inputOptions: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginBottom: 8 },
   inputLabel: { color: '#67778b', fontSize: 8, fontWeight: '800', letterSpacing: 1, marginRight: 3 },

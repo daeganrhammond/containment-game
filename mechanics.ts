@@ -1,3 +1,5 @@
+import type { SectorRouteRecord, SectorState } from './sectorMap';
+
 /** Central place for playtest tuning. Values are intentionally provisional. */
 export type MechanicsSettings = {
   startLives: number; startingBalls: number; ballsAddedPerLevel: number; hardMode: boolean; easyMode: boolean;
@@ -192,8 +194,8 @@ let pictureEventVistaIds: string[] = [];
 export function setPictureLibrary(entries: PictureLibraryEntry[]) { pictureLibrary = [...entries]; }
 export function setWaldoLibrary(entries: WaldoLibraryEntry[]) { waldoLibrary = [...entries]; }
 export function setPictureEventVistas(ids: string[]) { pictureEventVistaIds = [...ids]; }
-function nextPictureEvent(waldoRequested = false): PictureEvent | null {
-  if (Math.random() >= MECHANICS.pictureEventChance) return null;
+function nextPictureEvent(waldoRequested = false, force = false): PictureEvent | null {
+  if (!force && Math.random() >= MECHANICS.pictureEventChance) return null;
   if (waldoRequested) {
     if (waldoLibrary.length && Math.random() < MECHANICS.waldoLibrarySelectionChance) {
       const saved = waldoLibrary[Math.floor(Math.random() * waldoLibrary.length)];
@@ -219,6 +221,12 @@ function generatedWaldoLocation(seed: number) {
 }
 export type Run = {
   level: number;
+  sector?: SectorState;
+  routeAtlas?: SectorRouteRecord[];
+  baseMechanics?: MechanicsSettings;
+  pendingSectorChoices?: import('./sectorMap').SectorType[];
+  jumpReady?: boolean;
+  currentVistaId?: string;
   lives: number;
   claimed: number;
   claimMask: number[];
@@ -232,6 +240,10 @@ export type Run = {
   ramCapacityBonus: number; ramCapacityPurchases: number;
   chargeCapacityBonus: number; chargeCapacityPurchases: number;
   merchantTokens: number; credits: number; powerBars: number;
+  beaconBonusScore?: number;
+  scanCharges: number;
+  beaconStreak: number;
+  beaconStreakBest: number;
   lifeCapacity: number; lifeCapacityPurchases: number;
   overflowJobs: OverflowJob[]; overflowSuccessChance: number; overflowUpgradePurchases: number; overflowResult?: OverflowResult;
   overflowProcessingUpgradePurchases: number;
@@ -698,14 +710,30 @@ function advancePetBodies(run: Run, dt: number, width: number, height: number) {
   if (run.petNoticeUntilMs <= run.elapsedMs) run.petNotice = null;
 }
 
-export function newRun(level = 1, boardWidth = 900, boardHeight = 1100, waldoRequested = false): Run {
-  const count = MECHANICS.startingBalls + (level - 1) * MECHANICS.ballsAddedPerLevel;
+export type BeaconRunSetup = { effects?: { ballCountDelta?: number; ballSpeedPercent?: number; pickupRatePercent?: number; engiSpawnWeightMultiplier?: number; levelEvent?: 'elimination' | 'drift-swarm' }[]; pictureVistaId?: string; jackpot?: boolean; waldo?: boolean; suppressRandomPictureEvent?: boolean; suppressRandomEvents?: boolean; difficultyDepth?: number };
+
+export function newRun(level = 1, boardWidth = 900, boardHeight = 1100, waldoRequested = false, beaconSetup?: BeaconRunSetup, baseSettings?: MechanicsSettings): Run {
+  const base = baseSettings ?? getMechanicsSettings();
+  const effects = beaconSetup?.effects ?? [];
+  setMechanicsSettings(base);
+  const mechanics = getMechanicsSettings();
+  mechanics.startingBalls = Math.max(1, base.startingBalls + effects.reduce((sum, effect) => sum + (effect.ballCountDelta ?? 0), 0));
+  mechanics.ballSpeedMin = base.ballSpeedMin * (1 + effects.reduce((sum, effect) => sum + (effect.ballSpeedPercent ?? 0), 0) / 100);
+  mechanics.ballSpeedMax = base.ballSpeedMax * (1 + effects.reduce((sum, effect) => sum + (effect.ballSpeedPercent ?? 0), 0) / 100);
+  const pickupRate = Math.max(0.6, 1 + effects.reduce((sum, effect) => sum + (effect.pickupRatePercent ?? 0), 0) / 100);
+  mechanics.powerupSpawnEverySecondsMin = Math.max(5, Math.round(base.powerupSpawnEverySecondsMin / pickupRate));
+  mechanics.powerupSpawnEverySecondsMax = Math.max(mechanics.powerupSpawnEverySecondsMin, Math.round(base.powerupSpawnEverySecondsMax / pickupRate));
+  const engiSpawnBoost = Math.max(1, ...effects.map(effect => effect.engiSpawnWeightMultiplier ?? 1));
+  mechanics.powerupSpawnWeights['engi-egg'] = (base.powerupSpawnWeights['engi-egg'] ?? 0) * engiSpawnBoost;
+  setMechanicsSettings(mechanics);
+  const count = mechanics.startingBalls + (beaconSetup?.difficultyDepth ?? level - 1) * mechanics.ballsAddedPerLevel;
   const gridCols = Math.max(48, Math.round(48 * boardWidth / 900));
   const gridRows = Math.max(72, Math.round(72 * boardHeight / 1100));
-  const pictureEvent = nextPictureEvent(waldoRequested);
+  const pictureEvent = beaconSetup?.pictureVistaId ? { seed: Math.floor(Math.random() * 2_147_483_647), vistaId: beaconSetup.pictureVistaId } : (waldoRequested || !!beaconSetup?.waldo) ? nextPictureEvent(true, true) : beaconSetup?.suppressRandomPictureEvent ? null : nextPictureEvent();
   const eventRoll = Math.random(), eventTotal = MECHANICS.eliminationEventChance + MECHANICS.driftSwarmEventChance;
   const eventScale = Math.max(1, eventTotal);
-  const levelEvent = eventRoll < MECHANICS.eliminationEventChance / eventScale ? 'elimination' : eventRoll < eventTotal / eventScale ? 'drift-swarm' : 'none';
+  const mappedEvent = effects.find(effect => effect.levelEvent)?.levelEvent;
+  const levelEvent = mappedEvent ?? (beaconSetup?.suppressRandomEvents ? 'none' : eventRoll < MECHANICS.eliminationEventChance / eventScale ? 'elimination' : eventRoll < eventTotal / eventScale ? 'drift-swarm' : 'none');
   const balls: Ball[] = [];
   for (let i = 0; i < count; i++) {
     const speed = randomBetween(MECHANICS.ballSpeedMin, MECHANICS.ballSpeedMax);
@@ -722,7 +750,7 @@ export function newRun(level = 1, boardWidth = 900, boardHeight = 1100, waldoReq
     balls.push(ball);
   }
   return {
-    level, lives: MECHANICS.startLives, lifeCapacity: Math.max(MECHANICS.startLives, MECHANICS.lifeStorageBaseCapacity), lifeCapacityPurchases: 0, speedCapacityBonus: 0, speedCapacityPurchases: 0, ramCapacityBonus: 0, ramCapacityPurchases: 0, chargeCapacityBonus: 0, chargeCapacityPurchases: 0, chargeCharges: 0, overflowJobs: [], overflowSuccessChance: MECHANICS.overflowBaseSuccessChance, overflowUpgradePurchases: 0, overflowProcessingUpgradePurchases: 0, claimed: 0, totalTerritoryClaimed: 0, ballsDestroyed: 0, ballsContained: 0, pickupsCaptured: 0, containedBallIds: [], containedCountedThisLevel: false, skinDiscovery: null, claimMask: Array(gridCols * gridRows).fill(0), walls: [], powerups: [], speedCharges: 0, ramCharges: 0, merchantTokens: 0, credits: 0, powerBars: 0, powerBarsPurchased: 0, merchantUpgrades: Object.fromEntries(['life','speed','ram','treasure','waldo', ...Object.keys(MECHANICS.containmentMutationPickupEnabled).flatMap(kind => [`mutationAffinity:${kind}`, `mutationAttraction:${kind}`])].map(key => [key, 0])), petEggs: 0, petEggVisitProgress: 0, pets: [], petIncubations: [], isotypesContained: false, isotypesNoticeUntilMs: 0, petNotice: null, petNoticeUntilMs: 0, levelClearPending: false, levelClearAnimationRemainingMs: 0, levelClearBubbleTimerMs: 0, levelClearBubbleAccumulatorMs: 0, levelEvent, levelEventBannerUntilMs: levelEvent === 'drift-swarm' ? MECHANICS.driftSwarmBannerDurationMs : 0, containmentMutations: [], containmentMutationScanRemainingMs: 0, speedReadyUntil: null, chargeReadyUntil: null, captureEvents: [], wallBreakEvents: [], territoryGainEvents: [], creditGainEvents: [], treasureEligible: Math.random() < MECHANICS.treasureLevelEligibilityChance, treasureHuntPending: false, treasureHunt: null, pictureEvent, waldoEventPending: waldoRequested && !pictureEvent?.isWaldo, waldoEligible: Math.random() >= MECHANICS.waldoIneligibleChance, mechanics: getMechanicsSettings(), boardWidth, boardHeight, gridCols, gridRows, nextId: count + 1,
+    level, lives: mechanics.startLives, lifeCapacity: Math.max(mechanics.startLives, mechanics.lifeStorageBaseCapacity), lifeCapacityPurchases: 0, speedCapacityBonus: 0, speedCapacityPurchases: 0, ramCapacityBonus: 0, ramCapacityPurchases: 0, chargeCapacityBonus: 0, chargeCapacityPurchases: 0, scanCharges: 1, beaconStreak: 0, beaconStreakBest: 0, chargeCharges: 0, overflowJobs: [], overflowSuccessChance: mechanics.overflowBaseSuccessChance, overflowUpgradePurchases: 0, overflowProcessingUpgradePurchases: 0, claimed: 0, totalTerritoryClaimed: 0, ballsDestroyed: 0, ballsContained: 0, pickupsCaptured: 0, containedBallIds: [], containedCountedThisLevel: false, skinDiscovery: null, claimMask: Array(gridCols * gridRows).fill(0), walls: [], powerups: [], speedCharges: 0, ramCharges: 0, merchantTokens: 0, credits: 0, powerBars: 0, powerBarsPurchased: 0, merchantUpgrades: Object.fromEntries(['life','speed','ram','treasure','waldo', ...Object.keys(mechanics.containmentMutationPickupEnabled).flatMap(kind => [`mutationAffinity:${kind}`, `mutationAttraction:${kind}`])].map(key => [key, 0])), petEggs: 0, petEggVisitProgress: 0, pets: [], petIncubations: [], isotypesContained: false, isotypesNoticeUntilMs: 0, petNotice: null, petNoticeUntilMs: 0, levelClearPending: false, levelClearAnimationRemainingMs: 0, levelClearBubbleTimerMs: 0, levelClearBubbleAccumulatorMs: 0, levelEvent, levelEventBannerUntilMs: levelEvent === 'drift-swarm' ? mechanics.driftSwarmBannerDurationMs : 0, containmentMutations: [], containmentMutationScanRemainingMs: 0, speedReadyUntil: null, chargeReadyUntil: null, captureEvents: [], wallBreakEvents: [], territoryGainEvents: [], creditGainEvents: [], treasureEligible: !!beaconSetup?.jackpot || Math.random() < mechanics.treasureLevelEligibilityChance, treasureHuntPending: false, treasureHunt: null, pictureEvent, waldoEventPending: (waldoRequested || !!beaconSetup?.waldo) && !pictureEvent?.isWaldo, waldoEligible: Math.random() >= mechanics.waldoIneligibleChance, mechanics, boardWidth, boardHeight, gridCols, gridRows, nextId: count + 1,
     balls,
     elapsedMs: 0,
     spawnInMs: Math.floor(randomBetween(MECHANICS.powerupSpawnEverySecondsMin, MECHANICS.powerupSpawnEverySecondsMax + 1)) * 1000,
@@ -1538,7 +1566,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
     if (run.levelClearBubbleTimerMs <= 0 && run.levelClearAnimationRemainingMs <= 0) run.powerups = run.powerups.filter(power => !power.levelClearBubble);
   }
   // Repair interrupted clear saves without freezing the live simulation.
-  if (run.levelClearPending && !run.powerups.some(power => power.kind === 'exit')) {
+  if (run.levelClearPending && !run.jumpReady && !run.powerups.some(power => power.kind === 'exit')) {
     const point = randomUnclaimedPoint(run, width, height), angle = Math.random() * Math.PI * 2, speed = 70;
     run.powerups.push({ id: run.nextId++, kind: 'exit', ...point, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
   }
