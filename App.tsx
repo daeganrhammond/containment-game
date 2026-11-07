@@ -300,9 +300,9 @@ function BridgePulse({ delay = 0, color = '#75f4dc' }: { delay?: number; color?:
 }
 
 // Transparent foreground cutout: the glass is no longer baked to the default vista.
-const BRIDGE_INTERIOR_INTEGRATED_LIVE_ART = require('./assets/bridge-command-foreground-foundry-smelt-refit-gold-hd2x.png');
-const BRIDGE_INTERIOR_INTEGRATED_LIVE_OPEN_ART = require('./assets/bridge-command-foreground-foundry-smelt-refit-gold-cargo-open-hd2x.png');
-const BRIDGE_INTERIOR_CATHEDRAL_LIVE_ART = require('./assets/bridge-command-cathedral-foundry-live-hd2x.png');
+const BRIDGE_INTERIOR_INTEGRATED_LIVE_ART = require('./assets/bridge-command-foreground-foundry-smelt-refit-gold-hd2x.webp');
+const BRIDGE_INTERIOR_INTEGRATED_LIVE_OPEN_ART = require('./assets/bridge-command-foreground-foundry-smelt-refit-gold-cargo-open-hd2x.webp');
+const BRIDGE_INTERIOR_CATHEDRAL_LIVE_ART = require('./assets/bridge-command-cathedral-foundry-live-hd2x.webp');
 const BRIDGE_INTERIOR_CATHEDRAL_EMISSION = require('./assets/bridge-ambient-emission-cathedral-alt.png');
 
 function BridgeInterior({ variant, cargoBayOpen }: { variant: 'original' | 'cathedral'; cargoBayOpen: boolean }) {
