@@ -322,8 +322,48 @@ The Cathedral alternative reuses the original foreground through the window sill
 
 - assets/bridge-command-cathedral-alt.png (1672×941; 1502490 bytes)
 - assets/bridge-ambient-emission-cathedral-alt.png (1672×941; 1460656 bytes)
+
+### Integrated bridge cargo access (2026-10-10)
+
+The cargo hold is now represented by a physical double-door hatch beneath the left console in both bridge layouts. The new foreground variants retain the 1672×941 canvas and the original window opening; their alpha changes are confined below the window edge. The original bridge now uses `bridge-command-foreground-cargo.png` so its hatch is actually present under the occupancy display. The display and animated opening reveal are aligned to that hatch, and clicking it opens the shared Cargo Hold over the bridge. The floating mini-sector card and developer tile were removed from the bridge view; launch, resume, and jump actions now live on the Starmap console.
+
+- `assets/bridge-command-foreground-cargo.png` (1672×941)
+- `assets/bridge-command-cathedral-cargo.png` (1672×941)
+
+### Per-layout screen alignment (2026-10-10)
+
+Console animation bounds and click targets are calibrated independently for each interior in `BridgeInteriorAmbience.tsx`. The original layout uses its four separate monitor insets. Cathedral's two wide monitors are divided into four separate, animated navigation zones. Each visible animation and its hit target use the same rotation and normalized bounds, so text and interactions remain on the glass as the bridge scales.
 - Stable selector id: cathedral
 - This is an interior variant, not a vista; exterior scene selection and drift are unchanged.
+
+### Integrated bridge monitor refit (2026-10-10)
+
+The original bridge lower console fascia now has four substantially larger recessed glass monitors integrated into the physical artwork. The app renders only live animation and labels within the glass, without adding a second opaque screen card or bezel. The generated lower interior is composited below source row 639; byte comparison confirms the original foreground RGBA data from rows 0–639 is preserved exactly, including the full window, frame, and sill. The original bridge's blurred emission overlay is disabled so the new consoles retain their sharp, restrained lighting.
+
+- `assets/bridge-command-foreground-integrated.png` (1672×941; 1,860,554 bytes)
+- Generated with built-in image generation, then composited with the existing source window/sill region before integration.
+- Four clickable display bounds are independently calibrated in `BridgeInteriorAmbience.tsx` for Themes, Scores, Starmap Jump, and Bay Navigation.
+
+### Open-deck console alignment (2026-10-10)
+
+The current original bridge foreground is `assets/bridge-command-foreground-open-deck.png`, with its door-open companion `assets/bridge-command-foreground-open-deck-cargo-open.png`. Both remain on the 1672×941 design-art canvas. This revision removes bulky lower-corner furniture to preserve the center deck for future crew ambience and exposes six physical glass faces: cargo readout, Themes, Flight Log, Starmap Jump, live sector preview, and Bay Navigation. The established window aperture and exterior rendering remain independent.
+
+The glass insets below are normalized to that canvas and live in `PANEL.original` in `BridgeInteriorAmbience.tsx`. They are the safe content bounds (inside the cyan rim), not the full monitor bezel:
+
+| Display | x | y | w | h | Tilt |
+|---|---:|---:|---:|---:|---:|
+| Cargo readout | 0.025 | 0.744 | 0.068 | 0.050 | — |
+| Themes | 0.128 | 0.727 | 0.084 | 0.041 | −3° |
+| Flight Log | 0.241 | 0.720 | 0.060 | 0.047 | −7° |
+| Starmap Jump | 0.704 | 0.718 | 0.058 | 0.046 | +6° |
+| Live sector | 0.785 | 0.738 | 0.078 | 0.039 | +4° |
+| Bay Navigation | 0.894 | 0.750 | 0.076 | 0.050 | +4° |
+
+These compact faces use content-only holograms instead of duplicating monitor frames. Keep label count and animation scale appropriate to these narrow in-world screens. The live preview uses the same live-sector bounds and tilt; its header/footer must remain small enough to leave a visible board area. When the bridge artwork changes, remeasure the actual glass inset at native resolution and update this table and `PANEL.original` together. Do not derive coordinates from a viewport screenshot until its aspect-fit offset and scale are accounted for.
+
+- `assets/bridge-command-foreground-open-deck.png` (1672×941)
+- `assets/bridge-command-foreground-open-deck-cargo-open.png` (1672×941)
+- Console actions remain attached to the physical screen faces; cargo bay door interaction remains attached to the separate hatch below the left displays.
 
 
 ### New generated Picture Event vistas (2026-10-09)
@@ -390,3 +430,34 @@ Sixty generated still scenes are registered as Picture Event rewards and bridge-
 - `eclipsed-pulsar` — Eclipsed Pulsar: `assets/bridge-vistas/eclipsed-pulsar.jpg` (257,284 bytes)
 - `seed-vault-convoy` — Seed Vault Convoy: `assets/bridge-vistas/seed-vault-convoy.jpg` (318,774 bytes)
 - `terminal-ocean` — The Terminal Ocean: `assets/bridge-vistas/terminal-ocean.jpg` (397,988 bytes)
+
+### Rebalanced bridge console integration (2026-10-10)
+
+The initial panoramic console add-on proved too deep: it covered the old bridge foreground and reduced floor area reserved for crew movement and ambient activity. The active implementation now uses the earlier bridge's open-deck composition and side-console geometry, with live graphics fitted to the four built-in angled displays. This keeps the center walkway and foredeck visible while preserving the fixed main window and vista system.
+
+- Active bridge art: `assets/bridge-command-foreground-open-deck.png` (closed cargo hatch) and `assets/bridge-command-foreground-open-deck-cargo-open.png` (lit cargo room exposed). Both retain the 1672×941 bridge composition, original alpha cutout for the window, and central floor.
+- Six physical monitors now host the cargo capacity/item preview, Themes, Flight Records/Scores, Starmap Jump, live/saved sector preview, and Bay Navigation. Ship Systems remains a fascia action connected to Developer access.
+- The lower corner seat-like obstructions are removed; the side displays are exposed and the open central deck remains available for crew movement. The cargo hatch opens first, waits 1.5 seconds, then opens the translucent cargo inventory UI. Leaving the hold animates the hatch closed.
+- `BridgeInteriorAmbience.tsx` defines normalized, per-variant display, action, cargo hitbox, and readout bounds. Recalibrate live visuals and hit targets together if the artwork changes.
+- Preserve the open central deck for crew and ambient movement. Do not place the deep panoramic console rework over it. Keep the main window aperture unobstructed and the navigation panel below its sill.
+
+### Foundry fascia integration (2026-10-11)
+
+- The monitor-only pass and raised fascia machine both blocked the user's requested placement. Current artwork lowers the installation into a recessed floor well below the window sill, with an amber crucible, mineral conveyor, material racks, output tray, exhaust, and a tactile control plate with a physical `SMELT` button. The machine leaves the central route visible and does not intrude into window glass.
+- Active transparent 1672×941 foreground layers: `assets/bridge-command-foreground-foundry.png` (1,672,692 bytes), cargo-open state `assets/bridge-command-foreground-foundry-cargo-open.png` (1,664,586 bytes), and alternate cathedral layout `assets/bridge-command-cathedral-foundry.png` (1,491,359 bytes). The cargo-open layer preserves the illuminated cargo room. Cathedral's foundry is lowered below its raised window sill into the rear deck.
+- `BridgeFoundryStation.tsx` has a transparent machine hit target, a separate clickable hitbox on the painted `SMELT` control, a small rising idle ember, the active resource's colored shape in the fire, and a matching moving piece on the feed conveyor. The large Foundry panel reports the full material name, source, timer, and progress. Its cargo selector stores a selected material; the bridge button queues one manual unit only when that item is available above its protected reserve and Manual mode is active. No overlay draws housing, screen glass, labels, or panel backgrounds over the bridge art.
+- Original bounds in `BridgeFoundryStation.tsx`: machine `{ x: 0.286, y: 0.596, w: 0.43, h: 0.21 }`; fire `{ x: 0.469, y: 0.676, w: 0.062, h: 0.085 }`; feed `{ x: 0.345, y: 0.696, w: 0.09, h: 0.03 }`; physical button `{ x: 0.575, y: 0.744, w: 0.056, h: 0.048 }`. Keep all live pixels and hit targets aligned to the new sunken installation. Preserve the window, side stations, cargo doors, central crew route, and floor.
+
+### Bridge fascia and foundry feed/output refit (2026-10-11)
+
+- Active original-bridge art is now `assets/bridge-command-foreground-foundry-smelt-refit.png` and `assets/bridge-command-foreground-foundry-smelt-refit-cargo-open.png`. Both are 1672×941 RGBA PNGs; the panorama aperture has alpha 0 and the ship foreground remains opaque. The open version preserves the lit cargo compartment. `App.tsx` selects these matched states.
+- The physical display mapping is Credits (far-left), Themes (left-center), Flight Log (inner-left), Jump/Route Atlas mode switch (wide starboard screen), and live stage preview (far-starboard). Measured content bounds live in `PANEL.original` in `BridgeInteriorAmbience.tsx`; the display pixels and hit zones rotate with the angled glass. Keep content inside the artwork's bezel, without drawing replacement screen cards.
+- The foundry artwork restores ruby-red and cobalt-blue feed crystals on the left conveyor and a lower-right empty SMELT output bin with a separate red-lit front button. `BridgeFoundryStation.tsx` draws actual pending credit output only inside the bin, removes the idle OUTPUT caption/outline, and maps the collection hitbox to the bin and the manual queue hitbox to the red button.
+- Current original-bridge foundry bounds in `BridgeFoundryStation.tsx`: SMELT button `{ x: 0.613, y: 0.779, w: 0.03, h: 0.022 }`; output bin `{ x: 0.566, y: 0.738, w: 0.066, h: 0.036 }`. The machine/status/fire/feed/rack retain their existing bounds. The lower hardware-button rows now animate only their colored indicator lights over the artwork's built-in buttons.
+
+### Bridge interior HD asset pass (2026-10-12)
+
+- Active bridge art uses detail-enhanced native-canvas assets: `assets/bridge-command-foreground-foundry-smelt-refit-gold-detail.png`, `assets/bridge-command-foreground-foundry-smelt-refit-gold-cargo-open-detail.png`, and `assets/bridge-command-cathedral-foundry-live-detail.png`.
+- The active images are 1672×941 and preserve the app's native art coordinate system. `BridgeInterior` crossfades closed/open foregrounds together, so keep these active images at native resolution to limit decoded image memory. Do not alter normalized panel or hitbox bounds during this asset-only pass.
+- The window aperture remains transparent. Existing blank display glass, foundry, shelves, cargo doorway, and floor remain part of the foreground. The cargo-open variant preserves the illuminated hold state.
+- Revisit the displayed app at regular size after the art swap to confirm monitor overlays remain centered within the physical glass on both bridge layouts and the open hold remains visibly open.

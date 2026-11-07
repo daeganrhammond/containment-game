@@ -1,4 +1,10 @@
+import { createRunId, createRunProgression } from './progression';
+import type { RunProgression } from './progression';
 import type { SectorRouteRecord, SectorState } from './sectorMap';
+import { canFitCargoItem, cargoBalancesFromRun } from './cargo';
+import type { CargoItemId, CargoMinimumKeep, CargoShapes } from './cargo';
+import { assignedPetsForDuty, canRetrievePickup, cargoHelperForRun, foundryDurationWithCargoHelper, PET_COMPANION_RECOVERY_PER_RUN, PET_SPOTTER_COOLDOWN_MS, petDutyProficiency, recordPetDutyWork, systemsHelperCooldownMs } from './pets';
+import type { PetDutyId, RetrieverPickupId } from './pets';
 
 /** Central place for playtest tuning. Values are intentionally provisional. */
 export type MechanicsSettings = {
@@ -77,7 +83,7 @@ export const DEFAULT_MECHANICS: MechanicsSettings = {
   maximumActiveWalls: 4,
   ballRadius: 12.5,
   powerupRadiusMultiplier: 1.4,
-  powerupSizeMultipliers: { life: 1.4, speed: 1.4, ram: 1.4, charge: 1.4, treasure: 1.4, merchant: 1.4, bubble: 1.68, waldo: 1.4, credit: 1.4, 'engi-egg': 1.4, exit: 1.4 },
+    powerupSizeMultipliers: { life: 1.4, speed: 1.4, ram: 1.4, charge: 1.4, treasure: 1.4, merchant: 1.4, bubble: 1.68, waldo: 1.4, credit: 1.4, 'engi-egg': 1.4, exit: 1.4 },
   powerupRadius: 17.5,
   lifePowerupRadius: 17.5,
   bubbleSizeMultiplier: 1.2,
@@ -106,10 +112,10 @@ export const DEFAULT_MECHANICS: MechanicsSettings = {
   petEggIncubationInstallment: 20, petEggIncubationVisits: 2, petEggIncubationDurationMs: 120_000, engiHireCost: 120, engiUpgradeBaseCost: 80,
   lifeStorageBaseCapacity: 5, lifeStorageUpgradeBaseCost: 35, lifeStorageCostIncreasePercent: 35,
   resourceStorageUpgradeBaseCost: 25, resourceStorageCostIncreasePercent: 35,
-  overflowCreditValues: { life: 5, speed: 5, ram: 5, charge: 5, treasure: 0, merchant: 0, bubble: 0, waldo: 0, credit: 0, 'engi-egg': 0, exit: 0 }, overflowProcessingMs: 6000, overflowBaseSuccessChance: 50, overflowUpgradeBaseCost: 25, overflowUpgradeChanceIncrease: 5, overflowUpgradeCostIncreasePercent: 35, overflowProcessingUpgradeBaseCost: 25, overflowProcessingUpgradeCostIncreasePercent: 35, overflowProcessingReductionPercent: 5, overflowProcessingMinimumMs: 1000, levelClearBubbleRatePerSecond: 3, levelClearBubbleDurationMs: 3000, levelClearAnimationDurationMs: 3400,
+  overflowCreditValues: { life: 5, speed: 5, ram: 5, charge: 5, treasure: 0, merchant: 0, bubble: 0, waldo: 0, credit: 0, 'engi-egg': 0, exit: 0 }, overflowProcessingMs: 10_000, overflowBaseSuccessChance: 50, overflowUpgradeBaseCost: 25, overflowUpgradeChanceIncrease: 5, overflowUpgradeCostIncreasePercent: 35, overflowProcessingUpgradeBaseCost: 25, overflowProcessingUpgradeCostIncreasePercent: 35, overflowProcessingReductionPercent: 5, overflowProcessingMinimumMs: 1000, levelClearBubbleRatePerSecond: 3, levelClearBubbleDurationMs: 3000, levelClearAnimationDurationMs: 3400,
   containmentMutationChance: 0.25, containmentMutationDelayMinSeconds: 10, containmentMutationDelayMaxSeconds: 30, containmentMutationDecayChance: 0.1, containmentMutationBaseSpawnChance: 0.15,
   containmentMutationPickupEnabled: { life: true, speed: true, ram: true, charge: true, treasure: true, merchant: true, credit: true, 'engi-egg': true },
-  eliminationEventChance: 0.05, driftSwarmEventChance: 0.05, driftSwarmBannerDurationMs: 3000, eliminationChargeSpawnChance: 0.4, driftSwarmVariationMin: 0.65, driftSwarmVariationMax: 1.5,
+  eliminationEventChance: 0.05, driftSwarmEventChance: 0.05, driftSwarmBannerDurationMs: 3000, eliminationChargeSpawnChance: 0.75, driftSwarmVariationMin: 0.65, driftSwarmVariationMax: 1.5,
   skinDiscoveryChance: 0.02, skinDiscoveryCategoryWeights: { background: 1, ball: 1, 'credit-symbol': 1, pet: 1, 'pickup:life': 1, 'pickup:speed': 1, 'pickup:ram': 1, 'pickup:charge': 1, 'pickup:treasure': 1, 'pickup:merchant': 1, 'pickup:bubble': 1, 'pickup:waldo': 1, 'pickup:credit': 1, 'pickup:engi-egg': 1, 'pickup:exit': 1 }, skinDiscoveryClaimBonusPercent: {}, skinDiscoveryRequiresIsotypes: {},
   powerupSpawnWeights: { life: 49.5, speed: 34.65, ram: 14.85, charge: 5, treasure: 1, merchant: 1, bubble: 0, waldo: 0, credit: 5, 'engi-egg': 1, exit: 0 },
   powerupDespawnEnabled: { life: false, speed: true, ram: true, charge: true, treasure: true, merchant: true, bubble: false, waldo: true, credit: true, 'engi-egg': true, exit: false },
@@ -151,7 +157,7 @@ export let MECHANICS: MechanicsSettings = { ...DEFAULT_MECHANICS, ballModifiers:
 export function getMechanicsSettings(): MechanicsSettings { return { ...MECHANICS, ballModifiers: copyBallModifierSettings(MECHANICS.ballModifiers), modifierMutationRates: { ...MECHANICS.modifierMutationRates }, modifierInfectionRates: { ...MECHANICS.modifierInfectionRates }, modifierCompatibility: copyModifierCompatibility(MECHANICS.modifierCompatibility), powerupSpawnWeights: { ...MECHANICS.powerupSpawnWeights }, containmentMutationPickupEnabled: { ...MECHANICS.containmentMutationPickupEnabled }, skinDiscoveryCategoryWeights: { ...MECHANICS.skinDiscoveryCategoryWeights }, skinDiscoveryClaimBonusPercent: { ...MECHANICS.skinDiscoveryClaimBonusPercent }, skinDiscoveryRequiresIsotypes: { ...MECHANICS.skinDiscoveryRequiresIsotypes }, powerupDespawnEnabled: { ...MECHANICS.powerupDespawnEnabled }, powerupDespawnSeconds: { ...MECHANICS.powerupDespawnSeconds }, overflowCreditValues: { ...MECHANICS.overflowCreditValues }, merchantRewardsEnabled: { ...MECHANICS.merchantRewardsEnabled }, merchantUpgradePerBar: { ...MECHANICS.merchantUpgradePerBar }, merchantSkinTierMultipliers: { ...MECHANICS.merchantSkinTierMultipliers }, backgroundColors: [...MECHANICS.backgroundColors] }; }
 export function setMechanicsSettings(settings: MechanicsSettings) { MECHANICS = { ...settings, ballModifiers: copyBallModifierSettings(settings.ballModifiers), modifierMutationRates: { ...settings.modifierMutationRates }, modifierInfectionRates: { ...settings.modifierInfectionRates }, modifierCompatibility: copyModifierCompatibility(settings.modifierCompatibility), powerupSpawnWeights: { ...settings.powerupSpawnWeights }, containmentMutationPickupEnabled: { ...settings.containmentMutationPickupEnabled }, skinDiscoveryCategoryWeights: { ...settings.skinDiscoveryCategoryWeights }, skinDiscoveryClaimBonusPercent: { ...settings.skinDiscoveryClaimBonusPercent }, skinDiscoveryRequiresIsotypes: { ...settings.skinDiscoveryRequiresIsotypes }, powerupDespawnEnabled: { ...settings.powerupDespawnEnabled }, powerupDespawnSeconds: { ...settings.powerupDespawnSeconds }, overflowCreditValues: { ...settings.overflowCreditValues }, merchantRewardsEnabled: { ...settings.merchantRewardsEnabled }, merchantUpgradePerBar: { ...settings.merchantUpgradePerBar }, merchantSkinTierMultipliers: { ...settings.merchantSkinTierMultipliers }, backgroundColors: [...settings.backgroundColors] }; }
 
-export type Ball = { id: number; x: number; y: number; vx: number; vy: number; r: number; rammed?: boolean; modifier?: BallModifier; modifiers?: BallModifier[]; modifierExpiresAtMs?: number; modifierExpiries?: Partial<Record<BallModifier, number>>; anchorBaseRadius?: number; phaseEndsAtMs?: number; skimmerWallId?: number; skimmerRemainingMs?: number; skimmerResumeVx?: number; skimmerResumeVy?: number; skimmerStartAlong?: number; drifting?: boolean; driftStrengthOverride?: number; driftRangeOverride?: number };
+export type Ball = { id: number; x: number; y: number; vx: number; vy: number; r: number; rammed?: boolean; turretHits?: number; modifier?: BallModifier; modifiers?: BallModifier[]; modifierExpiresAtMs?: number; modifierExpiries?: Partial<Record<BallModifier, number>>; anchorBaseRadius?: number; phaseEndsAtMs?: number; skimmerWallId?: number; skimmerRemainingMs?: number; skimmerResumeVx?: number; skimmerResumeVy?: number; skimmerStartAlong?: number; drifting?: boolean; driftStrengthOverride?: number; driftRangeOverride?: number };
 export type Wall = {
   id: number;
   axis: 'vertical' | 'horizontal';
@@ -175,15 +181,57 @@ export type PowerKind = 'life' | 'speed' | 'ram' | 'charge' | 'treasure' | 'merc
 export type EngiTask = 'inspect' | 'weld' | 'scan' | 'tinker' | 'rest';
 export type PetTask = EngiTask | 'clean' | 'paint' | 'wander';
 export type WaldoPainting = { id: number; wallId: number; axis: Wall['axis']; at: number; along: number; style: number };
-export type CompanionPet = { id: number; species: 'engi' | 'waldo'; name: string; skinId: string; health: number; maxHealth: number; level: number; deployed: boolean; x: number; y: number; vx: number; vy: number; task: PetTask; taskUntilMs: number; climbUntilMs?: number; repairedThisLevel: boolean; nextPaintingAtMs?: number; paintings?: WaldoPainting[] };
+export type CompanionPet = { id: number; rosterId?: string; dutyProficiency?: Partial<Record<PetDutyId, number>>; species: 'engi' | 'waldo'; name: string; skinId: string; health: number; maxHealth: number; level: number; deployed: boolean; x: number; y: number; vx: number; vy: number; task: PetTask; taskUntilMs: number; climbUntilMs?: number; repairedThisLevel: boolean; nextPaintingAtMs?: number; paintings?: WaldoPainting[]; retrieverReadyAtMs?: number; spotterReadyAtMs?: number; systemsHelperReadyAtMs?: number };
 export type PetIncubation = { id: number; species: 'engi'; progressMs: number; durationMs: number; nameSeed: number; skinId: string };
-export type PowerUp = { id: number; x: number; y: number; vx: number; vy: number; kind: PowerKind; skinId?: string; phaseChest?: boolean; levelClearBubble?: boolean; bounceCredits?: number; despawnAtMs?: number; despawnOpacity?: number };
+export type PowerUp = { id: number; x: number; y: number; vx: number; vy: number; kind: PowerKind; skinId?: string; phaseChest?: boolean; mountAssembly?: boolean; levelClearBubble?: boolean; bounceCredits?: number; despawnAtMs?: number; despawnOpacity?: number };
 export type SkeweredWall = Pick<Wall, 'axis' | 'at' | 'low' | 'high'>;
-export type CaptureEvent = { id: number; x: number; y: number; kind: PowerKind | 'explosion' | 'chargeBallBreak' | 'chargeWallBreak' | 'phaseRupture' | 'phaseChestBreak' | 'ramBlast' | 'jackpot' | 'merchantBreak' | 'anchorBreak' | 'combo' | 'bubbleLost' | 'creditLost' | 'overflowFailed' | 'waldoFound' | 'petRepair' | 'petLost' | 'petHatched' | 'engiEggBreak'; skinId?: string; skewered?: boolean; skeweredAxis?: Wall['axis']; skeweredWall?: SkeweredWall; amount?: number; amountY?: number; comboCount?: number };
+export type CaptureEvent = { id: number; x: number; y: number; kind: PowerKind | 'explosion' | 'chargeBallBreak' | 'chargeWallBreak' | 'phaseRupture' | 'phaseChestBreak' | 'ramBlast' | 'jackpot' | 'merchantBreak' | 'anchorBreak' | 'combo' | 'bubbleLost' | 'creditLost' | 'overflowFailed' | 'waldoFound' | 'turretHit' | 'petRepair' | 'petLost' | 'petHatched' | 'engiEggBreak'; skinId?: string; mountAssembly?: boolean; skewered?: boolean; skeweredAxis?: Wall['axis']; skeweredWall?: SkeweredWall; amount?: number; amountY?: number; comboCount?: number };
+export type PickupTransit = { id: number; captureEventId: number; kind: PowerKind; x: number; y: number; skinId?: string; mountAssembly?: boolean; destination: 'cargo' | 'foundry' | 'credits'; amount: number; startedAtMs: number; durationMs: number };
+export type TurretTargetKind = 'bubble' | 'splitter' | 'anchor';
+export type TurretState = { cooldownMs: number; firePowerLevel: number; fireControlLevel: number; mobilityLevel: number; deploymentLevel: number; mount: 'lower' | 'left' | 'right' | 'ceiling'; railPosition: number; targetPriority: TurretTargetKind | 'alternate'; lastTargetKind?: TurretTargetKind; lastShotOutcome?: 'hit' | 'miss' };
+export type DeployedTurret = { id: number; x: number; y: number; health: 0 | 1; cooldownMs: number; lastTargetKind?: TurretTargetKind };
+export const CLAIMED_MOUNT_BLUEPRINT_ID = 'claimed-mount';
+export const CLAIMED_MOUNT_BLUEPRINT_COST = 3;
+export const CLAIMED_MOUNT_REPAIR_COST = 25;
+export const CLAIMED_MOUNT_ASSEMBLY_SPAWN_CHANCE = 0.02;
+export type TurretShotEvent = { id: number; fromX: number; fromY: number; toX: number; toY: number; targetKind: TurretTargetKind; outcome: 'hit' | 'miss'; durationMs: number; untilMs: number };
+export const STARTER_TURRET_BASE_RANGE_FRACTION = 0.3;
+export const STARTER_TURRET_BASE_COOLDOWN_MS = 2400;
+export const STARTER_TURRET_BASE_ACCURACY = 0.6;
+export const STARTER_TURRET_MISS_COOLDOWN_MS = 350;
+export type TurretUpgradeBranch = 'mobility' | 'fireControl' | 'firePower';
+export function turretUpgradeCost(branch: TurretUpgradeBranch, level: number) {
+  return branch === 'mobility' ? 100 + level * 150 : branch === 'fireControl' ? 60 + level * 70 : 80 + level * 100;
+}
+export function starterTurretGeometry(width: number, height: number, fireControlLevel = 0, railPosition = 0.5, mount: TurretState['mount'] = 'lower') {
+  const range = Math.min(width * 0.48, height * STARTER_TURRET_BASE_RANGE_FRACTION) * (1 + Math.max(0, fireControlLevel) * 0.12);
+  const position = Math.max(0, Math.min(1, railPosition));
+  if (mount === 'left' || mount === 'right') return { x: mount === 'left' ? 18 : width - 18, y: height * (0.1 + position * 0.8), range };
+  if (mount === 'ceiling') return { x: width * (0.1 + position * 0.8), y: 18, range };
+  // The starter turret sits on the lower perimeter track, outside the playfield.
+  const railStart = width * 0.25;
+  const railEnd = width * 0.72;
+  return { x: Math.max(22, Math.min(width - 22, railStart + (railEnd - railStart) * position)), y: height, range };
+}
+export function deployClaimedTurretAt(run: Run, x: number, y: number): Run {
+  if (!run.progression?.blueprintIdsAtStart.includes(CLAIMED_MOUNT_BLUEPRINT_ID) || (run.mountAssemblies ?? 0) < 1) return run;
+  const col = Math.floor(x / run.boardWidth * run.gridCols), row = Math.floor(y / run.boardHeight * run.gridRows);
+  if (col < 0 || row < 0 || col >= run.gridCols || row >= run.gridRows || !run.claimMask[row * run.gridCols + col]) return run;
+  if ((run.deployedTurrets ?? []).some(mount => Math.hypot(mount.x - x, mount.y - y) < 44)) return run;
+  if (run.balls.some(ball => Math.hypot(ball.x - x, ball.y - y) < ball.r + 24)) return run;
+  const snappedX = (col + 0.5) * run.boardWidth / run.gridCols, snappedY = (row + 0.5) * run.boardHeight / run.gridRows;
+  return { ...run, mountAssemblies: (run.mountAssemblies ?? 0) - 1, deployedTurrets: [...(run.deployedTurrets ?? []), { id: run.nextId, x: snappedX, y: snappedY, health: 1, cooldownMs: 0 }], nextId: run.nextId + 1 };
+}
+export function repairClaimedTurret(run: Run, mountId: number): Run {
+  const mount = (run.deployedTurrets ?? []).find(item => item.id === mountId);
+  if (!mount || mount.health > 0 || run.credits < CLAIMED_MOUNT_REPAIR_COST) return run;
+  return { ...run, credits: run.credits - CLAIMED_MOUNT_REPAIR_COST, deployedTurrets: run.deployedTurrets!.map(item => item.id === mountId ? { ...item, health: 1 } : item) };
+}
 export type WallBreakEvent = { id: number; x: number; y: number; style: string; axis?: Wall['axis']; at?: number; low?: number; high?: number };
 export type TerritoryGainEvent = { id: number; x: number; y: number; percent: number; wallX?: number; wallY?: number; areaX?: number; areaY?: number };
 export type CreditGainEvent = { id: number; x: number; y: number; amount: number };
-export type OverflowJob = { id: number; kind: PowerKind; credits: number; remainingMs: number; sourceX: number; sourceY: number };
+export type OverflowJob = { id: number; kind: PowerKind; credits: number; remainingMs: number; durationMs?: number; sourceX: number; sourceY: number; source?: 'overflow' | 'manual'; /** Manual items stay visible in cargo and are consumed only when processing completes. */ holdsCargo?: boolean; /** Captured at queue time so duty changes cannot redirect completed work. */ cargoHelperPetId?: number };
+export type FoundryPayout = { id: number; kind: PowerKind; credits: number; source: 'overflow' | 'manual' };
 export type OverflowResult = { kind: PowerKind; success: boolean; credits: number; untilMs: number };
 export type PictureLibraryEntry = { id: string; name: string; seed: number; uri?: string; generatedBackdropId?: number };
 export type WaldoLibraryEntry = { id: string; name: string; seed: number; waldoX: number; waldoY: number };
@@ -220,6 +268,18 @@ function generatedWaldoLocation(seed: number) {
   return { waldoX: 0.08 + value(0) * 0.84, waldoY: 0.09 + value(1) * 0.82 };
 }
 export type Run = {
+  /** Stable identity for this campaign across sector jumps; optional only for legacy saves. */
+  runId?: string;
+  progression?: RunProgression;
+  /** Per-run cargo layout; resource counts remain in their existing run fields. */
+  cargoLayout?: { version: 1; placements: { id: string; itemId: string; x: number; y: number; rotation?: 0 | 90 }[] };
+  cargoRefiningMode?: 'overflow' | 'manual';
+  manualRefinedItems?: Partial<Record<'life' | 'speed' | 'ram' | 'charge', number>>;
+  foundryProcessedItems?: Partial<Record<'life' | 'speed' | 'ram' | 'charge', number>>;
+  foundryLastSavedAt?: number;
+  cargoStackBonuses?: Partial<Record<'speed' | 'ram' | 'charge', number>>;
+  cargoShapes?: CargoShapes;
+  cargoMinimumKeep?: CargoMinimumKeep;
   level: number;
   sector?: SectorState;
   routeAtlas?: SectorRouteRecord[];
@@ -240,12 +300,13 @@ export type Run = {
   ramCapacityBonus: number; ramCapacityPurchases: number;
   chargeCapacityBonus: number; chargeCapacityPurchases: number;
   merchantTokens: number; credits: number; powerBars: number;
+  mountAssemblies?: number;
   beaconBonusScore?: number;
   scanCharges: number;
   beaconStreak: number;
   beaconStreakBest: number;
   lifeCapacity: number; lifeCapacityPurchases: number;
-  overflowJobs: OverflowJob[]; overflowSuccessChance: number; overflowUpgradePurchases: number; overflowResult?: OverflowResult;
+  overflowJobs: OverflowJob[]; foundryPayouts?: FoundryPayout[]; overflowSuccessChance: number; overflowUpgradePurchases: number; overflowResult?: OverflowResult;
   overflowProcessingUpgradePurchases: number;
   powerBarsPurchased: number;
   merchantUpgrades: Record<string, number>;
@@ -265,6 +326,12 @@ export type Run = {
   chargeReadyUntil: number | null;
   chargeReadySkinId?: string;
   captureEvents: CaptureEvent[];
+  /** Captured stored rewards remain reserved here until their ship-bound arrival animation completes. */
+  pickupTransits?: PickupTransit[];
+  /** Legacy saves receive a safe starter turret when the simulation advances. */
+  turret?: TurretState;
+  deployedTurrets?: DeployedTurret[];
+  turretShotEvents?: TurretShotEvent[];
   wallBreakEvents: WallBreakEvent[];
   territoryGainEvents: TerritoryGainEvent[];
   creditGainEvents: CreditGainEvent[];
@@ -287,7 +354,9 @@ export type Run = {
   ended?: boolean;
 };
 
-export type ScoreEntry = { score: number; level: number; claimed: number; totalTerritoryClaimed: number; ballsDestroyed: number; ballsContained: number; pickupsCaptured: number; timestamp: number };
+export type ScoreEntry = { runId?: string; score: number; level: number; claimed: number; totalTerritoryClaimed: number; ballsDestroyed: number; ballsContained: number; pickupsCaptured: number; timestamp: number };
+
+export const MAX_FOUNDRY_OFFLINE_MS = 2 * 60 * 60 * 1000;
 
 export function randomBetween(a: number, b: number) { return a + Math.random() * (b - a); }
 
@@ -303,8 +372,8 @@ export function lifeStorageUpgradeCost(run: Pick<Run, 'lifeCapacityPurchases' | 
 
 export type ChargeKind = 'speed' | 'ram' | 'charge';
 export function chargeCapacity(run: Pick<Run, 'level' | 'speedCapacityBonus' | 'ramCapacityBonus'> & Partial<Pick<Run, 'chargeCapacityBonus'>>, kind: ChargeKind) {
-  const bonus = kind === 'speed' ? run.speedCapacityBonus : kind === 'ram' ? run.ramCapacityBonus : run.chargeCapacityBonus;
-  return Math.max(0, Math.floor(run.level)) + 2 + Math.max(0, Math.floor(bonus ?? 0));
+  void run; void kind;
+  return Number.MAX_SAFE_INTEGER;
 }
 export function chargeStorageUpgradeCost(run: Pick<Run, 'speedCapacityPurchases' | 'ramCapacityPurchases' | 'mechanics'> & Partial<Pick<Run, 'chargeCapacityPurchases'>>, kind: ChargeKind) {
   const purchases = kind === 'speed' ? run.speedCapacityPurchases ?? 0 : kind === 'ram' ? run.ramCapacityPurchases ?? 0 : run.chargeCapacityPurchases ?? 0;
@@ -314,13 +383,8 @@ export function chargeStorageUpgradeCost(run: Pick<Run, 'speedCapacityPurchases'
 
 /** Enforce level-scaled Speed/Ram storage for old saves as well as new reward paths. */
 export function enforceChargeCapacities(run: Run): Run {
-  const speedCapacity = chargeCapacity(run, 'speed'), ramCapacity = chargeCapacity(run, 'ram'), chargeCap = chargeCapacity(run, 'charge');
-  const overflow: { kind: PowerKind; x: number; y: number }[] = [];
-  for (let i = speedCapacity; i < run.speedCharges; i++) overflow.push({ kind: 'speed', x: run.boardWidth / 2, y: run.boardHeight / 2 });
-  for (let i = ramCapacity; i < run.ramCharges; i++) overflow.push({ kind: 'ram', x: run.boardWidth / 2, y: run.boardHeight / 2 });
-  for (let i = chargeCap; i < (run.chargeCharges ?? 0); i++) overflow.push({ kind: 'charge', x: run.boardWidth / 2, y: run.boardHeight / 2 });
-  const queued = queueOverflowJobs(run, overflow, run.nextId);
-  return { ...run, speedCharges: Math.min(run.speedCharges, speedCapacity), ramCharges: Math.min(run.ramCharges, ramCapacity), chargeCharges: Math.min(run.chargeCharges ?? 0, chargeCap), overflowJobs: [...(run.overflowJobs ?? []), ...queued.jobs], nextId: queued.nextId };
+  // Historical per-ability capacities are intentionally ignored. The shared cargo grid now sets the limit.
+  return run;
 }
 
 export function overflowProcessingUpgradeCost(run: Pick<Run, 'overflowProcessingUpgradePurchases' | 'mechanics'>) {
@@ -366,15 +430,14 @@ function randomPowerKind(treasureEligible: boolean, merchantAllowed = true, sett
 }
 
 function randomEventPowerKind(run: Pick<Run, 'levelEvent' | 'treasureEligible' | 'merchantTokens' | 'mechanics'>): PowerKind {
-  if (run.levelEvent === 'elimination' && Math.random() < run.mechanics.eliminationChargeSpawnChance && run.mechanics.powerupSpawnWeights.charge > 0) return 'charge';
-  if (run.levelEvent !== 'elimination') return randomPowerKind(run.treasureEligible, run.merchantTokens === 0, run.mechanics);
-  const weights = { ...run.mechanics.powerupSpawnWeights, charge: 0 };
-  const total = weights.life + weights.speed + weights.ram + (run.treasureEligible ? weights.treasure : 0) + (run.merchantTokens === 0 ? weights.merchant : 0) + (weights.bubble ?? 0) + (weights.credit ?? 0) + (weights['engi-egg'] ?? 0);
-  if (total <= 0) return run.mechanics.powerupSpawnWeights.charge > 0 ? 'charge' : 'ram';
-  let value = Math.random() * total;
-  const choices: [PowerKind, number][] = [['life', weights.life], ['speed', weights.speed], ['ram', weights.ram], ['treasure', run.treasureEligible ? weights.treasure : 0], ['merchant', run.merchantTokens === 0 ? weights.merchant : 0], ['bubble', weights.bubble ?? 0], ['credit', weights.credit ?? 0], ['engi-egg', weights['engi-egg'] ?? 0]];
-  for (const [kind, weight] of choices) { value -= weight; if (value <= 0) return kind; }
-  return choices[choices.length - 1][0];
+  if (run.levelEvent === 'elimination') {
+    const chargeEnabled = run.mechanics.powerupSpawnWeights.charge > 0;
+    const lifeEnabled = run.mechanics.powerupSpawnWeights.life > 0;
+    if (chargeEnabled && !lifeEnabled) return 'charge';
+    if (lifeEnabled && !chargeEnabled) return 'life';
+    return Math.random() < Math.max(0.75, Math.min(1, run.mechanics.eliminationChargeSpawnChance)) ? 'charge' : 'life';
+  }
+  return randomPowerKind(run.treasureEligible, run.merchantTokens === 0, run.mechanics);
 }
 
 const ENGI_COCOON_SKINS = ['engi-cocoon', 'engi-seed-pod', 'engi-scarab-capsule'] as const;
@@ -710,14 +773,14 @@ function advancePetBodies(run: Run, dt: number, width: number, height: number) {
   if (run.petNoticeUntilMs <= run.elapsedMs) run.petNotice = null;
 }
 
-export type BeaconRunSetup = { effects?: { ballCountDelta?: number; ballSpeedPercent?: number; pickupRatePercent?: number; engiSpawnWeightMultiplier?: number; levelEvent?: 'elimination' | 'drift-swarm' }[]; pictureVistaId?: string; jackpot?: boolean; waldo?: boolean; suppressRandomPictureEvent?: boolean; suppressRandomEvents?: boolean; difficultyDepth?: number };
+export type BeaconRunSetup = { effects?: { ballCountDelta?: number; ballSpeedPercent?: number; pickupRatePercent?: number; engiSpawnWeightMultiplier?: number; levelEvent?: 'elimination' | 'drift-swarm' }[]; pictureVistaId?: string; jackpot?: boolean; waldo?: boolean; suppressRandomPictureEvent?: boolean; suppressRandomEvents?: boolean };
 
 export function newRun(level = 1, boardWidth = 900, boardHeight = 1100, waldoRequested = false, beaconSetup?: BeaconRunSetup, baseSettings?: MechanicsSettings): Run {
   const base = baseSettings ?? getMechanicsSettings();
   const effects = beaconSetup?.effects ?? [];
   setMechanicsSettings(base);
   const mechanics = getMechanicsSettings();
-  mechanics.startingBalls = Math.max(1, base.startingBalls + effects.reduce((sum, effect) => sum + (effect.ballCountDelta ?? 0), 0));
+  mechanics.startingBalls = base.startingBalls;
   mechanics.ballSpeedMin = base.ballSpeedMin * (1 + effects.reduce((sum, effect) => sum + (effect.ballSpeedPercent ?? 0), 0) / 100);
   mechanics.ballSpeedMax = base.ballSpeedMax * (1 + effects.reduce((sum, effect) => sum + (effect.ballSpeedPercent ?? 0), 0) / 100);
   const pickupRate = Math.max(0.6, 1 + effects.reduce((sum, effect) => sum + (effect.pickupRatePercent ?? 0), 0) / 100);
@@ -726,7 +789,10 @@ export function newRun(level = 1, boardWidth = 900, boardHeight = 1100, waldoReq
   const engiSpawnBoost = Math.max(1, ...effects.map(effect => effect.engiSpawnWeightMultiplier ?? 1));
   mechanics.powerupSpawnWeights['engi-egg'] = (base.powerupSpawnWeights['engi-egg'] ?? 0) * engiSpawnBoost;
   setMechanicsSettings(mechanics);
-  const count = mechanics.startingBalls + (beaconSetup?.difficultyDepth ?? level - 1) * mechanics.ballsAddedPerLevel;
+  const beaconBallDelta = effects.reduce((sum, effect) => sum + (effect.ballCountDelta ?? 0), 0);
+  // Stage numbers count from one: default stages start at 4, 5, 6… (3 base + one per stage number).
+  // Apply beacon modifiers after stage scaling, then keep at least one ball.
+  const count = Math.max(1, base.startingBalls + Math.max(1, Math.floor(level)) * base.ballsAddedPerLevel + beaconBallDelta);
   const gridCols = Math.max(48, Math.round(48 * boardWidth / 900));
   const gridRows = Math.max(72, Math.round(72 * boardHeight / 1100));
   const pictureEvent = beaconSetup?.pictureVistaId ? { seed: Math.floor(Math.random() * 2_147_483_647), vistaId: beaconSetup.pictureVistaId } : (waldoRequested || !!beaconSetup?.waldo) ? nextPictureEvent(true, true) : beaconSetup?.suppressRandomPictureEvent ? null : nextPictureEvent();
@@ -734,6 +800,10 @@ export function newRun(level = 1, boardWidth = 900, boardHeight = 1100, waldoReq
   const eventScale = Math.max(1, eventTotal);
   const mappedEvent = effects.find(effect => effect.levelEvent)?.levelEvent;
   const levelEvent = mappedEvent ?? (beaconSetup?.suppressRandomEvents ? 'none' : eventRoll < MECHANICS.eliminationEventChance / eventScale ? 'elimination' : eventRoll < eventTotal / eventScale ? 'drift-swarm' : 'none');
+  if (levelEvent === 'elimination') {
+    mechanics.eliminationChargeSpawnChance = Math.max(0.75, mechanics.eliminationChargeSpawnChance);
+    setMechanicsSettings(mechanics);
+  }
   const balls: Ball[] = [];
   for (let i = 0; i < count; i++) {
     const speed = randomBetween(MECHANICS.ballSpeedMin, MECHANICS.ballSpeedMax);
@@ -750,10 +820,11 @@ export function newRun(level = 1, boardWidth = 900, boardHeight = 1100, waldoReq
     balls.push(ball);
   }
   return {
-    level, lives: mechanics.startLives, lifeCapacity: Math.max(mechanics.startLives, mechanics.lifeStorageBaseCapacity), lifeCapacityPurchases: 0, speedCapacityBonus: 0, speedCapacityPurchases: 0, ramCapacityBonus: 0, ramCapacityPurchases: 0, chargeCapacityBonus: 0, chargeCapacityPurchases: 0, scanCharges: 1, beaconStreak: 0, beaconStreakBest: 0, chargeCharges: 0, overflowJobs: [], overflowSuccessChance: mechanics.overflowBaseSuccessChance, overflowUpgradePurchases: 0, overflowProcessingUpgradePurchases: 0, claimed: 0, totalTerritoryClaimed: 0, ballsDestroyed: 0, ballsContained: 0, pickupsCaptured: 0, containedBallIds: [], containedCountedThisLevel: false, skinDiscovery: null, claimMask: Array(gridCols * gridRows).fill(0), walls: [], powerups: [], speedCharges: 0, ramCharges: 0, merchantTokens: 0, credits: 0, powerBars: 0, powerBarsPurchased: 0, merchantUpgrades: Object.fromEntries(['life','speed','ram','treasure','waldo', ...Object.keys(mechanics.containmentMutationPickupEnabled).flatMap(kind => [`mutationAffinity:${kind}`, `mutationAttraction:${kind}`])].map(key => [key, 0])), petEggs: 0, petEggVisitProgress: 0, pets: [], petIncubations: [], isotypesContained: false, isotypesNoticeUntilMs: 0, petNotice: null, petNoticeUntilMs: 0, levelClearPending: false, levelClearAnimationRemainingMs: 0, levelClearBubbleTimerMs: 0, levelClearBubbleAccumulatorMs: 0, levelEvent, levelEventBannerUntilMs: levelEvent === 'drift-swarm' ? mechanics.driftSwarmBannerDurationMs : 0, containmentMutations: [], containmentMutationScanRemainingMs: 0, speedReadyUntil: null, chargeReadyUntil: null, captureEvents: [], wallBreakEvents: [], territoryGainEvents: [], creditGainEvents: [], treasureEligible: !!beaconSetup?.jackpot || Math.random() < mechanics.treasureLevelEligibilityChance, treasureHuntPending: false, treasureHunt: null, pictureEvent, waldoEventPending: (waldoRequested || !!beaconSetup?.waldo) && !pictureEvent?.isWaldo, waldoEligible: Math.random() >= mechanics.waldoIneligibleChance, mechanics, boardWidth, boardHeight, gridCols, gridRows, nextId: count + 1,
+  runId: createRunId(), progression: createRunProgression(), cargoLayout: { version: 1, placements: [] }, cargoRefiningMode: 'overflow', manualRefinedItems: {}, foundryProcessedItems: {}, cargoStackBonuses: {}, cargoMinimumKeep: {},
+  level, lives: mechanics.startLives, lifeCapacity: Math.max(mechanics.startLives, mechanics.lifeStorageBaseCapacity), lifeCapacityPurchases: 0, speedCapacityBonus: 0, speedCapacityPurchases: 0, ramCapacityBonus: 0, ramCapacityPurchases: 0, chargeCapacityBonus: 0, chargeCapacityPurchases: 0, scanCharges: 1, beaconStreak: 0, beaconStreakBest: 0, chargeCharges: 0, overflowJobs: [], foundryPayouts: [], overflowSuccessChance: mechanics.overflowBaseSuccessChance, overflowUpgradePurchases: 0, overflowProcessingUpgradePurchases: 0, claimed: 0, totalTerritoryClaimed: 0, ballsDestroyed: 0, ballsContained: 0, pickupsCaptured: 0, containedBallIds: [], containedCountedThisLevel: false, skinDiscovery: null, claimMask: Array(gridCols * gridRows).fill(0), walls: [], powerups: [], speedCharges: 0, ramCharges: 0, merchantTokens: 0, credits: 0, powerBars: 0, powerBarsPurchased: 0, mountAssemblies: 0, deployedTurrets: [], merchantUpgrades: Object.fromEntries(['life','speed','ram','treasure','waldo', ...Object.keys(mechanics.containmentMutationPickupEnabled).flatMap(kind => [`mutationAffinity:${kind}`, `mutationAttraction:${kind}`])].map(key => [key, 0])), petEggs: 0, petEggVisitProgress: 0, pets: [], petIncubations: [], isotypesContained: false, isotypesNoticeUntilMs: 0, petNotice: null, petNoticeUntilMs: 0, levelClearPending: false, levelClearAnimationRemainingMs: 0, levelClearBubbleTimerMs: 0, levelClearBubbleAccumulatorMs: 0, levelEvent, levelEventBannerUntilMs: levelEvent === 'drift-swarm' ? mechanics.driftSwarmBannerDurationMs : 0, containmentMutations: [], containmentMutationScanRemainingMs: 0, speedReadyUntil: null, chargeReadyUntil: null, captureEvents: [], turret: { cooldownMs: 0, firePowerLevel: 0, fireControlLevel: 0, mobilityLevel: 0, deploymentLevel: 0, mount: 'lower', railPosition: 0.5, targetPriority: 'alternate' }, turretShotEvents: [], wallBreakEvents: [], territoryGainEvents: [], creditGainEvents: [], treasureEligible: !!beaconSetup?.jackpot || Math.random() < mechanics.treasureLevelEligibilityChance, treasureHuntPending: false, treasureHunt: null, pictureEvent, waldoEventPending: (waldoRequested || !!beaconSetup?.waldo) && !pictureEvent?.isWaldo, waldoEligible: Math.random() >= mechanics.waldoIneligibleChance, mechanics, boardWidth, boardHeight, gridCols, gridRows, nextId: count + 1,
     balls,
     elapsedMs: 0,
-    spawnInMs: Math.floor(randomBetween(MECHANICS.powerupSpawnEverySecondsMin, MECHANICS.powerupSpawnEverySecondsMax + 1)) * 1000,
+    spawnInMs: Math.floor(randomBetween(mechanics.powerupSpawnEverySecondsMin, mechanics.powerupSpawnEverySecondsMax + 1)) * 1000,
   };
 }
 
@@ -1208,7 +1279,7 @@ export function claimEmptyRegions(run: Run, width: number, height: number, addit
   };
   const newlyEnclosed = run.powerups.filter(power => {
     if (open(power.x, power.y)) return false;
-    if (power.kind === 'bubble' || power.kind === 'treasure') return !isClaimed(run, power.x, power.y, width, height);
+    if ((power.kind === 'bubble' || power.kind === 'treasure') && !power.mountAssembly) return !isClaimed(run, power.x, power.y, width, height);
     return true;
   });
   const captured = [...new Map([...newlyEnclosed, ...additionalCaptured].map(power => [power.id, power])).values()];
@@ -1239,20 +1310,60 @@ function bubbleSpawnPoints(run: Run, count: number) {
 function queueOverflowJobs(run: Run, overflowed: { kind: PowerKind; x: number; y: number }[], firstId: number) {
   let nextId = firstId;
   const jobs: OverflowJob[] = [];
+  const cargoHelper = cargoHelperForRun(run.pets ?? [], run.progression?.petAssignments);
   for (const resource of overflowed) {
     const credits = Math.max(0, Math.floor(run.mechanics.overflowCreditValues[resource.kind] ?? 0));
     if (!credits) continue;
-    jobs.push({ id: nextId++, kind: resource.kind, credits, remainingMs: Math.max(0, run.mechanics.overflowProcessingMs), sourceX: resource.x, sourceY: resource.y });
+    const durationMs = foundryDurationWithCargoHelper(run.mechanics.overflowProcessingMs, cargoHelper);
+    jobs.push({ id: nextId++, kind: resource.kind, credits, remainingMs: durationMs, durationMs, sourceX: resource.x, sourceY: resource.y, source: 'overflow', ...(cargoHelper ? { cargoHelperPetId: cargoHelper.petId } : {}) });
   }
   return { jobs, nextId };
 }
 
 function applyPickupCaptures(run: Run, captured: PowerUp[], skeweredIds = new Set<number>(), skeweredWalls = new Map<number, SkeweredWall>()): Run {
+  // The shared cargo grid, rather than per-ability counters, limits these items.
+  // Overflow mode may refine an eligible pickup when the grid has no space;
+  // Manual mode leaves it on the board until the player makes room.
+  const cargoOverflowIds = new Set<number>();
+  const projectedCargo = cargoBalancesFromRun(run);
+  for (const transit of run.pickupTransits ?? []) if (transit.destination === 'cargo' && (transit.kind === 'speed' || transit.kind === 'ram' || transit.kind === 'charge')) projectedCargo[transit.kind]++;
+  captured = captured.filter(power => {
+    if (power.mountAssembly) {
+      if (canFitCargoItem(projectedCargo, 'mount-assembly', run.cargoLayout, run.cargoStackBonuses, run.cargoShapes)) { projectedCargo['mount-assembly']++; return true; }
+      return false;
+    }
+    if (power.kind !== 'speed' && power.kind !== 'ram' && power.kind !== 'charge') return true;
+    if (canFitCargoItem(projectedCargo, power.kind, run.cargoLayout, run.cargoStackBonuses, run.cargoShapes)) {
+      projectedCargo[power.kind]++;
+      return true;
+    }
+    const recipe = Math.max(0, Math.floor(run.mechanics.overflowCreditValues[power.kind] ?? 0));
+    if (run.cargoRefiningMode !== 'manual' && recipe > 0) {
+      cargoOverflowIds.add(power.id);
+      return true;
+    }
+    return false;
+  });
+  // Life uses its dedicated vault capacity; merchant tokens remain unique while in transit too.
+  {
+    const pendingMerchants = (run.pickupTransits ?? []).filter(transit => transit.kind === 'merchant' && transit.destination === 'cargo').length;
+    const open = {
+      life: run.cargoRefiningMode === 'manual' ? Math.max(0, run.lifeCapacity - run.lives) : Number.POSITIVE_INFINITY,
+      merchant: Math.max(0, 1 - run.merchantTokens - pendingMerchants),
+    };
+    captured = captured.filter(power => {
+      const key = power.kind === 'life' || power.kind === 'merchant' ? power.kind : undefined;
+      if (!key) return true;
+      if (!open[key]) return false;
+      open[key]--;
+      return true;
+    });
+  }
   if (!captured.length) return run;
   const capturedIds = new Set(captured.map(p => p.id));
   const creditsPerBubble = run.mechanics.bubbleCreditsPerPop;
   const creditPayout = (power: PowerUp) => power.kind === 'credit' ? Math.max(0, run.mechanics.creditPickupBaseAmount) + Math.max(0, power.bounceCredits ?? 0) : 0;
-  const captureEvents: CaptureEvent[] = captured.map((p, index) => ({ id: run.nextId + index, x: p.x, y: p.y, kind: p.kind, skinId: p.skinId, amount: p.kind === 'bubble' ? creditsPerBubble : p.kind === 'credit' ? creditPayout(p) : undefined, skewered: skeweredIds.has(p.id), skeweredAxis: skeweredWalls.get(p.id)?.axis, skeweredWall: skeweredWalls.get(p.id) }));
+  const captureEvents: CaptureEvent[] = captured.map((p, index) => ({ id: run.nextId + index, x: p.x, y: p.y, kind: p.kind, skinId: p.skinId, mountAssembly: p.mountAssembly, amount: p.kind === 'bubble' ? creditsPerBubble : p.kind === 'credit' ? creditPayout(p) : undefined, skewered: skeweredIds.has(p.id), skeweredAxis: skeweredWalls.get(p.id)?.axis, skeweredWall: skeweredWalls.get(p.id) }));
   const regularCombo = captured.filter(p => p.kind !== 'bubble');
   const combo = regularCombo.length > 1;
   let nextId = run.nextId + captureEvents.length;
@@ -1267,42 +1378,106 @@ function applyPickupCaptures(run: Run, captured: PowerUp[], skeweredIds = new Se
     spawnedBubbles = bubbleSpawnPoints({ ...run, powerups: run.powerups.filter(power => !capturedIds.has(power.id)), nextId }, bubbleCount);
     nextId += spawnedBubbles.length;
   }
-  const payouts = captured.map(power => ({ power, amount: power.kind === 'bubble' ? creditsPerBubble : creditPayout(power) })).filter(payout => payout.amount > 0);
+  const lifePowerups = captured.filter(power => power.kind === 'life');
+  const lifeOverflow = run.cargoRefiningMode === 'manual' ? [] : lifePowerups.slice(Math.max(0, run.lifeCapacity - run.lives));
+  const lifeOverflowIds = new Set(lifeOverflow.map(power => power.id));
+  const transitDestination = (power: PowerUp): PickupTransit['destination'] | undefined => {
+    if (power.mountAssembly) return 'cargo';
+    if (power.kind === 'credit' || power.kind === 'bubble') return 'credits';
+    if (power.kind === 'life' && lifeOverflowIds.has(power.id) && (run.mechanics.overflowCreditValues.life ?? 0) > 0) return 'foundry';
+    if (power.kind === 'speed' || power.kind === 'ram' || power.kind === 'charge') return cargoOverflowIds.has(power.id) ? 'foundry' : 'cargo';
+    if (power.kind === 'merchant' || power.kind === 'engi-egg') return 'cargo';
+    return undefined;
+  };
+  const deferred = captured.flatMap((power, index) => {
+    const destination = transitDestination(power);
+    if (!destination) return [];
+    const amount = destination === 'credits'
+      ? power.kind === 'bubble' ? Math.max(0, Math.floor(creditsPerBubble)) : creditPayout(power)
+      : destination === 'foundry' ? Math.max(0, Math.floor(run.mechanics.overflowCreditValues[power.kind] ?? 0)) : 1;
+    if (amount <= 0) return [];
+    return [{ id: power.id, captureEventId: run.nextId + index, kind: power.kind, x: power.x, y: power.y, skinId: power.skinId, mountAssembly: power.mountAssembly, destination, amount, startedAtMs: Date.now(), durationMs: 1320 } satisfies PickupTransit];
+  });
+  const deferredIds = new Set(deferred.map(transit => transit.id));
+  const payouts = captured.map(power => ({ power, amount: power.kind === 'bubble' ? creditsPerBubble : creditPayout(power) })).filter(payout => payout.amount > 0 && !deferredIds.has(payout.power.id));
   const creditGainEvents = [...run.creditGainEvents, ...payouts.map((payout, index) => ({ id: nextId + index, x: payout.power.x, y: payout.power.y, amount: payout.amount }))];
   nextId += payouts.length;
-  const lifePowerups = captured.filter(power => power.kind === 'life');
   const speedPowerups = captured.filter(power => power.kind === 'speed');
   const ramPowerups = captured.filter(power => power.kind === 'ram');
   const chargePowerups = captured.filter(power => power.kind === 'charge');
   const overflowResources = [
-    ...lifePowerups.slice(Math.max(0, run.lifeCapacity - run.lives)),
-    ...speedPowerups.slice(Math.max(0, chargeCapacity(run, 'speed') - run.speedCharges)),
-    ...ramPowerups.slice(Math.max(0, chargeCapacity(run, 'ram') - run.ramCharges)),
-    ...chargePowerups.slice(Math.max(0, chargeCapacity(run, 'charge') - run.chargeCharges)),
+    ...lifeOverflow.filter(power => !deferredIds.has(power.id)),
+    ...captured.filter(power => cargoOverflowIds.has(power.id) && !deferredIds.has(power.id)),
   ];
   const queuedOverflow = queueOverflowJobs(run, overflowResources.map(power => ({ kind: power.kind, x: power.x, y: power.y })), nextId);
   const overflowJobs = [...(run.overflowJobs ?? []), ...queuedOverflow.jobs];
   nextId = queuedOverflow.nextId;
   return { ...run,
     pickupsCaptured: (run.pickupsCaptured ?? 0) + captured.filter(power => power.kind !== 'exit').length,
-    lives: Math.min(run.lifeCapacity, run.lives + lifePowerups.length),
-    speedCharges: Math.min(chargeCapacity(run, 'speed'), run.speedCharges + speedPowerups.length),
-    ramCharges: Math.min(chargeCapacity(run, 'ram'), run.ramCharges + ramPowerups.length),
-    chargeCharges: Math.min(chargeCapacity(run, 'charge'), run.chargeCharges + chargePowerups.length),
+    lives: Math.min(run.lifeCapacity, run.lives + lifePowerups.filter(power => !deferredIds.has(power.id)).length),
+    speedCharges: run.speedCharges + speedPowerups.filter(power => !cargoOverflowIds.has(power.id) && !deferredIds.has(power.id)).length,
+    ramCharges: run.ramCharges + ramPowerups.filter(power => !cargoOverflowIds.has(power.id) && !deferredIds.has(power.id)).length,
+    chargeCharges: run.chargeCharges + chargePowerups.filter(power => !cargoOverflowIds.has(power.id) && !deferredIds.has(power.id)).length,
     waldoEventPending: run.waldoEventPending || captured.some(p => p.kind === 'waldo'),
-    merchantTokens: Math.min(1, run.merchantTokens + captured.filter(p => p.kind === 'merchant').length),
-    treasureHuntPending: run.treasureHuntPending || captured.some(p => p.kind === 'treasure'),
+    merchantTokens: Math.min(1, run.merchantTokens + captured.filter(p => p.kind === 'merchant' && !deferredIds.has(p.id)).length),
+    treasureHuntPending: run.treasureHuntPending || captured.some(p => p.kind === 'treasure' && !p.mountAssembly),
     credits: run.credits + payouts.reduce((sum, payout) => sum + payout.amount, 0), creditGainEvents, overflowJobs,
-    petEggs: run.petEggs + captured.filter(p => p.kind === 'engi-egg').length,
+    petEggs: run.petEggs + captured.filter(p => p.kind === 'engi-egg' && !deferredIds.has(p.id)).length,
     captureEvents: [...run.captureEvents, ...captureEvents], nextId,
+    pickupTransits: [...(run.pickupTransits ?? []), ...deferred],
     powerups: [...run.powerups.filter(p => !capturedIds.has(p.id)), ...spawnedBubbles],
   };
+}
+
+/** Commit a reserved reward when its visible flight reaches its destination. */
+export function completePickupTransit(run: Run, transitId: number): Run {
+  const pending = run.pickupTransits ?? [];
+  const transit = pending.find(item => item.id === transitId);
+  if (!transit) return run;
+  const settled: Run = { ...run, pickupTransits: pending.filter(item => item.id !== transitId) };
+  if (transit.destination === 'credits') {
+    const amount = Math.max(0, Math.floor(transit.amount));
+    if (!amount) return settled;
+    // The pickup's visible flight is already the reward animation; don't launch a second credit flight.
+    return { ...settled, credits: settled.credits + amount };
+  }
+  if (transit.mountAssembly) return { ...settled, mountAssemblies: (settled.mountAssemblies ?? 0) + 1 };
+  if (transit.destination === 'foundry') {
+    const cargoHelper = cargoHelperForRun(settled.pets ?? [], settled.progression?.petAssignments);
+    const durationMs = foundryDurationWithCargoHelper(settled.mechanics.overflowProcessingMs, cargoHelper);
+    const job: OverflowJob = { id: settled.nextId, kind: transit.kind, credits: Math.max(0, Math.floor(transit.amount)), remainingMs: durationMs, durationMs, sourceX: transit.x, sourceY: transit.y, source: 'overflow', ...(cargoHelper ? { cargoHelperPetId: cargoHelper.petId } : {}) };
+    return { ...settled, overflowJobs: [...(settled.overflowJobs ?? []), job], nextId: settled.nextId + 1 };
+  }
+  if (transit.kind === 'speed') return { ...settled, speedCharges: settled.speedCharges + 1 };
+  if (transit.kind === 'ram') return { ...settled, ramCharges: settled.ramCharges + 1 };
+  if (transit.kind === 'charge') return { ...settled, chargeCharges: settled.chargeCharges + 1 };
+  if (transit.kind === 'merchant') return { ...settled, merchantTokens: Math.min(1, settled.merchantTokens + 1) };
+  if (transit.kind === 'engi-egg') return { ...settled, petEggs: settled.petEggs + 1 };
+  return settled;
 }
 
 function awardCredits(run: Run, amount: number, x: number, y: number): Run {
   const payout = Math.max(0, Math.floor(amount));
   if (!payout) return run;
   return { ...run, credits: run.credits + payout, creditGainEvents: [...run.creditGainEvents, { id: run.nextId, x, y, amount: payout }], nextId: run.nextId + 1 };
+}
+
+/** Move finished foundry output into the run wallet. Crew tasks can call this same action later. */
+export function collectFoundryOutput(run: Run, payoutIds?: readonly number[]): Run {
+  const pending = run.foundryPayouts ?? [];
+  if (!pending.length) return run;
+  const selectedIds = payoutIds ? new Set(payoutIds) : undefined;
+  const collected = pending.filter(payout => !selectedIds || selectedIds.has(payout.id));
+  if (!collected.length) return run;
+  const collectedIds = new Set(collected.map(payout => payout.id));
+  const amount = collected.reduce((sum, payout) => sum + Math.max(0, Math.floor(payout.credits)), 0);
+  return {
+    ...run,
+    foundryPayouts: pending.filter(payout => !collectedIds.has(payout.id)),
+    credits: run.credits + amount,
+    creditGainEvents: amount > 0 ? [...(run.creditGainEvents ?? []), { id: run.nextId, x: run.boardWidth * 0.5, y: run.boardHeight * 0.5, amount }] : run.creditGainEvents,
+    nextId: amount > 0 ? run.nextId + 1 : run.nextId,
+  };
 }
 
 function advanceOverflowProcessor(run: Run, dt: number): Run {
@@ -1312,11 +1487,60 @@ function advanceOverflowProcessor(run: Run, dt: number): Run {
   const [active, ...queued] = jobs;
   active.remainingMs -= dt;
   if (active.remainingMs > 0) return { ...current, overflowJobs: [active, ...queued] };
-  const completed = { ...current, overflowJobs: queued };
+  const resourceKind = active.kind === 'life' || active.kind === 'speed' || active.kind === 'ram' || active.kind === 'charge' ? active.kind : undefined;
+  const processedItems = { ...(current.foundryProcessedItems ?? {}) };
+  if (resourceKind) processedItems[resourceKind] = (processedItems[resourceKind] ?? 0) + 1;
+  const completed = { ...current, overflowJobs: queued, foundryProcessedItems: processedItems,
+    ...(active.source === 'manual' && resourceKind
+      ? { manualRefinedItems: { ...(current.manualRefinedItems ?? {}), [resourceKind]: (current.manualRefinedItems?.[resourceKind] ?? 0) + 1 } } : {}),
+  };
+  if (active.cargoHelperPetId !== undefined && completed.progression) {
+    completed.progression = { ...completed.progression, petDutyWork: recordPetDutyWork(completed.progression.petDutyWork ?? {}, active.cargoHelperPetId, 'cargo-helper') };
+  }
+  const cargoReleased = active.holdsCargo && resourceKind ? consumeRefinedCargo(completed, resourceKind) : completed;
   const success = Math.random() * 100 < current.overflowSuccessChance;
   const result = { kind: active.kind, success, credits: active.credits, untilMs: current.elapsedMs + 2800 };
-  if (success) return { ...awardCredits(completed, active.credits, active.sourceX, active.sourceY), overflowResult: result };
-  return { ...completed, overflowResult: result, captureEvents: [...completed.captureEvents, { id: completed.nextId, x: active.sourceX, y: active.sourceY, kind: 'overflowFailed' }], nextId: completed.nextId + 1 };
+  if (success) return {
+    ...cargoReleased,
+    foundryPayouts: [...(cargoReleased.foundryPayouts ?? []), { id: active.id, kind: active.kind, credits: Math.max(0, Math.floor(active.credits)), source: active.source ?? 'overflow' }],
+    overflowResult: result,
+  };
+  return { ...cargoReleased, overflowResult: result, captureEvents: [...cargoReleased.captureEvents, { id: cargoReleased.nextId, x: active.sourceX, y: active.sourceY, kind: 'overflowFailed' }], nextId: cargoReleased.nextId + 1 };
+}
+
+function consumeRefinedCargo(run: Run, kind: 'life' | 'speed' | 'ram' | 'charge'): Run {
+  if (kind === 'life') return { ...run, lives: Math.max(0, run.lives - 1) };
+  if (kind === 'speed') return { ...run, speedCharges: Math.max(0, run.speedCharges - 1) };
+  if (kind === 'ram') return { ...run, ramCharges: Math.max(0, run.ramCharges - 1) };
+  return { ...run, chargeCharges: Math.max(0, (run.chargeCharges ?? 0) - 1) };
+}
+
+/** Advance only queued foundry work on resume; never advances the game simulation. */
+export function advanceOfflineFoundry(run: Run, elapsedWallMs: number, maxOfflineMs = MAX_FOUNDRY_OFFLINE_MS): Run {
+  let remaining = Math.max(0, Math.min(maxOfflineMs, elapsedWallMs));
+  let current = run;
+  while (remaining > 0 && (current.overflowJobs ?? []).length > 0) {
+    const [active, ...queued] = current.overflowJobs;
+    const spent = Math.min(remaining, Math.max(0, active.remainingMs));
+    remaining -= spent;
+    if (active.remainingMs > spent) {
+      current = { ...current, overflowJobs: [{ ...active, remainingMs: active.remainingMs - spent }, ...queued] };
+      break;
+    }
+    const resourceKind = active.kind === 'life' || active.kind === 'speed' || active.kind === 'ram' || active.kind === 'charge' ? active.kind : undefined;
+    const foundryProcessedItems = { ...(current.foundryProcessedItems ?? {}) };
+    if (resourceKind) foundryProcessedItems[resourceKind] = (foundryProcessedItems[resourceKind] ?? 0) + 1;
+    const manualRefinedItems = { ...(current.manualRefinedItems ?? {}) };
+    if (active.source === 'manual' && resourceKind) manualRefinedItems[resourceKind] = (manualRefinedItems[resourceKind] ?? 0) + 1;
+    const success = Math.random() * 100 < current.overflowSuccessChance;
+    const processed = { ...current, overflowJobs: queued, foundryProcessedItems, manualRefinedItems,
+      ...(success ? { foundryPayouts: [...(current.foundryPayouts ?? []), { id: active.id, kind: active.kind, credits: Math.max(0, Math.floor(active.credits)), source: active.source ?? 'overflow' }] } : {}) };
+    if (active.cargoHelperPetId !== undefined && processed.progression) {
+      processed.progression = { ...processed.progression, petDutyWork: recordPetDutyWork(processed.progression.petDutyWork ?? {}, active.cargoHelperPetId, 'cargo-helper') };
+    }
+    current = active.holdsCargo && resourceKind ? consumeRefinedCargo(processed, resourceKind) : processed;
+  }
+  return current;
 }
 
 export function tapPickupAt(run: Run, x: number, y: number): Run {
@@ -1327,8 +1551,121 @@ export function tapPickupAt(run: Run, x: number, y: number): Run {
 
 /** Pickups that drift into already-claimed cells are collected immediately. */
 function collectClaimedPickups(run: Run, width: number, height: number): Run {
-  const captured = run.powerups.filter(p => p.kind !== 'bubble' && p.kind !== 'treasure' && isClaimed(run, p.x, p.y, width, height));
+  const captured = run.powerups.filter(p => (p.mountAssembly || (p.kind !== 'bubble' && p.kind !== 'treasure')) && isClaimed(run, p.x, p.y, width, height));
   return applyPickupCaptures(run, captured);
+}
+
+/** Retrieval is opt-in, ordinary-pickup-only, and reuses the existing capacity and transit paths. */
+function advancePetRetrievers(previous: Run): Run {
+  let run = previous;
+  for (const pet of [...run.pets]) {
+    if (pet.health <= 0 || (pet.retrieverReadyAtMs ?? 0) > run.elapsedMs) continue;
+    const plan = run.progression?.petAssignments[String(pet.id)];
+    if (!plan || (plan.primary !== 'retriever' && plan.backup !== 'retriever') || !plan.retrieverFilters.length) continue;
+    const balances = cargoBalancesFromRun(run);
+    for (const transit of run.pickupTransits ?? []) {
+      if (transit.kind === 'life' && transit.destination === 'cargo') balances.life += transit.amount;
+      else if (transit.kind === 'credit' && transit.destination === 'credits') balances.credit += transit.amount;
+      else if (transit.destination === 'cargo' && transit.kind in balances) balances[transit.kind as CargoItemId] += transit.amount;
+    }
+    const target = run.powerups
+      .filter(power => Math.hypot(power.x - pet.x, power.y - pet.y) <= 74)
+      .sort((a, b) => Math.hypot(a.x - pet.x, a.y - pet.y) - Math.hypot(b.x - pet.x, b.y - pet.y))
+      .find(power => {
+        if (!plan.retrieverFilters.includes(power.kind as RetrieverPickupId) || power.kind === 'exit' || power.kind === 'treasure' || power.kind === 'engi-egg' || power.kind === 'merchant' || power.kind === 'bubble' || power.kind === 'waldo' || power.mountAssembly) return false;
+        if (power.kind === 'life' && balances.life >= run.lifeCapacity) return false;
+        return canRetrievePickup(plan, power.kind, canFitCargoItem(balances, power.kind as CargoItemId, run.cargoLayout, run.cargoStackBonuses, run.cargoShapes));
+      });
+    if (!target) continue;
+    const beforeCount = run.pickupsCaptured;
+    const collected = applyPickupCaptures(run, [target]);
+    if (collected.pickupsCaptured <= beforeCount) continue;
+    run = collected;
+    const duty: PetDutyId = 'retriever';
+    run.progression = { ...run.progression!, petDutyWork: recordPetDutyWork(run.progression?.petDutyWork ?? {}, pet.id, duty) };
+    run.pets = run.pets.map(candidate => candidate.id === pet.id ? { ...candidate, retrieverReadyAtMs: run.elapsedMs + 2200, task: 'inspect', taskUntilMs: run.elapsedMs + 900 } : candidate);
+    const transit = (run.pickupTransits ?? []).find(candidate => candidate.id === target.id);
+    if (transit) run.pickupTransits = run.pickupTransits!.map(candidate => candidate.id === transit.id ? { ...candidate, durationMs: 1680 } : candidate);
+    run.petNotice = `${pet.name.toUpperCase()} RETRIEVED ${target.kind.toUpperCase()}`;
+    run.petNoticeUntilMs = run.elapsedMs + 1500;
+  }
+  return run;
+}
+
+/** Spotter reports only events visible in the active run; it never inspects route outcomes. */
+function advancePetSpotters(previous: Run, current: Run): Run {
+  let cue: string | null = null;
+  if (!previous.levelClearPending && current.levelClearPending) cue = 'STAGE CLEARED';
+  if (!cue && current.captureEvents.some(event => event.kind === 'phaseRupture' || event.kind === 'turretHit')) cue = 'PHASE HAZARD';
+  if (!cue && current.balls.some(ball => ballHasModifier(ball, 'phase') && !previous.balls.some(old => old.id === ball.id && ballHasModifier(old, 'phase')))) cue = 'PHASE SIGNATURE';
+  if (!cue && current.powerups.some(power => {
+    const notable = power.mountAssembly || power.kind === 'engi-egg' || power.kind === 'waldo' || power.kind === 'merchant';
+    return notable && !previous.powerups.some(old => old.id === power.id);
+  })) cue = 'RARE CONTACT';
+  if (!cue && current.captureEvents.some(event => event.mountAssembly || event.kind === 'engi-egg' || event.kind === 'waldo')) cue = 'RARE SALVAGE SECURED';
+  if (!cue && previous.levelEvent !== current.levelEvent && current.levelEvent !== 'none') cue = 'STAGE EVENT';
+  if (!cue || !current.progression) return current;
+
+  const pet = current.pets.find(candidate => {
+    if (candidate.health <= 0 || (candidate.spotterReadyAtMs ?? 0) > current.elapsedMs) return false;
+    const plan = current.progression?.petAssignments[String(candidate.id)];
+    return plan?.primary === 'spotter' || plan?.backup === 'spotter';
+  });
+  if (!pet) return current;
+
+  return {
+    ...current,
+    pets: current.pets.map(candidate => candidate.id === pet.id
+      ? { ...candidate, spotterReadyAtMs: current.elapsedMs + PET_SPOTTER_COOLDOWN_MS, task: 'scan', taskUntilMs: current.elapsedMs + 1100 }
+      : candidate),
+    progression: {
+      ...current.progression,
+      petDutyWork: recordPetDutyWork(current.progression.petDutyWork ?? {}, pet.id, 'spotter'),
+    },
+    petNotice: `${pet.name.toUpperCase()} SPOTTED ${cue}`,
+    petNoticeUntilMs: current.elapsedMs + 2100,
+  };
+}
+
+/** One assigned Crew Companion restores a single missing life once per run, on a stage clear. */
+function advancePetCrewCompanion(previous: Run, current: Run): Run {
+  if (previous.levelClearPending || !current.levelClearPending || !current.progression || current.progression.crewCompanionRecoveryUsed) return current;
+  if (current.lives >= current.lifeCapacity) return current;
+  const pet = assignedPetsForDuty(current.pets, current.progression.petAssignments, 'crew-companion')[0];
+  if (!pet) return current;
+  const lives = Math.min(current.lifeCapacity, current.lives + PET_COMPANION_RECOVERY_PER_RUN);
+  return {
+    ...current,
+    lives,
+    pets: current.pets.map(candidate => candidate.id === pet.id ? { ...candidate, task: 'rest', taskUntilMs: current.elapsedMs + 1800 } : candidate),
+    progression: {
+      ...current.progression,
+      crewCompanionRecoveryUsed: true,
+      petDutyWork: recordPetDutyWork(current.progression.petDutyWork ?? {}, pet.id, 'crew-companion'),
+    },
+    petNotice: `${current.petNotice ? `${current.petNotice} · ` : ''}${pet.name.toUpperCase()} RESTORED ${lives - current.lives} LIFE`,
+    petNoticeUntilMs: Math.max(current.petNoticeUntilMs, current.elapsedMs + 2600),
+  };
+}
+
+/** A living assigned Systems Helper can intercept one wall-breaking hit, then serves its proficiency-scaled cooldown. */
+function useSystemsHelperRepair(run: Run, x: number, y: number) {
+  if (!run.progression) return false;
+  const pet = assignedPetsForDuty(run.pets, run.progression.petAssignments, 'systems-helper')
+    .find(candidate => (candidate.systemsHelperReadyAtMs ?? 0) <= run.elapsedMs);
+  if (!pet) return false;
+  const proficiency = petDutyProficiency(pet, 'systems-helper');
+  run.pets = run.pets.map(candidate => candidate.id === pet.id
+    ? { ...candidate, systemsHelperReadyAtMs: run.elapsedMs + systemsHelperCooldownMs(proficiency), task: 'weld', taskUntilMs: run.elapsedMs + 1800 }
+    : candidate);
+  run.progression = {
+    ...run.progression,
+    petDutyWork: recordPetDutyWork(run.progression.petDutyWork ?? {}, pet.id, 'systems-helper'),
+  };
+  run.captureEvents.push({ id: run.nextId++, x, y, kind: 'petRepair' });
+  run.petNotice = `${pet.name.toUpperCase()} REPAIRED THE WALL`;
+  run.petNoticeUntilMs = run.elapsedMs + 2600;
+  return true;
 }
 
 function pickupIntersectsWall(powerup: PowerUp, wall: Wall, settings: MechanicsSettings = MECHANICS) {
@@ -1386,8 +1723,14 @@ export function startWall(run: Run, x: number, y: number, axis: Wall['axis']): R
   return { ...run, nextId: run.nextId + 1, walls, balls, speedReadyUntil: noCapture ? null : run.speedReadyUntil, chargeReadyUntil: chargeWall ? null : run.chargeReadyUntil, chargeReadySkinId: chargeWall ? undefined : run.chargeReadySkinId };
 }
 
+function availableCargoUnits(run: Run, kind: 'life' | 'speed' | 'ram' | 'charge') {
+  const balance = kind === 'life' ? run.lives : kind === 'speed' ? run.speedCharges : kind === 'ram' ? run.ramCharges : run.chargeCharges ?? 0;
+  const reserved = (run.overflowJobs ?? []).filter(job => job.source === 'manual' && job.holdsCargo && job.kind === kind).length;
+  return Math.max(0, balance - reserved);
+}
+
 export function activateSpeed(run: Run): Run {
-  if (run.speedCharges <= 0 || (run.speedReadyUntil !== null && run.speedReadyUntil > run.elapsedMs)) return run;
+  if (availableCargoUnits(run, 'speed') <= 0 || (run.speedReadyUntil !== null && run.speedReadyUntil > run.elapsedMs)) return run;
   const active = run.walls.filter(w => w.active).sort((a, b) => b.id - a.id)[0];
   const multiplier = run.mechanics.speedBoostMultiplier ?? 1.4;
   if (active) return { ...run, speedCharges: run.speedCharges - 1, walls: run.walls.map(w => w.id === active.id ? { ...w, speedMultiplier: w.speedMultiplier * multiplier } : w) };
@@ -1395,7 +1738,7 @@ export function activateSpeed(run: Run): Run {
 }
 
 export function activateCharge(run: Run, skinId: string): Run {
-  if (run.chargeCharges <= 0 || (run.chargeReadyUntil !== null && run.chargeReadyUntil > run.elapsedMs)) return run;
+  if (availableCargoUnits(run, 'charge') <= 0 || (run.chargeReadyUntil !== null && run.chargeReadyUntil > run.elapsedMs)) return run;
   const active = run.walls.filter(wall => wall.active).sort((a, b) => b.id - a.id)[0];
   if (active) {
     const x = active.axis === 'vertical' ? active.at : (active.low + active.high) / 2;
@@ -1406,7 +1749,7 @@ export function activateCharge(run: Run, skinId: string): Run {
 }
 
 export function ramAt(run: Run, x: number, y: number): Run {
-  if (!run.ramCharges) return run;
+  if (availableCargoUnits(run, 'ram') <= 0) return run;
   const puzzle = run.pictureEvent;
   if (puzzle?.isWaldo && !puzzle.waldoFound && puzzle.waldoX !== undefined && puzzle.waldoY !== undefined
     && isClaimed(run, puzzle.waldoX * run.boardWidth, puzzle.waldoY * run.boardHeight, run.boardWidth, run.boardHeight)
@@ -1420,10 +1763,10 @@ export function ramAt(run: Run, x: number, y: number): Run {
     const rewarded = awardCredits(run, run.mechanics.waldoRewardCredits, foundX, foundY);
     const shiftedFireworks = fireworks.map(event => ({ ...event, id: event.id + 1 }));
     const waldoPet: CompanionPet = { id: rewarded.nextId + fireworks.length + 1, species: 'waldo', name: 'Waldo', skinId: 'classic-waldo', health: 1, maxHealth: 1, level: 1, deployed: false, x: run.boardWidth * 0.5, y: 0, vx: 0, vy: 0, task: 'clean', taskUntilMs: run.elapsedMs + 4200, repairedThisLevel: false, nextPaintingAtMs: run.elapsedMs + run.mechanics.waldoPetPaintingIntervalMs, paintings: [] };
-    return { ...rewarded, ramCharges: run.ramCharges - 1, pictureEvent: { ...puzzle, waldoFound: true }, powerups: [...run.powerups, { ...treasure, id: treasure.id + 1 }], pets: [...run.pets, waldoPet], petNotice: 'WALDO JOINED THE CREW', petNoticeUntilMs: run.elapsedMs + 4000, captureEvents: [...run.captureEvents, ...shiftedFireworks], nextId: waldoPet.id + 1 };
+    return { ...rewarded, ramCharges: run.ramCharges - 1, pictureEvent: { ...puzzle, waldoFound: true }, powerups: run.levelEvent === 'elimination' ? run.powerups : [...run.powerups, { ...treasure, id: treasure.id + 1 }], pets: [...run.pets, waldoPet], petNotice: 'WALDO JOINED THE CREW', petNoticeUntilMs: run.elapsedMs + 4000, captureEvents: [...run.captureEvents, ...shiftedFireworks], nextId: waldoPet.id + 1 };
   }
   if (run.treasureHunt?.revealed && Math.hypot(run.treasureHunt.x - x, run.treasureHunt.y - y) <= powerupRadius('treasure', run.mechanics)) {
-    if (run.ramCharges >= 3) {
+    if (availableCargoUnits(run, 'ram') >= 3) {
       const count = Math.floor(randomBetween(run.mechanics.treasureRewardMin, run.mechanics.treasureRewardMax + 1));
       const rewards = Array.from({ length: count }, () => randomEventPowerKind(run));
       const rewardEvents: CaptureEvent[] = rewards.map((kind, index) => ({ id: run.nextId + index + 2, x: randomBetween(40, run.boardWidth - 40), y: randomBetween(40, run.boardHeight - 40), kind, skinId: kind === 'engi-egg' ? randomEngiCocoonSkin() : undefined }));
@@ -1531,6 +1874,7 @@ function findOtherPhaseChestContainer(run: Run, sourceBallId: number, width: num
 }
 
 function trySpawnDeferredPhaseChest(run: Run, width: number, height: number) {
+  if (run.levelEvent === 'elimination') { run.phaseChestPending = false; run.phaseChestOriginBallId = undefined; run.phaseChestRetryAtMs = undefined; return; }
   if (!run.phaseChestPending || (run.phaseChestRetryAtMs ?? 0) > run.elapsedMs) return;
   run.phaseChestRetryAtMs = run.elapsedMs + 1000;
   const point = findOtherPhaseChestContainer(run, run.phaseChestOriginBallId ?? -1, width, height);
@@ -1540,11 +1884,142 @@ function trySpawnDeferredPhaseChest(run: Run, width: number, height: number) {
   run.phaseChestPending = false; run.phaseChestOriginBallId = undefined; run.phaseChestRetryAtMs = undefined;
 }
 
+function advanceStarterTurret(run: Run, dt: number, width: number, height: number): Run {
+  const turret: TurretState = run.turret ?? { cooldownMs: 0, firePowerLevel: 0, fireControlLevel: 0, mobilityLevel: 0, deploymentLevel: 0, mount: 'lower', railPosition: 0.5, targetPriority: 'alternate' };
+  const shotEvents = (run.turretShotEvents ?? []).filter(event => event.untilMs > run.elapsedMs);
+  const cooldownMs = Math.max(0, turret.cooldownMs - dt);
+  const readyRun: Run = { ...run, turret: { ...turret, cooldownMs }, turretShotEvents: shotEvents };
+  if (cooldownMs > 0) return readyRun;
+
+  const mount = starterTurretGeometry(width, height, turret.fireControlLevel, turret.railPosition, turret.mount);
+  const withinRange = (x: number, y: number) => Math.hypot(x - mount.x, y - mount.y) <= mount.range;
+  const targets: Partial<Record<TurretTargetKind, { x: number; y: number; id: number; radius?: number }[]>> = {
+    bubble: run.powerups.filter(power => power.kind === 'bubble' && withinRange(power.x, power.y)).map(power => ({ id: power.id, x: power.x, y: power.y })),
+    // Splitter collisions remove the modifier from their smaller offspring.
+    // Keep those descendants targetable by their radius, while retaining the
+    // marked parent as a valid target until it splits.
+    splitter: run.balls.filter(ball => (ballHasModifier(ball, 'splitter') || ball.r < run.mechanics.ballRadius) && withinRange(ball.x, ball.y)).sort((a, b) => a.r - b.r).map(ball => ({ id: ball.id, x: ball.x, y: ball.y, radius: ball.r })),
+    ...(turret.firePowerLevel >= 3 ? { anchor: run.balls.filter(ball => ballHasModifier(ball, 'anchor') && withinRange(ball.x, ball.y)).map(ball => ({ id: ball.id, x: ball.x, y: ball.y, radius: ball.r })) } : {}),
+  };
+  const availableKinds = (['bubble', 'splitter', 'anchor'] as TurretTargetKind[]).filter(kind => (targets[kind]?.length ?? 0) > 0);
+  if (!availableKinds.length) return readyRun;
+  let targetKind: TurretTargetKind;
+  if (turret.fireControlLevel >= 2 && turret.targetPriority !== 'alternate' && availableKinds.includes(turret.targetPriority)) targetKind = turret.targetPriority;
+  else if (turret.lastTargetKind && availableKinds.length > 1) {
+    const start = (['bubble', 'splitter', 'anchor'] as TurretTargetKind[]).indexOf(turret.lastTargetKind);
+    targetKind = [...Array(3)].map((_, offset) => (['bubble', 'splitter', 'anchor'] as TurretTargetKind[])[(start + offset + 1) % 3]).find(kind => availableKinds.includes(kind)) ?? availableKinds[0];
+  } else targetKind = availableKinds[0];
+  const candidates = targets[targetKind] ?? [];
+  const target = candidates.reduce((best, candidate) => !best || Math.hypot(candidate.x - mount.x, candidate.y - mount.y) < Math.hypot(best.x - mount.x, best.y - mount.y) ? candidate : best, undefined as (typeof candidates)[number] | undefined);
+  if (!target) return readyRun;
+
+  const accuracy = Math.min(0.96, STARTER_TURRET_BASE_ACCURACY + Math.max(0, turret.fireControlLevel) * 0.06);
+  const hit = Math.random() < accuracy;
+  const travelMs = Math.max(170, Math.min(560, Math.hypot(target.x - mount.x, target.y - mount.y) / 2.35));
+  const missAngle = Math.atan2(target.y - mount.y, target.x - mount.x) + (Math.random() < 0.5 ? -1 : 1) * (0.1 + Math.random() * 0.16);
+  const missDistance = 28 + Math.random() * 36;
+  const endX = hit ? target.x : Math.max(2, Math.min(width - 2, target.x + Math.cos(missAngle) * missDistance));
+  const endY = hit ? target.y : Math.max(2, Math.min(height - 2, target.y + Math.sin(missAngle) * missDistance));
+  const shotId = run.nextId;
+  let next: Run = {
+    ...readyRun,
+    nextId: run.nextId + 1,
+    turret: { ...turret, cooldownMs: Math.max(650, STARTER_TURRET_BASE_COOLDOWN_MS - turret.fireControlLevel * 140) + (hit ? 0 : STARTER_TURRET_MISS_COOLDOWN_MS), lastTargetKind: targetKind, lastShotOutcome: hit ? 'hit' : 'miss' },
+    turretShotEvents: [...shotEvents, { id: shotId, fromX: mount.x, fromY: mount.y, toX: endX, toY: endY, targetKind, outcome: hit ? 'hit' : 'miss', durationMs: travelMs, untilMs: run.elapsedMs + travelMs + 120 }],
+  };
+  if (!hit) return next;
+
+  if (targetKind === 'bubble') {
+    const bubble = next.powerups.find(power => power.id === target.id && power.kind === 'bubble');
+    if (!bubble) return next;
+    next = { ...next, powerups: next.powerups.filter(power => power.id !== target.id), pickupsCaptured: next.pickupsCaptured + 1 };
+    next = awardCredits(next, next.mechanics.bubbleCreditsPerPop, bubble.x, bubble.y);
+    next.captureEvents = [...next.captureEvents, { id: next.nextId, x: bubble.x, y: bubble.y, kind: 'bubble', amount: next.mechanics.bubbleCreditsPerPop }];
+    next.nextId++;
+    return next;
+  }
+
+  const ball = next.balls.find(candidate => candidate.id === target.id);
+  if (!ball) return next;
+  if (targetKind === 'anchor' && turret.firePowerLevel >= 3) {
+    const normalBall = removeBallModifier(ball, 'anchor');
+    const kind = randomEventPowerKind(next);
+    const angle = Math.random() * Math.PI * 2, speed = 48, radius = powerupRadius(kind, next.mechanics), offset = ball.r + radius + 4;
+    const reward: PowerUp = { id: next.nextId++, kind, x: Math.max(radius, Math.min(width - radius, ball.x + Math.cos(angle) * offset)), y: Math.max(radius, Math.min(height - radius, ball.y + Math.sin(angle) * offset)), vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, skinId: kind === 'engi-egg' ? randomEngiCocoonSkin() : undefined, despawnAtMs: powerupDespawnAt(kind, next.elapsedMs, next.mechanics) };
+    next = { ...next, balls: next.balls.map(candidate => candidate.id === ball.id ? normalBall : candidate), powerups: [...next.powerups, reward], captureEvents: [...next.captureEvents, { id: next.nextId++, x: ball.x, y: ball.y, kind: 'anchorBreak' }] };
+    return next;
+  }
+
+  const hits = (ball.turretHits ?? 0) + 1;
+  const requiredHits = Math.max(1, 2 - Math.max(0, turret.firePowerLevel));
+  if (hits >= requiredHits) {
+    next = { ...next, balls: next.balls.filter(candidate => candidate.id !== ball.id), ballsDestroyed: next.ballsDestroyed + 1, captureEvents: [...next.captureEvents, { id: next.nextId++, x: ball.x, y: ball.y, kind: 'explosion' }] };
+  } else next = { ...next, balls: next.balls.map(candidate => candidate.id === ball.id ? { ...candidate, turretHits: hits } : candidate) };
+  return next;
+}
+
+function advanceDeployedTurrets(run: Run, dt: number, width: number, height: number): Run {
+  let next: Run = { ...run, deployedTurrets: (run.deployedTurrets ?? []).map(mount => ({ ...mount, cooldownMs: Math.max(0, mount.cooldownMs - dt) })) };
+  for (const mount of [...(next.deployedTurrets ?? [])]) {
+    if (!mount.health || mount.cooldownMs > 0) continue;
+    const turret = next.turret ?? { cooldownMs: 0, firePowerLevel: 0, fireControlLevel: 0, mobilityLevel: 0, deploymentLevel: 0, mount: 'lower' as const, railPosition: 0.5, targetPriority: 'alternate' as const };
+    const range = starterTurretGeometry(width, height, turret.fireControlLevel).range;
+    const targets = [
+      ...next.powerups.filter(power => power.kind === 'bubble' && Math.hypot(power.x - mount.x, power.y - mount.y) <= range).map(power => ({ kind: 'bubble' as const, id: power.id, x: power.x, y: power.y })),
+      ...next.balls.filter(ball => (ballHasModifier(ball, 'splitter') || ball.r < next.mechanics.ballRadius) && Math.hypot(ball.x - mount.x, ball.y - mount.y) <= range).map(ball => ({ kind: 'splitter' as const, id: ball.id, x: ball.x, y: ball.y })),
+    ];
+    const target = targets.reduce((best, candidate) => !best || Math.hypot(candidate.x - mount.x, candidate.y - mount.y) < Math.hypot(best.x - mount.x, best.y - mount.y) ? candidate : best, undefined as (typeof targets)[number] | undefined);
+    if (!target) continue;
+    const hit = Math.random() < Math.min(0.96, STARTER_TURRET_BASE_ACCURACY + turret.fireControlLevel * 0.06);
+    const distance = Math.hypot(target.x - mount.x, target.y - mount.y), travelMs = Math.max(170, Math.min(560, distance / 2.35));
+    const missAngle = Math.atan2(target.y - mount.y, target.x - mount.x) + (Math.random() < 0.5 ? -1 : 1) * (0.1 + Math.random() * 0.16);
+    const missDistance = 28 + Math.random() * 36;
+    const shotId = next.nextId++;
+    next.turretShotEvents = [...(next.turretShotEvents ?? []).filter(event => event.untilMs > next.elapsedMs), { id: shotId, fromX: mount.x, fromY: mount.y, toX: hit ? target.x : Math.max(2, Math.min(width - 2, target.x + Math.cos(missAngle) * missDistance)), toY: hit ? target.y : Math.max(2, Math.min(height - 2, target.y + Math.sin(missAngle) * missDistance)), targetKind: target.kind, outcome: hit ? 'hit' : 'miss', durationMs: travelMs, untilMs: next.elapsedMs + travelMs + 120 }];
+    next.deployedTurrets = (next.deployedTurrets ?? []).map(item => item.id === mount.id ? { ...item, cooldownMs: Math.max(650, STARTER_TURRET_BASE_COOLDOWN_MS - turret.fireControlLevel * 140) + (hit ? 0 : STARTER_TURRET_MISS_COOLDOWN_MS) } : item);
+    if (!hit) continue;
+    if (target.kind === 'bubble') {
+      const bubble = next.powerups.find(power => power.id === target.id && power.kind === 'bubble');
+      if (!bubble) continue;
+      next.powerups = next.powerups.filter(power => power.id !== bubble.id);
+      next.pickupsCaptured++;
+      next = awardCredits(next, next.mechanics.bubbleCreditsPerPop, bubble.x, bubble.y);
+      next.captureEvents.push({ id: next.nextId++, x: bubble.x, y: bubble.y, kind: 'bubble', amount: next.mechanics.bubbleCreditsPerPop });
+      continue;
+    }
+    const ball = next.balls.find(candidate => candidate.id === target.id);
+    if (!ball) continue;
+    const hits = (ball.turretHits ?? 0) + 1, requiredHits = Math.max(1, 2 - Math.max(0, turret.firePowerLevel));
+    if (hits >= requiredHits) {
+      next.balls = next.balls.filter(candidate => candidate.id !== ball.id);
+      next.ballsDestroyed++;
+      next.captureEvents.push({ id: next.nextId++, x: ball.x, y: ball.y, kind: 'explosion' });
+    } else next.balls = next.balls.map(candidate => candidate.id === ball.id ? { ...candidate, turretHits: hits } : candidate);
+  }
+  return next;
+}
+
 export function stepRun(previous: Run, dt: number, width: number, height: number): Run {
   if (previous.ended || width <= 0 || height <= 0) return previous;
-  let run: Run = { ...previous, levelEvent: previous.levelEvent ?? 'none', levelEventBannerUntilMs: previous.levelEventBannerUntilMs ?? 0, levelClearAnimationRemainingMs: previous.levelClearAnimationRemainingMs ?? 0, containmentMutations: (previous.containmentMutations ?? []).map(box => ({ ...box, wallIds: [...box.wallIds], wallSegments: box.wallSegments?.map(segment => ({ ...segment })), bounds: { ...box.bounds } })), containmentMutationScanRemainingMs: previous.containmentMutationScanRemainingMs ?? 0, elapsedMs: previous.elapsedMs + dt, modifierCollisionLocks: Object.fromEntries(Object.entries(previous.modifierCollisionLocks ?? {}).filter(([, expiresAt]) => expiresAt > previous.elapsedMs + dt)), balls: previous.balls.map(b => ({ ...b })), walls: previous.walls.map(w => ({ ...w })), powerups: previous.powerups.map(p => ({ ...p })), overflowJobs: (previous.overflowJobs ?? []).map(job => ({ ...job })), pets: (previous.pets ?? []).map(pet => ({ ...pet })), petIncubations: (previous.petIncubations ?? []).map(incubation => ({ ...incubation })), captureEvents: [], wallBreakEvents: [], territoryGainEvents: [], creditGainEvents: [], speedReadyUntil: previous.speedReadyUntil !== null && previous.speedReadyUntil <= previous.elapsedMs + dt ? null : previous.speedReadyUntil,
+  let run: Run = { ...previous, mountAssemblies: previous.mountAssemblies ?? 0, deployedTurrets: (previous.deployedTurrets ?? []).map(mount => ({ ...mount })), levelEvent: previous.levelEvent ?? 'none', levelEventBannerUntilMs: previous.levelEventBannerUntilMs ?? 0, levelClearAnimationRemainingMs: previous.levelClearAnimationRemainingMs ?? 0, containmentMutations: (previous.containmentMutations ?? []).map(box => ({ ...box, wallIds: [...box.wallIds], wallSegments: box.wallSegments?.map(segment => ({ ...segment })), bounds: { ...box.bounds } })), containmentMutationScanRemainingMs: previous.containmentMutationScanRemainingMs ?? 0, elapsedMs: previous.elapsedMs + dt, modifierCollisionLocks: Object.fromEntries(Object.entries(previous.modifierCollisionLocks ?? {}).filter(([, expiresAt]) => expiresAt > previous.elapsedMs + dt)), balls: previous.balls.map(b => ({ ...b })), walls: previous.walls.map(w => ({ ...w })), powerups: previous.powerups.map(p => ({ ...p })), overflowJobs: (previous.overflowJobs ?? []).map(job => ({ ...job })), pets: (previous.pets ?? []).map(pet => ({ ...pet })), petIncubations: (previous.petIncubations ?? []).map(incubation => ({ ...incubation })), captureEvents: [], wallBreakEvents: [], territoryGainEvents: [], creditGainEvents: [], speedReadyUntil: previous.speedReadyUntil !== null && previous.speedReadyUntil <= previous.elapsedMs + dt ? null : previous.speedReadyUntil,
     treasureHunt: previous.treasureHunt ? { ...previous.treasureHunt, remainingMs: previous.treasureHunt.remainingMs - dt } : null,
     chargeReadyUntil: previous.chargeReadyUntil !== null && previous.chargeReadyUntil <= previous.elapsedMs + dt ? null : previous.chargeReadyUntil };
+  if (run.levelEvent === 'elimination') {
+    run.mechanics = { ...run.mechanics, eliminationChargeSpawnChance: Math.max(0.75, run.mechanics.eliminationChargeSpawnChance) };
+
+    // Restore saves produced by the temporary Elimination 6–10s override. Use
+    // the run's base settings plus the active beacon's normal pickup-rate effect.
+    const base = run.baseMechanics;
+    if (base && run.mechanics.powerupSpawnEverySecondsMin === 6 && run.mechanics.powerupSpawnEverySecondsMax === 10
+      && (base.powerupSpawnEverySecondsMin !== 6 || base.powerupSpawnEverySecondsMax !== 10)) {
+      const currentBeacon = run.sector?.beacons.find(beacon => beacon.id === run.sector?.currentBeaconId);
+      const pickupRate = Math.max(0.6, 1 + (currentBeacon?.effects ?? []).reduce((sum, effect) => sum + (effect.pickupRatePercent ?? 0), 0) / 100);
+      const min = Math.max(5, Math.round(base.powerupSpawnEverySecondsMin / pickupRate));
+      const max = Math.max(min, Math.round(base.powerupSpawnEverySecondsMax / pickupRate));
+      run.mechanics = { ...run.mechanics, powerupSpawnEverySecondsMin: min, powerupSpawnEverySecondsMax: max };
+      run.spawnInMs = Math.floor(randomBetween(min, max + 1)) * 1000;
+    }
+  }
   if (run.levelClearPending) {
     let activeMs = 0;
     if ((run.levelClearAnimationRemainingMs ?? 0) > 0) {
@@ -1767,7 +2242,14 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
       b.skimmerResumeVx = undefined; b.skimmerResumeVy = undefined;
       continue;
     }
-    if (ballHasModifier(b, 'phase')) continue;
+    if (ballHasModifier(b, 'phase')) {
+      run.deployedTurrets = (run.deployedTurrets ?? []).map(mount => {
+        if (!mount.health || Math.hypot(b.x - mount.x, b.y - mount.y) > b.r + 22) return mount;
+        run.captureEvents.push({ id: run.nextId++, x: mount.x, y: mount.y, kind: 'turretHit' });
+        return { ...mount, health: 0 };
+      });
+      continue;
+    }
     for (const w of run.walls) {
       if (chargeDestroyedBalls.has(b.id)) break;
       if (anchorUsed.has(b.id)) break;
@@ -1791,12 +2273,8 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
           continue;
         }
         if (!broken.has(w.id) && !repairedWalls.has(w.id)) {
-          const mechanic = run.pets.find(pet => pet.species === 'engi' && pet.health > 0 && !pet.repairedThisLevel);
-          if (mechanic) {
-            run.pets = run.pets.map(pet => pet.id === mechanic.id ? { ...pet, repairedThisLevel: true, task: 'weld', taskUntilMs: run.elapsedMs + 1800 } : pet);
-            repairedWalls.add(w.id); run.captureEvents.push({ id: run.nextId++, x: b.x, y: b.y, kind: 'petRepair' });
-            run.petNotice = `${mechanic.name} REPAIRED THE WALL`; run.petNoticeUntilMs = run.elapsedMs + 3000;
-          } else { broken.add(w.id); breakPoints.push({ x: b.x, y: b.y, axis: w.axis, at: w.at, low: w.low, high: w.high }); }
+          if (useSystemsHelperRepair(run, b.x, b.y)) repairedWalls.add(w.id);
+          else { broken.add(w.id); breakPoints.push({ x: b.x, y: b.y, axis: w.axis, at: w.at, low: w.low, high: w.high }); }
         }
       }
       else if (ballHasModifier(b, 'anchor') && Math.hypot(b.vx, b.vy) >= (run.mechanics.ballModifiers.anchor.breakSpeedThreshold ?? 190) && !anchorCuts.has(w.id)) {
@@ -1823,13 +2301,8 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
         anchorUsed.add(b.id);
       }
       else if (w.active && !broken.has(w.id) && !repairedWalls.has(w.id)) {
-        const mechanic = run.pets.find(pet => pet.species === 'engi' && pet.health > 0 && !pet.repairedThisLevel);
-        if (mechanic) {
-          run.pets = run.pets.map(pet => pet.id === mechanic.id ? { ...pet, repairedThisLevel: true, task: 'weld', taskUntilMs: run.elapsedMs + 1800 } : pet);
+        if (useSystemsHelperRepair(run, b.x, b.y)) {
           repairedWalls.add(w.id);
-          run.captureEvents.push({ id: run.nextId++, x: b.x, y: b.y, kind: 'petRepair' });
-          run.petNotice = `${mechanic.name} REPAIRED THE WALL`;
-          run.petNoticeUntilMs = run.elapsedMs + 3000;
           if (w.axis === 'vertical') { b.vx = Math.abs(b.vx) * (oldX < w.at ? -1 : 1); b.x = w.at + Math.sign(oldX < w.at ? -1 : 1) * (b.r + 3); }
           else { b.vy = Math.abs(b.vy) * (oldY < w.at ? -1 : 1); b.y = w.at + Math.sign(oldY < w.at ? -1 : 1) * (b.r + 3); }
           break;
@@ -1906,7 +2379,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
   if (brokenNetwork.size) {
     run.walls = run.walls.filter(w => !brokenNetwork.has(w.id));
     run.lives -= broken.size;
-    if (run.lives <= 0) run.ended = true;
+    if (availableCargoUnits(run, 'life') <= 0) run.ended = true;
   }
   run = unclaimTerritoryAtBreaches(run, width, height, [...anchorCuts.values(), ...rammedWallSections]);
   if (breakPoints.length) {
@@ -2036,8 +2509,8 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
   if (run.spawnInMs <= 0) {
     const speed = 70;
     const angle = Math.random() * Math.PI * 2;
-    const spawnWaldo = run.waldoEligible && !run.waldoEventPending && !run.pictureEvent?.isWaldo && Math.random() < run.mechanics.waldoSpawnChance;
-    const allActiveMutationBoxes = (run.containmentMutations ?? []).filter(box => box.active && box.kind);
+    const spawnWaldo = run.levelEvent !== 'elimination' && run.waldoEligible && !run.waldoEventPending && !run.pictureEvent?.isWaldo && Math.random() < run.mechanics.waldoSpawnChance;
+    const allActiveMutationBoxes = run.levelEvent === 'elimination' ? [] : (run.containmentMutations ?? []).filter(box => box.active && box.kind);
     const mutationBoxes = allActiveMutationBoxes.filter(box => containmentKindAvailable(run, box.kind!));
     const attractionWeights = mutationBoxes.map(box => containmentMutationUpgrade(run, box.kind!, 'mutationAttraction'));
     const attractionTotal = attractionWeights.reduce((sum, value) => sum + value, 0);
@@ -2047,6 +2520,13 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
       for (let index = 0; index < mutationBoxes.length; index++) { draw -= attractionWeights[index]; if (draw <= 0) { targetMutationBox = mutationBoxes[index]; break; } }
     }
     let kind: PowerKind = targetMutationBox?.kind ?? (spawnWaldo ? 'waldo' : randomEventPowerKind(run));
+    const mountAssemblyDrop = run.levelEvent !== 'elimination' && !targetMutationBox && !spawnWaldo
+      && !!run.progression?.blueprintIdsAtStart.includes(CLAIMED_MOUNT_BLUEPRINT_ID)
+      && (run.mountAssemblies ?? 0) === 0
+      && !run.powerups.some(power => power.mountAssembly)
+      && !(run.pickupTransits ?? []).some(transit => transit.mountAssembly)
+      && Math.random() < CLAIMED_MOUNT_ASSEMBLY_SPAWN_CHANCE;
+    if (mountAssemblyDrop) kind = 'treasure';
     let point = targetMutationBox ? tryPointInMutationBox(run, targetMutationBox, width, height, powerupRadius(kind, run.mechanics)) : null;
     if (targetMutationBox && !point) { targetMutationBox = undefined; kind = spawnWaldo ? 'waldo' : randomEventPowerKind(run); }
     for (let attempt = 0; !point && attempt < 36; attempt++) {
@@ -2055,13 +2535,13 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
       if (overlapsClaimed(run, candidate.x, candidate.y, radius, width, height)) continue;
       if (run.balls.some(ball => Math.hypot(ball.x - candidate.x, ball.y - candidate.y) < ball.r + radius + 3)) continue;
       if (run.walls.some(wall => !wall.active && pointOnWall(wall, candidate.x, candidate.y, radius))) continue;
-      const enclosingMutation = mutationBoxAt(allActiveMutationBoxes, candidate.x, candidate.y, width, height);
+      const enclosingMutation = run.levelEvent === 'elimination' ? undefined : mutationBoxAt(allActiveMutationBoxes, candidate.x, candidate.y, width, height);
       if (enclosingMutation && !containmentKindAvailable(run, enclosingMutation.kind!)) continue;
       if (enclosingMutation && kind !== enclosingMutation.kind) { kind = enclosingMutation.kind!; continue; }
       point = candidate;
     }
     if (point) {
-      run.powerups.push({ id: run.nextId++, ...point, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, kind, skinId: kind === 'engi-egg' ? randomEngiCocoonSkin() : undefined, despawnAtMs: powerupDespawnAt(kind, run.elapsedMs, run.mechanics) });
+      run.powerups.push({ id: run.nextId++, ...point, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, kind, mountAssembly: mountAssemblyDrop, skinId: mountAssemblyDrop ? 'mount-assembly' : kind === 'engi-egg' ? randomEngiCocoonSkin() : undefined, despawnAtMs: powerupDespawnAt(kind, run.elapsedMs, run.mechanics) });
       const spawnedInMutation = mutationBoxAt(allActiveMutationBoxes, point.x, point.y, width, height);
       if (spawnedInMutation) {
         if (spawnedInMutation.decayQueued) run.containmentMutations = run.containmentMutations.map(box => box.key === spawnedInMutation.key ? { ...box, active: false, decayQueued: false } : box);
@@ -2214,6 +2694,8 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
     run.captureEvents.push({ id: run.nextId++, x: (ball.x + merchant.x) / 2, y: (ball.y + merchant.y) / 2, kind: 'merchantBreak' });
   }
   if (brokenMerchants.size) run.powerups = run.powerups.filter(p => !brokenMerchants.has(p.id));
+  run = advanceStarterTurret(run, dt, width, height);
+  run = advanceDeployedTurrets(run, dt, width, height);
   run = collectClaimedPickups(run, width, height);
   run = startLevelClearIfReady(run, width, height);
   const isolatedIds = isolatedBallIds(run, width, height);
@@ -2227,6 +2709,9 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
   run = advanceOverflowProcessor(run, dt);
   advancePetIncubations(run, dt);
   advancePetBodies(run, dt, width, height);
+  run = advancePetSpotters(previous, run);
+  run = advancePetCrewCompanion(previous, run);
+  run = advancePetRetrievers(run);
   return run;
 }
 

@@ -56,7 +56,15 @@ export type SectorState = {
   lastScannedBeaconId?: string;
 };
 
-export type SectorRouteBeacon = Pick<SectorBeacon, 'id' | 'x' | 'y' | 'depth' | 'start' | 'exit'> & { visited: boolean };
+export type SectorRouteBeacon = Pick<SectorBeacon, 'id' | 'x' | 'y' | 'depth' | 'start' | 'exit'> & {
+  visited: boolean;
+  /** Event details are captured only after a beacon is visited and its event is no longer hidden. */
+  name?: string;
+  eventKind?: BeaconEventKind;
+  eventTitle?: string;
+  eventDescription?: string;
+  eventPassage?: string;
+};
 export type SectorRouteRecord = { id: string; depth: number; type: SectorType; targetLength: number; beacons: SectorRouteBeacon[]; pathBeaconIds: string[] };
 
 /** Compact, save-friendly snapshot of one sector's explored map and actual jump sequence. */
@@ -66,7 +74,16 @@ export function archiveSectorRoute(sector: SectorState): SectorRouteRecord {
     depth: sector.depth,
     type: sector.type,
     targetLength: sector.targetLength,
-    beacons: sector.beacons.map(({ id, x, y, depth, start, exit, visited }) => ({ id, x, y, depth, start, exit, visited: !!visited })),
+    beacons: sector.beacons.map(beacon => ({
+      id: beacon.id, x: beacon.x, y: beacon.y, depth: beacon.depth, start: beacon.start, exit: beacon.exit, visited: !!beacon.visited,
+      ...(beacon.visited && !beacon.event.hidden ? {
+        name: beacon.name,
+        eventKind: beacon.event.kind,
+        eventTitle: beacon.event.title,
+        eventDescription: beacon.event.description,
+        eventPassage: beacon.event.passage,
+      } : {}),
+    })),
     pathBeaconIds: [...sector.visitedBeaconIds],
   };
 }
@@ -263,7 +280,7 @@ function makeBeacon(seed: number, id: string, depth: number, x: number, y: numbe
     const rewardKindsByEvent: Partial<Record<BeaconEventKind, readonly ('life' | 'speed' | 'ram' | 'charge')[]>> = {
       repair: ['life', 'life', 'charge'], civilian: ['life', 'speed', 'speed'], store: ['life', 'speed', 'ram', 'charge'],
       derelict: ['ram', 'charge', 'charge', 'speed'], engi: ['charge', 'charge', 'speed'], waldo: ['speed', 'charge', 'ram'],
-      hostile: ['ram', 'charge', 'speed'], elimination: ['charge', 'ram', 'charge', 'speed'], 'drift-swarm': ['charge', 'ram', 'speed'],
+      hostile: ['ram', 'charge', 'speed'], elimination: ['charge', 'life', 'charge', 'charge'], 'drift-swarm': ['charge', 'ram', 'speed'],
       nebula: ['speed', 'charge', 'life', 'ram'], jackpot: ['life', 'speed', 'ram', 'charge'], picture: ['life', 'speed', 'ram', 'charge'],
     };
     const rewardKinds = rewardKindsByEvent[kind] ?? ['life', 'speed', 'ram', 'charge'];

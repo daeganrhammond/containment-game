@@ -93,6 +93,7 @@ export const PICKUP_SKINS: Record<PowerKind, readonly PickupSkinOption[]> = {
     { id: 'moon-silver', name: 'Moon Silver', description: 'A sweeping silver crescent relic with a dangling moonstone and gliding glint', captureAnimation: 'silver-shimmer', silhouette: 'freeform', fxColor: '#a9d4e2', fxAccent: '#f2ffff', fxGlyph: '☾', fxParticle: '◇' },
     { id: 'star-reliquary', name: 'Star Reliquary', description: 'A dark, hinged stellar lockbox that parts to reveal a miniature gold nova', captureAnimation: 'reliquary-unseal', silhouette: 'freeform', fxColor: '#e6a83c', fxAccent: '#fff4b5', fxGlyph: '✦', fxParticle: '◆' },
     { id: 'orbital-astrolabe', name: 'Orbital Astrolabe', description: 'A floating brass navigation instrument with turning rings around a bright treasure gem', captureAnimation: 'astrolabe-awaken', silhouette: 'freeform', fxColor: '#ddb56b', fxAccent: '#bff8ff', fxGlyph: '✧', fxParticle: '◇' },
+    { id: 'mount-assembly', name: 'Sentry Mount Assembly', description: 'A compact bronze rail socket with a cyan locking core', captureAnimation: 'gear-shock', silhouette: 'freeform', fxColor: '#e6a85a', fxAccent: '#ddfff8', fxGlyph: '⚙', fxParticle: '◆' },
   ],
   merchant: [
     { id: 'compass-wheel', name: 'Wayfinder Compass', description: 'An aged navigator compass framed by a brass ship wheel', captureAnimation: 'compass-pulse', breakAnimation: 'compass-break', fxColor: '#7ac8c0', fxAccent: '#e7bf69', fxGlyph: '✥', fxParticle: '✧' },

@@ -2,11 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { Image, ImageBackground, ImageSourcePropType, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { BeaconRouteTrail } from './BeaconRouteTrail';
 import { archiveSectorRoute, hiddenFrontierBeacons, SECTOR_MAP_CONFIG, SECTOR_VISUALS, SectorRouteRecord, SectorState, SectorType, reachableBeacons } from './sectorMap';
+import type { PowerKind } from './mechanics';
 
 type PicturePreview = { id: string; name: string; source: ImageSourcePropType };
-type MapProps = { sector: SectorState; routeAtlas: SectorRouteRecord[]; pictureVistas: PicturePreview[]; scanCharges: number; beaconStreak: number; onBack: () => void; onJump: (beaconId: string) => void; onScan: () => void };
+type MapProps = { sector: SectorState; routeAtlas: SectorRouteRecord[]; pictureVistas: PicturePreview[]; scanCharges: number; beaconStreak: number; renderPickup: (kind: PowerKind, size: number) => React.ReactNode; renderCredit: (size: number) => React.ReactNode; onBack: () => void; onJump: (beaconId: string) => void; onScan: () => void };
 
-export function SectorMapScreen({ sector, routeAtlas, pictureVistas, scanCharges, beaconStreak, onBack, onJump, onScan }: MapProps) {
+export function SectorMapScreen({ sector, routeAtlas, pictureVistas, scanCharges, beaconStreak, renderPickup, renderCredit, onBack, onJump, onScan }: MapProps) {
   const available = useMemo(() => reachableBeacons(sector), [sector]);
   const [selectedId, setSelectedId] = useState<string | null>(() => available[0]?.id ?? null);
   const [canvas, setCanvas] = useState({ width: 0, height: 0 });
@@ -70,13 +71,13 @@ export function SectorMapScreen({ sector, routeAtlas, pictureVistas, scanCharges
             {!selected.event.hidden && selected.event.passage && <Text style={styles.passage}>{selected.event.passage}</Text>}
             {!selected.event.hidden && selected.effects.length > 0 && <View style={styles.effectRow}>{selected.effects.map(effect => <View key={effect.id} style={[styles.effect, { borderColor: effect.kind === 'hazard' ? '#794249' : effect.kind === 'boon' ? '#32695f' : '#425879' }]}>
               <Text style={[styles.effectTitle, { color: effect.kind === 'hazard' ? '#f19391' : effect.kind === 'boon' ? '#7ce6cd' : '#a8c7ff' }]}>{effect.label.toUpperCase()}</Text><Text style={styles.effectCopy}>{effect.description}</Text>
-              {effect.compensation && <RewardLine label={effect.compensation.kind === 'credits' ? 'CLEAR PAYOUT · CREDITS' : 'CLEAR PAYOUT · HIGH SCORE'} glyph={effect.compensation.kind === 'credits' ? '◉' : '✦'} amount={effect.compensation.amount} />}
-              {effect.creditsDelta !== undefined && effect.creditsDelta > 0 && <RewardLine label="ARRIVAL CACHE · CREDITS" glyph="◉" amount={effect.creditsDelta} />}
-              {effect.livesDelta !== undefined && effect.livesDelta > 0 && <RewardLine label="HULL RECOVERY · LIFE" glyph="♥" amount={effect.livesDelta} />}
-              {effect.engiPodReward !== undefined && effect.engiPodReward > 0 && <RewardLine label="CREW RECOVERY · ENGI POD" glyph="◈" amount={effect.engiPodReward} />}
+              {effect.compensation && <RewardLine label={effect.compensation.kind === 'credits' ? 'CLEAR PAYOUT · CREDITS' : 'CLEAR PAYOUT · HIGH SCORE'} icon={effect.compensation.kind === 'credits' ? renderCredit(16) : undefined} glyph={effect.compensation.kind === 'score' ? '✦' : undefined} amount={effect.compensation.amount} />}
+              {effect.creditsDelta !== undefined && effect.creditsDelta > 0 && <RewardLine label="ARRIVAL CACHE · CREDITS" icon={renderCredit(16)} amount={effect.creditsDelta} />}
+              {effect.livesDelta !== undefined && effect.livesDelta > 0 && <RewardLine label="HULL RECOVERY · LIFE" icon={renderPickup('life', 18)} amount={effect.livesDelta} />}
+              {effect.engiPodReward !== undefined && effect.engiPodReward > 0 && <RewardLine label="CREW RECOVERY · ENGI POD" icon={renderPickup('engi-egg', 18)} amount={effect.engiPodReward} />}
               {effect.scanChargeReward !== undefined && effect.scanChargeReward > 0 && <RewardLine label="SENSOR DATA · SCAN CHARGE" glyph="⌕" amount={effect.scanChargeReward} />}
-              {effect.resourceReward && <RewardLine label={`SALVAGE · ${effect.resourceReward.kind.toUpperCase()} PICKUP${effect.resourceReward.amount === 1 ? '' : 'S'}`} glyph={resourceGlyph(effect.resourceReward.kind)} amount={effect.resourceReward.amount} />}
-              {effect.upgradeReward && <RewardLine label={`TECH RECOVERY · ${({ 'smelter-speed': 'SMELTER SPEED', 'life-capacity': 'LIFE CAPACITY', 'speed-capacity': 'SPEED CAPACITY', 'ram-capacity': 'RAM CAPACITY', 'charge-capacity': 'CHARGE CAPACITY' } as Record<string, string>)[effect.upgradeReward]}`} glyph="⚙" amount={1} />}
+              {effect.resourceReward && <RewardLine label={`SALVAGE · ${effect.resourceReward.kind.toUpperCase()} PICKUP${effect.resourceReward.amount === 1 ? '' : 'S'}`} icon={renderPickup(effect.resourceReward.kind, 18)} amount={effect.resourceReward.amount} />}
+              {effect.upgradeReward && <RewardLine label={`TECH RECOVERY · ${({ 'smelter-speed': 'SMELTER SPEED', 'life-capacity': 'LIFE CAPACITY', 'speed-capacity': 'SPEED STACK COMPRESSION', 'ram-capacity': 'RAM STACK COMPRESSION', 'charge-capacity': 'CHARGE STACK COMPRESSION' } as Record<string, string>)[effect.upgradeReward]}`} glyph="⚙" amount={1} />}
             </View>)}</View>}
             {!selected.event.hidden && selected.event.kind === 'picture' && selected.vistaId && <RewardLine label="CLEAR REWARD · WINDOW VISTA UNLOCK" glyph="▣" amount={1} />}
             <View style={styles.previewRule}><View style={styles.ruleLine} /><Text style={styles.previewRuleText}>ROUTE INTEL</Text><View style={styles.ruleLine} /></View>
@@ -90,12 +91,8 @@ export function SectorMapScreen({ sector, routeAtlas, pictureVistas, scanCharges
   </View></View>;
 }
 
-function resourceGlyph(kind: string) {
-  return ({ life: '♥', speed: 'ϟ', ram: '◢', charge: '✹' } as Record<string, string>)[kind] ?? '◆';
-}
-
-function RewardLine({ label, glyph, amount }: { label: string; glyph: string; amount: number }) {
-  return <View style={styles.rewardLine}><Text style={styles.rewardLabel}>{label}</Text><View style={styles.rewardCount}><Text style={styles.rewardGlyph}>{glyph}</Text><Text style={styles.rewardNumber}>+{amount}</Text></View></View>;
+function RewardLine({ label, glyph, icon, amount }: { label: string; glyph?: string; icon?: React.ReactNode; amount: number }) {
+  return <View style={styles.rewardLine}><Text style={styles.rewardLabel}>{label}</Text><View style={styles.rewardCount}>{icon ?? (glyph ? <Text style={styles.rewardGlyph}>{glyph}</Text> : null)}<Text style={styles.rewardNumber}>+{amount}</Text></View></View>;
 }
 
 type SectorSelectProps = { options: SectorType[]; currentType: SectorType; depth: number; onChoose: (type: SectorType) => void; onCancel: () => void };

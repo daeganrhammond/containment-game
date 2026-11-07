@@ -4,18 +4,32 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, Image, ImageSourcePropType, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
-import { activateCharge, activateSpeed, Ball, BallModifier, CaptureEvent, chargeCapacity, chargeStorageUpgradeCost, CompanionPet, ContainmentPickupKind, CONTAINMENT_MUTATION_COLOR, containmentMutationColor, CreditGainEvent, DEFAULT_MECHANICS, deployEngi, engiUpgradeCost, enforceChargeCapacities, getMechanicsSettings, hireEngi, lifeStorageUpgradeCost, MechanicsSettings, MECHANICS, merchantPowerBarCost as getMerchantPowerBarCost, newRun, OverflowJob, OverflowResult, overflowProcessingUpgradeCost, overflowRefineryUpgradeCost, PictureLibraryEntry, PowerKind, PowerUp, powerupCollisionRadius, powerupDespawnAt, randomBetween, randomEngiCocoonSkin, ramAt, startEngiIncubation, tapPickupAt, resizeRunBoard, Run, ScoreEntry, setMechanicsSettings, setPictureLibrary, setPictureEventVistas, setWaldoLibrary, startWall, stepRun, TerritoryGainEvent, testContainmentMutation, upgradeEngi, WaldoLibraryEntry, Wall, WallBreakEvent } from './mechanics';
+import { activateCharge, activateSpeed, Ball, BallModifier, ballHasModifier, CaptureEvent, CLAIMED_MOUNT_BLUEPRINT_COST, CLAIMED_MOUNT_BLUEPRINT_ID, CLAIMED_MOUNT_REPAIR_COST, collectFoundryOutput, CompanionPet, ContainmentPickupKind, CONTAINMENT_MUTATION_COLOR, containmentMutationColor, CreditGainEvent, completePickupTransit, DEFAULT_MECHANICS, deployClaimedTurretAt, deployEngi, engiUpgradeCost, enforceChargeCapacities, getMechanicsSettings, hireEngi, lifeStorageUpgradeCost, MechanicsSettings, MECHANICS, merchantPowerBarCost as getMerchantPowerBarCost, newRun, OverflowJob, OverflowResult, overflowProcessingUpgradeCost, overflowRefineryUpgradeCost, PictureLibraryEntry, PickupTransit, PowerKind, PowerUp, powerupCollisionRadius, powerupDespawnAt, randomBetween, randomEngiCocoonSkin, ramAt, repairClaimedTurret, startEngiIncubation, starterTurretGeometry, STARTER_TURRET_BASE_ACCURACY, STARTER_TURRET_BASE_COOLDOWN_MS, STARTER_TURRET_MISS_COOLDOWN_MS, turretUpgradeCost, tapPickupAt, resizeRunBoard, Run, ScoreEntry, setMechanicsSettings, setPictureLibrary, setPictureEventVistas, setWaldoLibrary, startWall, stepRun, TerritoryGainEvent, testContainmentMutation, TurretShotEvent, TurretState, TurretTargetKind, upgradeEngi, WaldoLibraryEntry, Wall, WallBreakEvent } from './mechanics';
 import { BACKGROUND_SKINS, BALL_SKINS, CREDIT_SKINS, DEFAULT_SKIN_SELECTIONS, ENGI_PET_SKINS, LEVEL_CLEAR_ANIMATIONS, normalizeSkinSelections, PICKUP_SKINS, SkinOption, SkinSelections, CaptureAnimation } from './skins';
 import { defaultSkinUnlocks, normalizeSkinUnlocks, reachableSkin, SKIN_ARCHIVE, SKIN_CATEGORY_KEYS, SKIN_DEFAULTS, SkinArchiveNode, SkinUnlocks } from './themeCatalog';
 import { ThemeTreeScreen } from './ThemeTreeScreen';
 import { BridgeVistaRenderer } from './BridgeVistaRenderer';
+import { BridgeCrewMember } from './BridgeCrewMember';
+import { CrewSystemsTerminal } from './CrewSystemsTerminal';
 import { BUILT_IN_BRIDGE_VISTAS } from './bridgeVistaCatalog';
 import type { BridgeVistaScene } from './bridgeVistaCatalog';
-import { BridgeInteriorAmbience } from './BridgeInteriorAmbience';
+import { BRIDGE_CONSOLE_PANELS, BridgeInteriorAmbience } from './BridgeInteriorAmbience';
 import { RouteAtlasScreen, SectorMapScreen, SectorSelectScreen } from './SectorMapScreen';
-import { archiveSectorRoute, createSector, generateSectorChoices, hiddenFrontierBeacons, openSectorMap, reachableBeacons, scanNextFrontier, SECTOR_MAP_CONFIG, SECTOR_VISUALS, SectorRouteRecord, SectorType, visitBeacon } from './sectorMap';
+import { archiveSectorRoute, createSector, generateSectorChoices, hiddenFrontierBeacons, openSectorMap, reachableBeacons, scanNextFrontier, SECTOR_MAP_CONFIG, SECTOR_VISUALS, SectorType, visitBeacon } from './sectorMap';
+import { CaptainLogScreen } from './CaptainLogScreen';
+import { CargoHoldScreen } from './CargoHoldScreen';
+import { CargoShapeEditor } from './CargoShapeEditor';
+import { cancelFoundryJob, cargoBalancesFromRun, CARGO_CATALOG, enqueueManualRefining } from './cargo';
+import type { CargoItemId, CargoRefiningMode, CargoShapes } from './cargo';
+import { FoundryScreen } from './FoundryScreen';
+import { createPersistentProfile, createRunProgression, ensureRunProgression } from './progression';
+import { crewCapacity } from './crew';
+import { petCapacity } from './pets';
+import type { PetAssignmentPlan } from './pets';
+import { createProgressionStorage } from './progressionStorage';
+import type { ProgressionArchive } from './progressionStorage';
+import type { CaptainLogReport } from './captainLog';
 
-const SAVE_KEY = 'trap-game-save-v1';
 const SETTINGS_KEY = 'trap-game-dev-settings-v1';
 const PROFILES_KEY = 'trap-game-dev-profiles-v1';
 const SKINS_KEY = 'trap-game-skin-selections-v1';
@@ -25,6 +39,8 @@ const WALDO_LIBRARY_KEY = 'trap-game-waldo-library-v1';
 const SKIN_UNLOCKS_V2_KEY = 'trap-game-skin-unlocks-v2';
 const VISTA_UNLOCKS_KEY = 'trap-game-picture-vista-unlocks-v1';
 const MANUAL_SAVE_KEY = 'trap-game-manual-save-v1';
+const CARGO_SHAPES_KEY = 'trap-game-cargo-shapes-v1';
+const progressionStorage = createProgressionStorage(AsyncStorage);
 const BRIDGE_INTERIOR_VARIANT_KEY = 'trap-game-bridge-interior-variant-v1';
 const CREDIT_SYMBOL_ART: Record<string, number> = {
   sunshard: require('./assets/credits/sunshard.png'),
@@ -205,7 +221,7 @@ function normalizeMechanicsSettings(settings: Partial<MechanicsSettings> | undef
     skinDiscoveryClaimBonusPercent: { ...settings?.skinDiscoveryClaimBonusPercent },
     skinDiscoveryRequiresIsotypes: { ...settings?.skinDiscoveryRequiresIsotypes },
     driftSwarmBannerDurationMs: Math.max(0, settings?.driftSwarmBannerDurationMs ?? DEFAULT_MECHANICS.driftSwarmBannerDurationMs),
-    eliminationChargeSpawnChance: Math.max(0, Math.min(1, settings?.eliminationChargeSpawnChance ?? DEFAULT_MECHANICS.eliminationChargeSpawnChance)),
+    eliminationChargeSpawnChance: Math.max(0.75, Math.min(1, settings?.eliminationChargeSpawnChance ?? DEFAULT_MECHANICS.eliminationChargeSpawnChance)),
     driftSwarmVariationMin: Math.max(0.1, Math.min(settings?.driftSwarmVariationMin ?? DEFAULT_MECHANICS.driftSwarmVariationMin, settings?.driftSwarmVariationMax ?? DEFAULT_MECHANICS.driftSwarmVariationMax)),
     driftSwarmVariationMax: Math.max(settings?.driftSwarmVariationMin ?? DEFAULT_MECHANICS.driftSwarmVariationMin, settings?.driftSwarmVariationMax ?? DEFAULT_MECHANICS.driftSwarmVariationMax),
     overflowBaseSuccessChance: Math.max(0, Math.min(100, settings?.overflowBaseSuccessChance ?? DEFAULT_MECHANICS.overflowBaseSuccessChance)),
@@ -240,6 +256,17 @@ function normalizeMechanicsSettings(settings: Partial<MechanicsSettings> | undef
   };
 }
 
+function migrateFoundryRunDefaults(run: Run): Run {
+  const priorDuration = run.mechanics?.overflowProcessingMs ?? DEFAULT_MECHANICS.overflowProcessingMs;
+  const processingUpgrades = run.overflowProcessingUpgradePurchases ?? 0;
+  const mechanics = normalizeMechanicsSettings(run.mechanics);
+  const baseMechanics = normalizeMechanicsSettings(run.baseMechanics ?? run.mechanics);
+  if (priorDuration === 6000 && processingUpgrades === 0) mechanics.overflowProcessingMs = DEFAULT_MECHANICS.overflowProcessingMs;
+  if (baseMechanics.overflowProcessingMs === 6000 && processingUpgrades === 0) baseMechanics.overflowProcessingMs = DEFAULT_MECHANICS.overflowProcessingMs;
+  const overflowJobs = (run.overflowJobs ?? []).map(job => ({ ...job, durationMs: job.durationMs ?? Math.max(job.remainingMs, priorDuration) }));
+  return { ...run, mechanics, baseMechanics, overflowJobs, foundryPayouts: run.foundryPayouts ?? [] };
+}
+
 function boardLayoutFor(width: number, height: number) {
   if (!width || !height) return { displayWidth: 0, displayHeight: 0, worldWidth: BOARD_W, worldHeight: BOARD_H };
   if (Platform.OS === 'web') {
@@ -253,10 +280,6 @@ function boardLayoutFor(width: number, height: number) {
   return { displayWidth, displayHeight, worldWidth: displayWidth / scale, worldHeight: displayHeight / scale };
 }
 
-function normalizeScoreEntry(entry: Partial<ScoreEntry>): ScoreEntry {
-  const level = entry.level ?? entry.score ?? 0;
-  return { score: entry.score ?? level, level, claimed: entry.claimed ?? 0, totalTerritoryClaimed: entry.totalTerritoryClaimed ?? entry.claimed ?? 0, ballsDestroyed: entry.ballsDestroyed ?? 0, ballsContained: entry.ballsContained ?? 0, pickupsCaptured: entry.pickupsCaptured ?? 0, timestamp: entry.timestamp ?? Date.now() };
-}
 function formatScore(entry: ScoreEntry) { return `LV ${entry.level}  ·  ${entry.claimed.toFixed(2)}% claimed`; }
 function pickupDisplayName(kind: PowerKind) {
   const titles: Record<PowerKind, string> = { life: 'EXTRA LIFE', speed: 'SPEED BOOST', ram: 'BATTERING RAM', charge: 'CHARGE', treasure: 'TREASURE', merchant: 'MERCHANT', bubble: 'COSMIC BUBBLE', waldo: 'WALDO PICKUP', credit: 'CREDIT CACHE', 'engi-egg': 'ENGI COCOON', exit: 'WAYFINDER COURIER' };
@@ -277,14 +300,15 @@ function BridgePulse({ delay = 0, color = '#75f4dc' }: { delay?: number; color?:
 }
 
 // Transparent foreground cutout: the glass is no longer baked to the default vista.
-const BRIDGE_INTERIOR_ART = require('./assets/bridge-command-foreground.png');
-const BRIDGE_INTERIOR_EMISSION = require('./assets/bridge-ambient-emission.png');
-const BRIDGE_INTERIOR_CATHEDRAL_ART = require('./assets/bridge-command-cathedral-alt.png');
+const BRIDGE_INTERIOR_INTEGRATED_LIVE_ART = require('./assets/bridge-command-foreground-foundry-smelt-refit-gold-detail.png');
+const BRIDGE_INTERIOR_INTEGRATED_LIVE_OPEN_ART = require('./assets/bridge-command-foreground-foundry-smelt-refit-gold-cargo-open-detail.png');
+const BRIDGE_INTERIOR_CATHEDRAL_LIVE_ART = require('./assets/bridge-command-cathedral-foundry-live-detail.png');
 const BRIDGE_INTERIOR_CATHEDRAL_EMISSION = require('./assets/bridge-ambient-emission-cathedral-alt.png');
 
-function BridgeInterior({ variant }: { variant: 'original' | 'cathedral' }) {
+function BridgeInterior({ variant, cargoBayOpen }: { variant: 'original' | 'cathedral'; cargoBayOpen: boolean }) {
   const [frame, setFrame] = useState({ width: 0, height: 0 });
   const [lightFlicker] = useState(() => new Animated.Value(0.35));
+  const [cargoBayMotion] = useState(() => new Animated.Value(cargoBayOpen ? 1 : 0));
   useEffect(() => {
     const flicker = Animated.loop(Animated.sequence([
       Animated.timing(lightFlicker, { toValue: 0.76, duration: 2600, easing: Easing.inOut(Easing.sin), useNativeDriver: true, isInteraction: false }),
@@ -296,8 +320,12 @@ function BridgeInterior({ variant }: { variant: 'original' | 'cathedral' }) {
     flicker.start();
     return () => flicker.stop();
   }, [lightFlicker]);
-  const interiorArt = variant === 'cathedral' ? BRIDGE_INTERIOR_CATHEDRAL_ART : BRIDGE_INTERIOR_ART;
-  const interiorEmission = variant === 'cathedral' ? BRIDGE_INTERIOR_CATHEDRAL_EMISSION : BRIDGE_INTERIOR_EMISSION;
+  useEffect(() => {
+    Animated.timing(cargoBayMotion, { toValue: cargoBayOpen ? 1 : 0, duration: cargoBayOpen ? 520 : 440, easing: Easing.inOut(Easing.cubic), useNativeDriver: true, isInteraction: false }).start();
+  }, [cargoBayMotion, cargoBayOpen]);
+  const interiorArt = variant === 'cathedral' ? BRIDGE_INTERIOR_CATHEDRAL_LIVE_ART : BRIDGE_INTERIOR_INTEGRATED_LIVE_ART;
+  const cargoOpenArt = variant === 'cathedral' ? BRIDGE_INTERIOR_CATHEDRAL_LIVE_ART : BRIDGE_INTERIOR_INTEGRATED_LIVE_OPEN_ART;
+  const interiorEmission = variant === 'cathedral' ? BRIDGE_INTERIOR_CATHEDRAL_EMISSION : null;
   const imageAspect = BRIDGE_ART_ASPECT;
   const imageWidth = Math.min(frame.width, frame.height * imageAspect);
   const imageHeight = imageWidth / imageAspect;
@@ -307,8 +335,9 @@ function BridgeInterior({ variant }: { variant: 'original' | 'cathedral' }) {
   }}>
     {imageWidth > 0 && imageHeight > 0 && <View pointerEvents="box-none" style={{ position: 'absolute', width: imageWidth, height: imageHeight, left: (frame.width - imageWidth) / 2, top: (frame.height - imageHeight) / 2 }}>
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-        <Image source={interiorArt} resizeMode="stretch" style={{ width: imageWidth, height: imageHeight }} />
-        <Animated.Image source={interiorEmission} resizeMode="stretch" style={{ position: 'absolute', left: 0, top: 0, width: imageWidth, height: imageHeight, opacity: lightFlicker }} />
+        <Animated.Image source={interiorArt} resizeMode="stretch" style={{ width: imageWidth, height: imageHeight, opacity: cargoBayMotion.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }} />
+        <Animated.Image source={cargoOpenArt} resizeMode="stretch" style={{ position: 'absolute', left: 0, top: 0, width: imageWidth, height: imageHeight, opacity: cargoBayMotion }} />
+        {interiorEmission && <Animated.Image source={interiorEmission} resizeMode="stretch" style={{ position: 'absolute', left: 0, top: 0, width: imageWidth, height: imageHeight, opacity: lightFlicker }} />}
       </View>
     </View>}
   </View>;
@@ -358,7 +387,7 @@ function BridgeStagePreview({ run, hasActiveRun, simulationRunning, defaultBackg
   backgroundTint?: string;
   backgroundId?: string;
   onPress: () => void;
-  presentation?: 'mini' | 'window';
+  presentation?: 'mini' | 'window' | 'console';
   containerStyle?: any;
   onSurfaceLayout?: (width: number, height: number, rect?: { x: number; y: number; width: number; height: number }) => void;
   onTouchStart?: (event: any) => void;
@@ -394,11 +423,11 @@ function BridgeStagePreview({ run, hasActiveRun, simulationRunning, defaultBackg
     ]));
     loop.start(); return () => loop.stop();
   }, [scan]);
-  const aspect = presentation === 'window' ? viewport.width / Math.max(1, viewport.height) : Math.max(1.2, Math.min(2.35, run.boardWidth / Math.max(1, run.boardHeight)));
+  const aspect = presentation === 'window' || presentation === 'console' ? viewport.width / Math.max(1, viewport.height) : Math.max(1.2, Math.min(2.35, run.boardWidth / Math.max(1, run.boardHeight)));
   // Keep the preview compact and dock it to the bridge console instead of
   // letting it dominate the panoramic window.
-  const boardWidth = presentation === 'window' ? viewport.width : Math.min(viewport.width * 0.94, viewport.height * 0.72 * aspect);
-  const boardHeight = presentation === 'window' ? viewport.height : boardWidth / aspect;
+  const boardWidth = presentation === 'window' || presentation === 'console' ? viewport.width : Math.min(viewport.width * 0.94, viewport.height * 0.72 * aspect);
+  const boardHeight = presentation === 'window' || presentation === 'console' ? viewport.height : boardWidth / aspect;
   const scanY = scan.interpolate({ inputRange: [0, 1], outputRange: [-10, Math.max(1, boardHeight)] });
   // Picture-event art belongs outside the ship. Keep the embedded stage
   // display focused on the actual board and its selected background skin.
@@ -406,19 +435,19 @@ function BridgeStagePreview({ run, hasActiveRun, simulationRunning, defaultBackg
   const sx = boardWidth / run.boardWidth;
   const sy = boardHeight / run.boardHeight;
   const ballSkin = BALL_SKINS.find(option => option.id === visualSkins?.ball) ?? BALL_SKINS[0];
-  return <View style={[presentation === 'window' ? styles.bridgeWindowPreviewRegion : styles.bridgePreviewRegionDocked, containerStyle]} onLayout={event => {
+  return <View style={[presentation === 'window' ? styles.bridgeWindowPreviewRegion : styles.bridgePreviewRegionDocked, presentation === 'console' && { position: 'absolute', minWidth: 0, minHeight: 0, maxWidth: undefined, alignItems: 'stretch', justifyContent: 'stretch', overflow: 'hidden' }, containerStyle]} onLayout={event => {
     const { width, height } = event.nativeEvent.layout;
     setViewport(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height });
   }}>
-    {boardWidth > 0 && boardHeight > 0 && <Pressable ref={surfaceRef} accessibilityRole="button" accessibilityLabel={presentation === 'window' ? `Live playable game board, stage ${run.level}` : hasActiveRun ? `Expand active run, stage ${run.level}` : 'Start a new run'} onPress={presentation === 'mini' ? onPress : undefined} onLayout={event => {
+    {boardWidth > 0 && boardHeight > 0 && <Pressable ref={surfaceRef} accessibilityRole="button" accessibilityLabel={presentation === 'window' ? `Live playable game board, stage ${run.level}` : hasActiveRun ? `Expand active run, stage ${run.level}` : 'Open bridge sector display'} onPress={presentation !== 'window' ? onPress : undefined} onLayout={event => {
       const { width, height } = event.nativeEvent.layout;
       if (presentation !== 'window' || !onSurfaceLayout) return;
       requestAnimationFrame(() => surfaceRef.current?.measureInWindow((x, y, measuredWidth, measuredHeight) => onSurfaceLayout(width, height, { x, y, width: measuredWidth, height: measuredHeight })));
     }} onTouchStart={presentation === 'window' ? onTouchStart : undefined} onTouchEnd={presentation === 'window' ? onTouchEnd : undefined} onTouchCancel={presentation === 'window' ? onTouchCancel : undefined}
       {...(Platform.OS === 'web' && presentation === 'window' ? { onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onPointerLeave } : {})}
-      style={[styles.bridgeMiniFrame, presentation === 'window' && styles.bridgeWindowFrame, presentation === 'window' && { backgroundColor: backgroundTint }, presentation === 'window' && Platform.OS === 'web' && { cursor: 'none' } as any, { width: boardWidth, height: boardHeight }]}>
+      style={[styles.bridgeMiniFrame, presentation === 'window' && styles.bridgeWindowFrame, presentation === 'console' && { borderWidth: 0, borderRadius: 0, shadowOpacity: 0, elevation: 0, backgroundColor: '#031018' }, presentation === 'window' && { backgroundColor: backgroundTint }, presentation === 'window' && Platform.OS === 'web' && { cursor: 'none' } as any, { width: boardWidth, height: boardHeight }]}>
       {activeBackground && <Image source={activeBackground} resizeMode={run.pictureEvent && !run.pictureEvent.isWaldo ? 'stretch' : 'cover'} style={{ position: 'absolute', left: 0, top: 0, width: boardWidth, height: boardHeight, opacity: presentation === 'window' && !run.pictureEvent ? 0.58 : 1 }} />}
-      {presentation === 'mini' ? <>
+      {presentation !== 'window' ? <>
         <View pointerEvents="none" style={styles.bridgeMiniTint} />
         {claimedRects.map(rect => <View key={`claim-${rect.id}`} pointerEvents="none" style={[styles.bridgeMiniClaim, { left: `${rect.x / run.gridCols * 100}%`, top: `${rect.y / run.gridRows * 100}%`, width: `${rect.width / run.gridCols * 100}%`, height: `${100 / run.gridRows}%` }]} />)}
         {run.walls.map(wall => <View key={`wall-${wall.id}`} pointerEvents="none" style={[styles.bridgeMiniWall, wall.axis === 'vertical'
@@ -447,24 +476,29 @@ function BridgeStagePreview({ run, hasActiveRun, simulationRunning, defaultBackg
         {run.pets.map(pet => <View key={`pet-${pet.id}`} pointerEvents="none" style={[styles.deployedEngi, !pet.deployed && styles.roamingPet, { left: pet.x * sx - 20, top: pet.y * sy - 22 }]}>{pet.species === 'waldo' ? <WaldoPetArtwork pet={pet} size={40} /> : <EngiPetArtwork skinId={visualSkins?.engiPet ?? DEFAULT_SKIN_SELECTIONS.engiPet} task={pet.task as any} size={40} moving={Math.hypot(pet.vx, pet.vy) > 12} direction={pet.vx < 0 ? -1 : 1} />}</View>)}
         {run.powerups.map(powerup => <PowerOrb key={`pickup-${powerup.id}`} power={powerup} sx={sx} sy={sy} skinId={powerup.skinId ?? visualSkins?.pickups[powerup.kind] ?? PICKUP_SKINS[powerup.kind][0].id} creditBaseAmount={run.mechanics.creditPickupBaseAmount} />)}
       </>}
-      {presentation === 'mini' && <Animated.View pointerEvents="none" style={[styles.bridgeMiniScan, { transform: [{ translateY: scanY }] }]} />}
-      {presentation === 'mini' && <View pointerEvents="none" style={styles.bridgeMiniTop}><View><Text style={styles.bridgeMiniEyebrow}>{simulationRunning ? 'LIVE SECTOR FEED' : 'SAVED SECTOR VIEW'}</Text><Text style={styles.bridgeMiniStage}>STAGE {String(run.level).padStart(2, '0')}</Text></View><Text style={styles.bridgeMiniPercent}>{run.claimed.toFixed(1)}%</Text></View>}
-      {presentation === 'mini' && <View pointerEvents="none" style={styles.bridgeMiniBottom}><Text style={styles.bridgeMiniResume}>{hasActiveRun ? 'TAP TO OPEN LIVE SECTOR' : 'TAP TO LAUNCH A NEW SECTOR'}</Text><Text style={styles.bridgeMiniReadouts}>{run.balls.length} BALLS  ·  {run.credits.toLocaleString()} CREDITS</Text></View>}
-      {presentation === 'mini' && <View pointerEvents="none" style={styles.bridgeMiniPulse}><BridgePulse delay={180} /></View>}
+      {presentation !== 'window' && <Animated.View pointerEvents="none" style={[styles.bridgeMiniScan, { transform: [{ translateY: scanY }] }]} />}
+      {presentation !== 'window' && <View pointerEvents="none" style={[styles.bridgeMiniTop, presentation === 'console' && { minHeight: 6, paddingHorizontal: 2, paddingVertical: 0, backgroundColor: 'rgba(4,13,22,0.7)' }]}><View><Text style={[styles.bridgeMiniEyebrow, presentation === 'console' && { fontSize: 3, lineHeight: 3 }]}>{simulationRunning ? 'LIVE' : 'SAVED'}</Text><Text style={[styles.bridgeMiniStage, presentation === 'console' && { fontSize: 4.5, lineHeight: 5, marginTop: 0 }]}>STAGE {String(run.level).padStart(2, '0')}</Text></View><Text style={[styles.bridgeMiniPercent, presentation === 'console' && { fontSize: 4.5 }]}>{run.claimed.toFixed(1)}%</Text></View>}
+      {presentation !== 'window' && <View pointerEvents="none" style={[styles.bridgeMiniBottom, presentation === 'console' && { minHeight: 5, paddingHorizontal: 2, paddingVertical: 0, gap: 1, backgroundColor: 'rgba(4,13,22,0.72)' }]}><Text style={[styles.bridgeMiniResume, presentation === 'console' && { fontSize: 3, lineHeight: 4, letterSpacing: 0 }]}>{hasActiveRun ? 'TAP TO OPEN' : 'TAP TO LAUNCH'}</Text><Text style={[styles.bridgeMiniReadouts, presentation === 'console' && { fontSize: 2.6, lineHeight: 3, letterSpacing: 0 }]}>{run.balls.length} BALLS · {run.credits.toLocaleString()} CR</Text></View>}
+      {presentation !== 'window' && <View pointerEvents="none" style={[styles.bridgeMiniPulse, presentation === 'console' && { top: 3, right: 4 }]}><BridgePulse delay={180} /></View>}
     </Pressable>}
   </View>;
 }
 
-function BridgeArtifact({ title, detail, glyph, color = '#78ead4', onPress }: {
-  title: string; detail: string; glyph: string; color?: string; onPress: () => void;
-}) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={`${title}: ${detail}`} onPress={onPress} style={[styles.bridgeArtifactConsole, { borderColor: `${color}77` }]}>
-    <View style={styles.bridgeArtifactHead}><Text style={[styles.bridgeArtifactGlyph, { color, textShadowColor: color }]}>{glyph}</Text><BridgePulse color={color} /></View>
-    <Text style={styles.bridgeArtifactTitle}>{title}</Text><Text numberOfLines={1} style={styles.bridgeArtifactDetail}>{detail}</Text>
-  </Pressable>;
-}
 function attachCaptureSkins(events: CaptureEvent[], selections: SkinSelections, discovery: Run['skinDiscovery'] = null) {
-  return events.map(event => ({ ...event, skinId: discovery?.category === `pickup:${event.kind}` ? discovery.skinId : event.skinId ?? (event.kind === 'jackpot' ? selections.pickups.treasure : event.kind === 'chargeBallBreak' || event.kind === 'chargeWallBreak' ? selections.pickups.charge : event.kind === 'ramBlast' ? selections.pickups.ram : event.kind === 'merchantBreak' ? selections.pickups.merchant : event.kind === 'bubbleLost' ? selections.pickups.bubble : event.kind === 'creditLost' ? selections.pickups.credit : event.kind === 'engiEggBreak' ? selections.pickups['engi-egg'] : event.kind === 'explosion' || event.kind === 'overflowFailed' || event.kind === 'phaseRupture' || event.kind === 'phaseChestBreak' || event.kind === 'anchorBreak' || event.kind === 'combo' || event.kind === 'waldoFound' || event.kind === 'petRepair' || event.kind === 'petLost' || event.kind === 'petHatched' ? undefined : selections.pickups[event.kind]) }));
+  return events.map(event => ({ ...event, skinId: event.kind === 'turretHit' ? undefined : discovery?.category === `pickup:${event.kind}` ? discovery.skinId : event.skinId ?? (event.kind === 'jackpot' ? selections.pickups.treasure : event.kind === 'chargeBallBreak' || event.kind === 'chargeWallBreak' ? selections.pickups.charge : event.kind === 'ramBlast' ? selections.pickups.ram : event.kind === 'merchantBreak' ? selections.pickups.merchant : event.kind === 'bubbleLost' ? selections.pickups.bubble : event.kind === 'creditLost' ? selections.pickups.credit : event.kind === 'engiEggBreak' ? selections.pickups['engi-egg'] : event.kind === 'explosion' || event.kind === 'overflowFailed' || event.kind === 'phaseRupture' || event.kind === 'phaseChestBreak' || event.kind === 'anchorBreak' || event.kind === 'combo' || event.kind === 'waldoFound' || event.kind === 'petRepair' || event.kind === 'petLost' || event.kind === 'petHatched' ? undefined : selections.pickups[event.kind]) }));
+}
+
+function visibleCaptureEvents(run: Run, events: CaptureEvent[]) {
+  const inTransit = new Set((run.pickupTransits ?? []).map(transit => transit.captureEventId));
+  return events.filter(event => !inTransit.has(event.id));
+}
+
+function hydrateRosterPetProficiency(pets: CompanionPet[], profile: ReturnType<typeof createPersistentProfile>): CompanionPet[] {
+  const roster = new Map(profile.pets.map(member => [member.id, member.proficiency]));
+  return pets.map(pet => {
+    const proficiency = pet.rosterId ? roster.get(pet.rosterId) : undefined;
+    return proficiency ? { ...pet, dutyProficiency: { ...proficiency } } : pet;
+  });
 }
 
 export default function App() {
@@ -473,16 +507,43 @@ export default function App() {
   const runRef = useRef<Run>(run);
   const gestures = useRef<Record<string, Gesture>>({});
   const savedRef = useRef(false);
+  const closeoutPromiseRef = useRef<Promise<void> | null>(null);
+  const [persistentProfile, setPersistentProfile] = useState(createPersistentProfile);
+  const persistentProfileRef = useRef(persistentProfile);
+  const [progressionReady, setProgressionReady] = useState(false);
+  const [closeoutStatus, setCloseoutStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveRetry, setSaveRetry] = useState(0);
   const [scores, setScores] = useState<ScoreEntry[]>([]);
+  const [captainLogReports, setCaptainLogReports] = useState<CaptainLogReport[]>([]);
+  const applyArchive = useCallback((archive: ProgressionArchive) => {
+    persistentProfileRef.current = archive.profile;
+    setPersistentProfile(archive.profile);
+    setScores(archive.scores);
+    setCaptainLogReports(archive.reports);
+  }, []);
   const [loaded, setLoaded] = useState(false);
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [turretRangeVisible, setTurretRangeVisible] = useState(false);
+  const [turretPanelOpen, setTurretPanelOpen] = useState(false);
+  const [turretUpgradeFlash, setTurretUpgradeFlash] = useState<'mobility' | 'fireControl' | 'firePower' | null>(null);
+  const [claimedMountPlacementMode, setClaimedMountPlacementMode] = useState(false);
+  const [selectedDeployedTurretId, setSelectedDeployedTurretId] = useState<number | null>(null);
+  const turretDragging = useRef(false);
+  const turretDidMove = useRef(false);
+  const turretDragStart = useRef({ x: 0, y: 0 });
+  const turretDragGrabOffset = useRef(0);
+  const turretRailRef = useRef<View>(null);
+  const [turretRailRect, setTurretRailRect] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  const screenRef = useRef<View>(null);
+  const [screenRect, setScreenRect] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const queuedWalls = useRef<{ x: number; y: number; axis: Wall['axis'] }[]>([]);
   const [queuedWallPreview, setQueuedWallPreview] = useState<{ x: number; y: number; axis: Wall['axis'] }[]>([]);
   const [hasSave, setHasSave] = useState(false);
   const [board, setBoard] = useState({ width: 0, height: 0 });
   const boardRef = useRef<View>(null);
   const boardScreenRect = useRef({ x: 0, y: 0, width: 0, height: 0 });
+  const [boardScreenBounds, setBoardScreenBounds] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [desktopStageArea, setDesktopStageArea] = useState({ width: 0, height: 0 });
   const stageSizeRef = useRef({ width: 0, height: 0 });
@@ -524,6 +585,9 @@ export default function App() {
   const [gainToast, setGainToast] = useState<{ id: number; text: string; tone: 'credit' | 'pickup' | 'module' } | null>(null);
   const gainToastSequence = useRef(0);
   const showGainToast = useCallback((text: string, tone: 'credit' | 'pickup' | 'module' = 'pickup') => setGainToast({ id: ++gainToastSequence.current, text, tone }), []);
+  const finishGainToast = useCallback((id: number) => setGainToast(current => current?.id === id ? null : current), []);
+  const gainToastId = gainToast?.id;
+  const gainToastCompletion = useMemo(() => gainToastId === undefined ? undefined : () => finishGainToast(gainToastId), [finishGainToast, gainToastId]);
   const [activeTab, setActiveTab] = useState<'game' | 'developer'>('game');
   const [developerOverlay, setDeveloperOverlay] = useState(false);
   const [cursorSkin, setCursorSkin] = useState<'crosshair' | 'spark' | 'halo'>('crosshair');
@@ -537,7 +601,8 @@ export default function App() {
     window.addEventListener('pointermove', move, true); window.addEventListener('pointerdown', down, true); window.addEventListener('pointerup', up, true); window.addEventListener('pointercancel', up, true); window.addEventListener('pointerleave', leave, true);
     return () => { window.removeEventListener('pointermove', move, true); window.removeEventListener('pointerdown', down, true); window.removeEventListener('pointerup', up, true); window.removeEventListener('pointercancel', up, true); window.removeEventListener('pointerleave', leave, true); };
   }, []);
-  const [devTab, setDevTab] = useState<'gameplay' | 'events' | 'pickups' | 'metal-balls' | 'economy' | 'merchant' | 'pets'>('gameplay');
+  const [devTab, setDevTab] = useState<'gameplay' | 'events' | 'pickups' | 'metal-balls' | 'economy' | 'merchant' | 'pets' | 'cargo-shapes'>('gameplay');
+  const [cargoShapes, setCargoShapes] = useState<CargoShapes>({});
   const [metalBallTab, setMetalBallTab] = useState<'base' | 'modifiers'>('base');
   const [modifierPairFocus, setModifierPairFocus] = useState<BallModifier>('splitter');
   const modifierTypes = Object.keys(DEFAULT_MECHANICS.ballModifiers) as BallModifier[];
@@ -546,13 +611,16 @@ export default function App() {
   const [merchantOpenedAtClear, setMerchantOpenedAtClear] = useState(false);
   const [skinProgression, setSkinProgression] = useState<SkinProgression>(() => defaultSkinUnlocks());
   const skinProgressionRef = useRef(skinProgression);
-  const [menuPage, setMenuPage] = useState<'home' | 'themes' | 'scores' | 'settings' | 'sector-map' | 'sector-select' | 'route-atlas' | null>('home');
+  const [menuPage, setMenuPage] = useState<'home' | 'themes' | 'scores' | 'crew-systems' | 'settings' | 'sector-map' | 'sector-select' | 'route-atlas' | 'cargo' | 'foundry' | null>('home');
+  const [selectedFoundryItemId, setSelectedFoundryItemId] = useState<'life' | 'speed' | 'ram' | 'charge'>('life');
   const [sectorChoiceOptions, setSectorChoiceOptions] = useState<SectorType[]>([]);
   const [jumpTransitionActive, setJumpTransitionActive] = useState(false);
   const [jumpDestinationName, setJumpDestinationName] = useState('UNKNOWN BEACON');
   const [bridgeSimView, setBridgeSimView] = useState<'mini' | 'window' | 'fullscreen'>('mini');
+  const [bridgeCargoBayOpen, setBridgeCargoBayOpen] = useState(false);
+  const [bridgeCargoDoorHeldOpen, setBridgeCargoDoorHeldOpen] = useState(false);
   const [bridgeCanvasSize, setBridgeCanvasSize] = useState({ width: 0, height: 0 });
-  const [bridgeRailVisible, setBridgeRailVisible] = useState(true);
+  const [bridgeRailVisible, setBridgeRailVisible] = useState(false);
   const [bridgeVistaIndex, setBridgeVistaIndex] = useState(0);
   const [developerVistaId, setDeveloperVistaId] = useState<string | null>(null);
   const [unlockedVistaIds, setUnlockedVistaIds] = useState<string[]>([]);
@@ -569,7 +637,17 @@ export default function App() {
   const visualSkinSelectionsRef = useRef(skinSelections);
   const levelClearSequence = useRef(0);
   const [levelClearAnimation, setLevelClearAnimation] = useState<{ id: number; level: number; style: MechanicsSettings['levelClearStyle']; durationMs: number } | null>(null);
-  const commit = useCallback((next: Run, playCaptureEvents = false) => { const oldCredits = new Set((runRef.current.creditGainEvents ?? []).map(event => event.id)); const newCreditEvents = (next.creditGainEvents ?? []).filter(event => !oldCredits.has(event.id)); runRef.current = next; setRun({ ...next, balls: [...next.balls], walls: [...next.walls], powerups: [...next.powerups] }); if (newCreditEvents.length) { setCreditGainEffects(old => [...old, ...newCreditEvents].slice(-6)); showGainToast(`+${newCreditEvents.reduce((sum, event) => sum + event.amount, 0)} CREDITS`, 'credit'); } if (playCaptureEvents && next.captureEvents.length) setCaptureEffects(old => [...old, ...attachCaptureSkins(next.captureEvents, visualSkinSelectionsRef.current, next.skinDiscovery)].slice(-8)); }, [showGainToast]);
+  const commit = useCallback((next: Run, playCaptureEvents = false) => { const oldCredits = new Set((runRef.current.creditGainEvents ?? []).map(event => event.id)); const newCreditEvents = (next.creditGainEvents ?? []).filter(event => !oldCredits.has(event.id)); runRef.current = next; setRun({ ...next, balls: [...next.balls], walls: [...next.walls], powerups: [...next.powerups] }); if (newCreditEvents.length) { setCreditGainEffects(old => [...old, ...newCreditEvents].slice(-6)); showGainToast(`+${newCreditEvents.reduce((sum, event) => sum + event.amount, 0)} CREDITS`, 'credit'); } const visible = visibleCaptureEvents(next, next.captureEvents); if (playCaptureEvents && visible.length) setCaptureEffects(old => [...old, ...attachCaptureSkins(visible, visualSkinSelectionsRef.current, next.skinDiscovery)].slice(-8)); }, [showGainToast]);
+  useEffect(() => {
+    const transits = run.pickupTransits;
+    if (!transits?.length) return;
+    const timers = transits.map(transit => setTimeout(() => {
+      const current = runRef.current;
+      const arrived = completePickupTransit(current, transit.id);
+      if (arrived !== current) commit(arrived);
+    }, Math.max(0, transit.startedAtMs + transit.durationMs - Date.now())));
+    return () => timers.forEach(clearTimeout);
+  }, [run.pickupTransits, commit]);
   const [profiles, setProfiles] = useState<TuningProfile[]>([]);
   const [profileName, setProfileName] = useState('');
   const [selectedProfileName, setSelectedProfileName] = useState<string | null>(null);
@@ -587,8 +665,16 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
+      let progressionInitialized = false;
       try {
-        const [save, boardScores, settingsSave, profilesSave, skinsSave, pictureLibrarySave, bridgeVistaSave, waldoLibrarySave, skinUnlocksSave, legacySkinUnlocksSave, manualSaveData, vistaUnlocksSave, bridgeInteriorSave] = await Promise.all([AsyncStorage.getItem(SAVE_KEY), AsyncStorage.getItem(`${SAVE_KEY}-scores`), AsyncStorage.getItem(SETTINGS_KEY), AsyncStorage.getItem(PROFILES_KEY), AsyncStorage.getItem(SKINS_KEY), AsyncStorage.getItem(PICTURE_LIBRARY_KEY), AsyncStorage.getItem(BRIDGE_VISTA_LIBRARY_KEY), AsyncStorage.getItem(WALDO_LIBRARY_KEY), AsyncStorage.getItem(SKIN_UNLOCKS_V2_KEY), AsyncStorage.getItem('trap-game-skin-unlocks-v1'), AsyncStorage.getItem(MANUAL_SAVE_KEY), AsyncStorage.getItem(VISTA_UNLOCKS_KEY), AsyncStorage.getItem(BRIDGE_INTERIOR_VARIANT_KEY)]);
+        const restoredProgression = await progressionStorage.initialize();
+        progressionInitialized = true;
+        applyArchive(restoredProgression.archive);
+        setProgressionReady(true);
+        const save = restoredProgression.active ? JSON.stringify(restoredProgression.active) : null;
+        const [settingsSave, profilesSave, skinsSave, pictureLibrarySave, bridgeVistaSave, waldoLibrarySave, skinUnlocksSave, legacySkinUnlocksSave, manualSaveData, vistaUnlocksSave, bridgeInteriorSave, cargoShapesSave] = await Promise.all([AsyncStorage.getItem(SETTINGS_KEY), AsyncStorage.getItem(PROFILES_KEY), AsyncStorage.getItem(SKINS_KEY), AsyncStorage.getItem(PICTURE_LIBRARY_KEY), AsyncStorage.getItem(BRIDGE_VISTA_LIBRARY_KEY), AsyncStorage.getItem(WALDO_LIBRARY_KEY), AsyncStorage.getItem(SKIN_UNLOCKS_V2_KEY), AsyncStorage.getItem('trap-game-skin-unlocks-v1'), AsyncStorage.getItem(MANUAL_SAVE_KEY), AsyncStorage.getItem(VISTA_UNLOCKS_KEY), AsyncStorage.getItem(BRIDGE_INTERIOR_VARIANT_KEY), AsyncStorage.getItem(CARGO_SHAPES_KEY)]);
+        const restoredCargoShapes: CargoShapes = cargoShapesSave ? JSON.parse(cargoShapesSave) as CargoShapes : {};
+        setCargoShapes(restoredCargoShapes);
         setBridgeInteriorVariant(bridgeInteriorSave === 'cathedral' ? 'cathedral' : 'original');
         const pairedVistaIds = BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => scene.id);
         const restoredVistaIds: string[] = vistaUnlocksSave ? JSON.parse(vistaUnlocksSave) : [];
@@ -596,10 +682,10 @@ export default function App() {
         unlockedVistaIdsRef.current = validUnlockedVistaIds;
         setUnlockedVistaIds(validUnlockedVistaIds);
         if (settingsSave) {
-          const rawSettings = JSON.parse(settingsSave) as Partial<MechanicsSettings>; const legacyStorageSettings = rawSettings.resourceStorageUpgradeBaseCost === undefined; const savedSettings = normalizeMechanicsSettings(rawSettings); if (legacyStorageSettings) { if (savedSettings.overflowCreditValues.speed === 0) savedSettings.overflowCreditValues.speed = DEFAULT_MECHANICS.overflowCreditValues.speed; if (savedSettings.overflowCreditValues.ram === 0) savedSettings.overflowCreditValues.ram = DEFAULT_MECHANICS.overflowCreditValues.ram; }
+          const rawSettings = JSON.parse(settingsSave) as Partial<MechanicsSettings>; const legacyStorageSettings = rawSettings.resourceStorageUpgradeBaseCost === undefined; const savedSettings = normalizeMechanicsSettings(rawSettings); if (savedSettings.overflowProcessingMs === 6000) savedSettings.overflowProcessingMs = DEFAULT_MECHANICS.overflowProcessingMs; if (legacyStorageSettings) { if (savedSettings.overflowCreditValues.speed === 0) savedSettings.overflowCreditValues.speed = DEFAULT_MECHANICS.overflowCreditValues.speed; if (savedSettings.overflowCreditValues.ram === 0) savedSettings.overflowCreditValues.ram = DEFAULT_MECHANICS.overflowCreditValues.ram; }
           setTuning(savedSettings);
         }
-        if (profilesSave) setProfiles((JSON.parse(profilesSave) as TuningProfile[]).map(profile => ({ ...profile, settings: normalizeMechanicsSettings(profile.settings), skins: normalizeSkinSelections(profile.skins ?? DEFAULT_SKIN_SELECTIONS) })));
+        if (profilesSave) setProfiles((JSON.parse(profilesSave) as TuningProfile[]).map(profile => { const settings = normalizeMechanicsSettings(profile.settings); if (settings.overflowProcessingMs === 6000) settings.overflowProcessingMs = DEFAULT_MECHANICS.overflowProcessingMs; return { ...profile, settings, skins: normalizeSkinSelections(profile.skins ?? DEFAULT_SKIN_SELECTIONS) }; }));
         let loadedSkinSelections = skinsSave ? normalizeSkinSelections(JSON.parse(skinsSave)) : DEFAULT_SKIN_SELECTIONS;
         const progression = normalizeSkinUnlocks(skinUnlocksSave ? JSON.parse(skinUnlocksSave) : undefined);
         if (!skinUnlocksSave && legacySkinUnlocksSave) {
@@ -628,15 +714,19 @@ export default function App() {
         if (pictureLibrarySave) { const entries = JSON.parse(pictureLibrarySave) as PictureLibraryEntry[]; pictureLibraryRef.current = entries; setPictureLibraryState(entries); setPictureLibrary(entries); }
         if (bridgeVistaSave) { const savedVista = JSON.parse(bridgeVistaSave) as { entries?: BridgeVistaEntry[]; selectedId?: string | null }; const entries = Array.isArray(savedVista) ? savedVista as unknown as BridgeVistaEntry[] : savedVista.entries ?? []; setBridgeVistaLibrary(entries); setSelectedBridgeVistaId(savedVista.selectedId && (entries.some(entry => entry.id === savedVista.selectedId) || (validUnlockedVistaIds.includes(savedVista.selectedId) && BUILT_IN_BRIDGE_VISTAS.some(scene => scene.id === savedVista.selectedId))) ? savedVista.selectedId : null); }
         if (waldoLibrarySave) { const entries = JSON.parse(waldoLibrarySave) as WaldoLibraryEntry[]; waldoLibraryRef.current = entries; setWaldoLibraryState(entries); setWaldoLibrary(entries); }
-        if (save) { const parsed = JSON.parse(save) as Run; parsed.routeAtlas ??= []; parsed.scanCharges ??= 1; parsed.beaconStreak ??= 0; parsed.beaconStreakBest ??= parsed.beaconStreak; const legacyStorageRun = parsed.speedCapacityBonus === undefined; parsed.speedCharges ??= 0; parsed.ramCharges ??= 0; parsed.chargeCharges ??= 0; parsed.chargeCapacityBonus ??= 0; parsed.chargeCapacityPurchases ??= 0; parsed.overflowProcessingUpgradePurchases ??= 0; parsed.levelClearBubbleTimerMs ??= 0; parsed.levelClearBubbleAccumulatorMs ??= 0; parsed.levelClearAnimationRemainingMs ??= 0; parsed.levelEvent ??= 'none'; parsed.levelEventBannerUntilMs ??= 0; parsed.containmentMutations ??= []; parsed.containmentMutationScanRemainingMs ??= 0; parsed.chargeReadyUntil ??= null; parsed.speedCapacityBonus ??= 0; parsed.speedCapacityPurchases ??= parsed.speedCapacityBonus; parsed.ramCapacityBonus ??= 0; parsed.ramCapacityPurchases ??= parsed.ramCapacityBonus; parsed.waldoEventPending ??= false; parsed.mechanics = normalizeMechanicsSettings(parsed.mechanics); parsed.sector ??= createSector(0, 'Civilian', BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => ({ id: scene.id, name: scene.name }))); parsed.sector.scanCount ??= 0; parsed.jumpReady ??= false; parsed.baseMechanics = normalizeMechanicsSettings(parsed.baseMechanics ?? parsed.mechanics); parsed.currentVistaId ??= BUILT_IN_BRIDGE_VISTAS.find(scene => !scene.pictureEventUnlock)?.id; parsed.pendingSectorChoices ??= undefined; parsed.skinDiscovery ??= null; parsed.totalTerritoryClaimed ??= 0; parsed.ballsDestroyed ??= 0; parsed.ballsContained ??= 0; parsed.pickupsCaptured ??= 0; parsed.containedBallIds ??= []; parsed.containedCountedThisLevel ??= false; if (legacyStorageRun) { if (parsed.mechanics.overflowCreditValues.speed === 0) parsed.mechanics.overflowCreditValues.speed = DEFAULT_MECHANICS.overflowCreditValues.speed; if (parsed.mechanics.overflowCreditValues.ram === 0) parsed.mechanics.overflowCreditValues.ram = DEFAULT_MECHANICS.overflowCreditValues.ram; } parsed.lifeCapacity = Math.max(parsed.lives, parsed.lifeCapacity ?? parsed.mechanics.lifeStorageBaseCapacity); parsed.lifeCapacityPurchases ??= Math.max(0, parsed.lifeCapacity - parsed.mechanics.lifeStorageBaseCapacity); parsed.overflowJobs ??= []; parsed.overflowSuccessChance = Math.max(0, Math.min(100, parsed.overflowSuccessChance ?? parsed.mechanics.overflowBaseSuccessChance)); parsed.overflowUpgradePurchases ??= Math.max(0, Math.floor((parsed.overflowSuccessChance - parsed.mechanics.overflowBaseSuccessChance) / Math.max(1, parsed.mechanics.overflowUpgradeChanceIncrease))); parsed.waldoEligible ??= Math.random() >= parsed.mechanics.waldoIneligibleChance; parsed.merchantTokens ??= 0; parsed.credits ??= 0; parsed.powerBars ??= 0; parsed.powerBarsPurchased ??= 0; parsed.merchantUpgrades ??= { life: 0, speed: 0, ram: 0, treasure: 0, waldo: 0 }; parsed.merchantUpgrades.waldo ??= 0; for (const kind of Object.keys(DEFAULT_MECHANICS.containmentMutationPickupEnabled)) { parsed.merchantUpgrades[`mutationAffinity:${kind}`] ??= 0; parsed.merchantUpgrades[`mutationAttraction:${kind}`] ??= 0; } parsed.petEggs ??= 0; parsed.petEggVisitProgress ??= 0; parsed.pets ??= []; parsed.pets = parsed.pets.map(pet => ({ ...pet, species: pet.species ?? 'engi', paintings: pet.paintings ?? [] })); parsed.petIncubations ??= []; parsed.isotypesContained ??= false; parsed.isotypesNoticeUntilMs ??= 0; parsed.petNotice ??= null; parsed.petNoticeUntilMs ??= 0; parsed.levelClearPending ??= false; parsed.speedReadyUntil ??= null; parsed.captureEvents ??= []; parsed.wallBreakEvents ??= []; parsed.territoryGainEvents ??= []; parsed.creditGainEvents ??= []; parsed.treasureEligible ??= Math.random() < MECHANICS.treasureLevelEligibilityChance; parsed.treasureHuntPending ??= false; parsed.treasureHunt ??= null; if (parsed.treasureHunt) parsed.treasureHunt.revealed ??= false; parsed.pictureEvent ??= null; parsed.boardWidth ??= BOARD_W; parsed.boardHeight ??= 1100; parsed.gridCols ??= 48; parsed.gridRows ??= 72; parsed.walls = parsed.walls.map(w => ({ ...w, speedMultiplier: w.speedMultiplier ?? 1 })); parsed.powerups = (parsed.powerups ?? []).map(p => ({ ...p, skinId: p.kind === 'engi-egg' ? p.skinId ?? randomEngiCocoonSkin() : p.skinId, despawnAtMs: p.despawnAtMs ?? powerupDespawnAt(p.kind, parsed.elapsedMs ?? 0, parsed.mechanics) })); if (parsed.levelClearPending && !parsed.powerups.some(p => p.kind === 'exit')) parsed.powerups.push({ id: parsed.nextId++, kind: 'exit', x: parsed.boardWidth * 0.5, y: parsed.boardHeight * 0.5, vx: 0, vy: 0 }); if (!parsed.ended) { setMechanicsSettings(parsed.mechanics); const layout = boardLayoutFor(stageSizeRef.current.width, stageSizeRef.current.height); const restored = layout.displayWidth ? resizeRunBoard(parsed, layout.worldWidth, layout.worldHeight) : parsed; const capacitySafe = enforceChargeCapacities(restored); runRef.current = capacitySafe; setRun(capacitySafe); setHasSave(true); } }
-        if (manualSaveData) setManualSave(JSON.parse(manualSaveData) as Run);
-        if (boardScores) { const parsedScores = JSON.parse(boardScores) as Partial<ScoreEntry>[]; setScores(parsedScores.map(normalizeScoreEntry).sort((a, b) => b.score - a.score || b.ballsContained - a.ballsContained).slice(0, 5)); }
-      } catch { setNotice('Could not load the saved run'); }
+        if (save) { const parsed = migrateFoundryRunDefaults(JSON.parse(save) as Run); parsed.mountAssemblies ??= 0; parsed.deployedTurrets ??= []; parsed.cargoLayout ??= { version: 1, placements: [] }; parsed.cargoStackBonuses ??= {}; parsed.cargoShapes ??= restoredCargoShapes; parsed.cargoMinimumKeep ??= {}; parsed.cargoRefiningMode ??= 'overflow'; parsed.manualRefinedItems ??= {}; parsed.foundryProcessedItems ??= {}; parsed.routeAtlas ??= []; parsed.scanCharges ??= 1; parsed.beaconStreak ??= 0; parsed.beaconStreakBest ??= parsed.beaconStreak; const legacyStorageRun = parsed.speedCapacityBonus === undefined; parsed.speedCharges ??= 0; parsed.ramCharges ??= 0; parsed.chargeCharges ??= 0; parsed.chargeCapacityBonus ??= 0; parsed.chargeCapacityPurchases ??= 0; parsed.overflowProcessingUpgradePurchases ??= 0; parsed.levelClearBubbleTimerMs ??= 0; parsed.levelClearBubbleAccumulatorMs ??= 0; parsed.levelClearAnimationRemainingMs ??= 0; parsed.levelEvent ??= 'none'; parsed.levelEventBannerUntilMs ??= 0; parsed.containmentMutations ??= []; parsed.containmentMutationScanRemainingMs ??= 0; parsed.chargeReadyUntil ??= null; parsed.speedCapacityBonus ??= 0; parsed.speedCapacityPurchases ??= parsed.speedCapacityBonus; parsed.ramCapacityBonus ??= 0; parsed.ramCapacityPurchases ??= parsed.ramCapacityBonus; parsed.waldoEventPending ??= false; parsed.mechanics = normalizeMechanicsSettings(parsed.mechanics); parsed.sector ??= createSector(0, 'Civilian', BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => ({ id: scene.id, name: scene.name }))); parsed.sector.scanCount ??= 0; parsed.jumpReady ??= false; parsed.baseMechanics = normalizeMechanicsSettings(parsed.baseMechanics ?? parsed.mechanics); parsed.currentVistaId ??= BUILT_IN_BRIDGE_VISTAS.find(scene => !scene.pictureEventUnlock)?.id; parsed.pendingSectorChoices ??= undefined; parsed.skinDiscovery ??= null; parsed.totalTerritoryClaimed ??= 0; parsed.ballsDestroyed ??= 0; parsed.ballsContained ??= 0; parsed.pickupsCaptured ??= 0; parsed.containedBallIds ??= []; parsed.containedCountedThisLevel ??= false; if (legacyStorageRun) { if (parsed.mechanics.overflowCreditValues.speed === 0) parsed.mechanics.overflowCreditValues.speed = DEFAULT_MECHANICS.overflowCreditValues.speed; if (parsed.mechanics.overflowCreditValues.ram === 0) parsed.mechanics.overflowCreditValues.ram = DEFAULT_MECHANICS.overflowCreditValues.ram; } parsed.lifeCapacity = Math.max(parsed.lives, parsed.lifeCapacity ?? parsed.mechanics.lifeStorageBaseCapacity); parsed.lifeCapacityPurchases ??= Math.max(0, parsed.lifeCapacity - parsed.mechanics.lifeStorageBaseCapacity); parsed.overflowJobs ??= []; parsed.overflowSuccessChance = Math.max(0, Math.min(100, parsed.overflowSuccessChance ?? parsed.mechanics.overflowBaseSuccessChance)); parsed.overflowUpgradePurchases ??= Math.max(0, Math.floor((parsed.overflowSuccessChance - parsed.mechanics.overflowBaseSuccessChance) / Math.max(1, parsed.mechanics.overflowUpgradeChanceIncrease))); parsed.waldoEligible ??= Math.random() >= parsed.mechanics.waldoIneligibleChance; parsed.merchantTokens ??= 0; parsed.credits ??= 0; parsed.powerBars ??= 0; parsed.powerBarsPurchased ??= 0; parsed.merchantUpgrades ??= { life: 0, speed: 0, ram: 0, treasure: 0, waldo: 0 }; parsed.merchantUpgrades.waldo ??= 0; for (const kind of Object.keys(DEFAULT_MECHANICS.containmentMutationPickupEnabled)) { parsed.merchantUpgrades[`mutationAffinity:${kind}`] ??= 0; parsed.merchantUpgrades[`mutationAttraction:${kind}`] ??= 0; } parsed.petEggs ??= 0; parsed.petEggVisitProgress ??= 0; parsed.pets ??= []; parsed.pets = hydrateRosterPetProficiency(parsed.pets.map(pet => ({ ...pet, species: pet.species ?? 'engi', paintings: pet.paintings ?? [] })), persistentProfileRef.current); parsed.petIncubations ??= []; parsed.isotypesContained ??= false; parsed.isotypesNoticeUntilMs ??= 0; parsed.petNotice ??= null; parsed.levelClearPending ??= false; parsed.speedReadyUntil ??= null; parsed.captureEvents ??= []; parsed.wallBreakEvents ??= []; parsed.territoryGainEvents ??= []; parsed.creditGainEvents ??= []; parsed.treasureEligible ??= Math.random() < MECHANICS.treasureLevelEligibilityChance; parsed.treasureHuntPending ??= false; parsed.treasureHunt ??= null; if (parsed.treasureHunt) parsed.treasureHunt.revealed ??= false; parsed.pictureEvent ??= null; parsed.boardWidth ??= BOARD_W; parsed.boardHeight ??= 1100; parsed.gridCols ??= 48; parsed.gridRows ??= 72; parsed.walls = parsed.walls.map(w => ({ ...w, speedMultiplier: w.speedMultiplier ?? 1 })); parsed.powerups = (parsed.powerups ?? []).map(p => ({ ...p, skinId: p.kind === 'engi-egg' ? p.skinId ?? randomEngiCocoonSkin() : p.skinId, despawnAtMs: p.despawnAtMs ?? powerupDespawnAt(p.kind, parsed.elapsedMs ?? 0, parsed.mechanics) })); if (parsed.levelClearPending && !parsed.powerups.some(p => p.kind === 'exit')) parsed.powerups.push({ id: parsed.nextId++, kind: 'exit', x: parsed.boardWidth * 0.5, y: parsed.boardHeight * 0.5, vx: 0, vy: 0 }); if (!parsed.ended) { setMechanicsSettings(parsed.mechanics); const layout = boardLayoutFor(stageSizeRef.current.width, stageSizeRef.current.height); const restored = layout.displayWidth ? resizeRunBoard(parsed, layout.worldWidth, layout.worldHeight) : parsed; const capacitySafe = enforceChargeCapacities(restored); runRef.current = capacitySafe; setRun(capacitySafe); setHasSave(true); } }
+        if (manualSaveData) {
+          const manual = migrateFoundryRunDefaults(ensureRunProgression(JSON.parse(manualSaveData) as Run)); manual.pets = hydrateRosterPetProficiency(manual.pets ?? [], persistentProfileRef.current); manual.cargoLayout ??= { version: 1, placements: [] }; manual.cargoShapes ??= restoredCargoShapes; manual.cargoMinimumKeep ??= {};
+          await AsyncStorage.setItem(MANUAL_SAVE_KEY, JSON.stringify(manual));
+          setManualSave(manual);
+        }
+      } catch (error) { console.error('Game save initialization failed', error); setProgressionReady(progressionInitialized); setNotice(`${progressionInitialized ? 'Some saved settings could not be loaded' : 'Save data could not be loaded'}: ${error instanceof Error ? error.message : 'unknown error'}. Existing saves are preserved.`); }
       setLoaded(true);
     })();
-  }, []);
+  }, [applyArchive]);
 
   useEffect(() => { if (loaded) AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(tuning)).catch(() => {}); }, [loaded, tuning]);
+  useEffect(() => { if (loaded) AsyncStorage.setItem(CARGO_SHAPES_KEY, JSON.stringify(cargoShapes)).catch(() => {}); }, [loaded, cargoShapes]);
   useEffect(() => { if (loaded) AsyncStorage.setItem(BRIDGE_INTERIOR_VARIANT_KEY, bridgeInteriorVariant).catch(() => {}); }, [loaded, bridgeInteriorVariant]);
   useEffect(() => { if (loaded) AsyncStorage.setItem(PROFILES_KEY, JSON.stringify(profiles)).catch(() => {}); }, [loaded, profiles]);
   useEffect(() => {
@@ -677,10 +767,9 @@ export default function App() {
         const { kind, amount } = effect.resourceReward;
         if (kind === 'life') { const gained = Math.min(amount, Math.max(0, rewarded.lifeCapacity - rewarded.lives)); rewarded = { ...rewarded, lives: rewarded.lives + gained, credits: rewarded.credits + (amount - gained) * (rewarded.mechanics.overflowCreditValues.life ?? 0) }; summary.push(`+${gained} ${gained === 1 ? 'LIFE' : 'LIVES'}`); }
         else {
-          const capacity = chargeCapacity(rewarded, kind);
           const key = kind === 'speed' ? 'speedCharges' : kind === 'ram' ? 'ramCharges' : 'chargeCharges';
-          const gained = Math.min(amount, Math.max(0, capacity - rewarded[key]));
-          rewarded = { ...rewarded, [key]: rewarded[key] + gained, credits: rewarded.credits + (amount - gained) * (rewarded.mechanics.overflowCreditValues[kind] ?? 0) };
+          const gained = Math.max(0, Math.floor(amount));
+          rewarded = { ...rewarded, [key]: rewarded[key] + gained };
           summary.push(`+${gained} ${kind.toUpperCase()}`);
         }
       }
@@ -691,9 +780,9 @@ export default function App() {
           rewarded = { ...rewarded, mechanics: { ...rewarded.mechanics, overflowProcessingMs: nextMs }, overflowProcessingUpgradePurchases: rewarded.overflowProcessingUpgradePurchases + 1 };
           summary.push(`SMELTER CYCLE −${rewarded.mechanics.overflowProcessingReductionPercent}%`);
         } else if (upgrade === 'life-capacity') { rewarded = { ...rewarded, lifeCapacity: rewarded.lifeCapacity + 1, lifeCapacityPurchases: rewarded.lifeCapacityPurchases + 1 }; summary.push('LIFE VAULT +1 SLOT'); }
-        else if (upgrade === 'speed-capacity') { rewarded = { ...rewarded, speedCapacityBonus: rewarded.speedCapacityBonus + 1, speedCapacityPurchases: rewarded.speedCapacityPurchases + 1 }; summary.push('SPEED HOLD +1 SLOT'); }
-        else if (upgrade === 'ram-capacity') { rewarded = { ...rewarded, ramCapacityBonus: rewarded.ramCapacityBonus + 1, ramCapacityPurchases: rewarded.ramCapacityPurchases + 1 }; summary.push('RAM HOLD +1 SLOT'); }
-        else { rewarded = { ...rewarded, chargeCapacityBonus: rewarded.chargeCapacityBonus + 1, chargeCapacityPurchases: rewarded.chargeCapacityPurchases + 1 }; summary.push('CHARGE HOLD +1 SLOT'); }
+        else if (upgrade === 'speed-capacity') { rewarded = { ...rewarded, cargoStackBonuses: { ...(rewarded.cargoStackBonuses ?? {}), speed: (rewarded.cargoStackBonuses?.speed ?? 0) + 1 } }; summary.push('SPEED STACK COMPRESSION +1 / STACK'); }
+        else if (upgrade === 'ram-capacity') { rewarded = { ...rewarded, cargoStackBonuses: { ...(rewarded.cargoStackBonuses ?? {}), ram: (rewarded.cargoStackBonuses?.ram ?? 0) + 1 } }; summary.push('RAM STACK COMPRESSION +1 / STACK'); }
+        else { rewarded = { ...rewarded, cargoStackBonuses: { ...(rewarded.cargoStackBonuses ?? {}), charge: (rewarded.cargoStackBonuses?.charge ?? 0) + 1 } }; summary.push('CHARGE STACK COMPRESSION +1 / STACK'); }
       }
       if (effect.scanChargeReward) {
         const gained = Math.min(effect.scanChargeReward, Math.max(0, SECTOR_MAP_CONFIG.maxScanCharges - rewarded.scanCharges));
@@ -740,16 +829,16 @@ export default function App() {
       const lifeRecovery = target.effects.reduce((sum, effect) => sum + (effect.livesDelta ?? 0), 0);
       const sector = visitBeacon(currentSector, target.id);
       const pictureVistaId = target.event.kind === 'picture' ? target.vistaId : undefined;
-      const next = newRun(current.level + 1, current.boardWidth, current.boardHeight, target.event.kind === 'waldo' || current.waldoEventPending, { effects: target.effects, pictureVistaId, jackpot: target.event.kind === 'jackpot', waldo: target.event.kind === 'waldo', suppressRandomPictureEvent: true, suppressRandomEvents: true, difficultyDepth: currentSector.depth }, current.baseMechanics ?? current.mechanics);
+      const next = newRun(current.level + 1, current.boardWidth, current.boardHeight, target.event.kind === 'waldo' || current.waldoEventPending, { effects: target.effects, pictureVistaId, jackpot: target.event.kind === 'jackpot', waldo: target.event.kind === 'waldo', suppressRandomPictureEvent: true, suppressRandomEvents: true }, current.baseMechanics ?? current.mechanics);
       const scenePool = [
         ...BUILT_IN_BRIDGE_VISTAS.filter(scene => !scene.pictureEventUnlock || unlockedVistaIdsRef.current.includes(scene.id)),
         ...bridgeVistaLibrary.map(entry => ({ id: entry.id })),
       ];
       const sceneChoices = scenePool.filter(scene => scene.id !== current.currentVistaId);
       const currentVistaId = (sceneChoices.length ? sceneChoices : scenePool)[Math.floor(Math.random() * Math.max(1, sceneChoices.length || scenePool.length))]?.id ?? current.currentVistaId;
-      const continued = attachSkinDiscovery({ ...next, sector, baseMechanics: { ...(current.baseMechanics ?? current.mechanics), overflowProcessingMs: current.mechanics.overflowProcessingMs }, mechanics: { ...next.mechanics, overflowProcessingMs: current.mechanics.overflowProcessingMs }, currentVistaId, routeAtlas: current.routeAtlas ?? [], jumpReady: false, beaconBonusScore: current.beaconBonusScore ?? 0, scanCharges: current.scanCharges, beaconStreak: current.beaconStreak, beaconStreakBest: current.beaconStreakBest, lives: Math.min(current.lifeCapacity, current.lives + lifeRecovery), lifeCapacity: current.lifeCapacity, lifeCapacityPurchases: current.lifeCapacityPurchases, speedCapacityBonus: current.speedCapacityBonus, speedCapacityPurchases: current.speedCapacityPurchases, ramCapacityBonus: current.ramCapacityBonus, ramCapacityPurchases: current.ramCapacityPurchases, chargeCapacityBonus: current.chargeCapacityBonus, chargeCapacityPurchases: current.chargeCapacityPurchases, chargeCharges: current.chargeCharges, overflowProcessingUpgradePurchases: current.overflowProcessingUpgradePurchases, overflowJobs: current.overflowJobs, overflowSuccessChance: current.overflowSuccessChance, overflowUpgradePurchases: current.overflowUpgradePurchases, speedCharges: current.speedCharges, ramCharges: current.ramCharges, merchantTokens: current.merchantTokens, credits: current.credits + creditReward, powerBars: current.powerBars, powerBarsPurchased: current.powerBarsPurchased, merchantUpgrades: current.merchantUpgrades, petEggs: current.petEggs + podReward, petEggVisitProgress: current.petEggVisitProgress, petIncubations: current.petIncubations, pets: current.pets.map(pet => ({ ...pet, deployed: false, vx: 0, vy: 0, repairedThisLevel: false, ...(pet.species === 'waldo' ? { paintings: [], nextPaintingAtMs: next.elapsedMs + next.mechanics.waldoPetPaintingIntervalMs } : {}) })), totalTerritoryClaimed: current.totalTerritoryClaimed, ballsDestroyed: current.ballsDestroyed, ballsContained: current.ballsContained, pickupsCaptured: current.pickupsCaptured, containedBallIds: [], isotypesContained: false, isotypesNoticeUntilMs: 0, treasureHunt: pendingTreasure ? { x: randomBetween(40, current.boardWidth - 40), y: randomBetween(40, current.boardHeight - 40), remainingMs: current.mechanics.treasureHuntDurationMs, revealed: false } : null, territoryGainEvents: [], creditGainEvents: current.creditGainEvents, levelClearPending: false, levelClearAnimationRemainingMs: 0, levelClearBubbleTimerMs: 0, levelClearBubbleAccumulatorMs: 0 }, skinProgressionRef.current);
+      const continued = attachSkinDiscovery({ ...next, runId: current.runId, progression: current.progression, cargoLayout: current.cargoLayout, cargoStackBonuses: current.cargoStackBonuses ?? {}, cargoShapes: current.cargoShapes ?? cargoShapes, cargoMinimumKeep: current.cargoMinimumKeep ?? {}, cargoRefiningMode: current.cargoRefiningMode ?? 'overflow', manualRefinedItems: current.manualRefinedItems ?? {}, foundryProcessedItems: current.foundryProcessedItems ?? {}, foundryPayouts: current.foundryPayouts ?? [], sector, baseMechanics: { ...(current.baseMechanics ?? current.mechanics), overflowProcessingMs: current.mechanics.overflowProcessingMs }, mechanics: { ...next.mechanics, overflowProcessingMs: current.mechanics.overflowProcessingMs }, currentVistaId, routeAtlas: current.routeAtlas ?? [], jumpReady: false, beaconBonusScore: current.beaconBonusScore ?? 0, scanCharges: current.scanCharges, beaconStreak: current.beaconStreak, beaconStreakBest: current.beaconStreakBest, lives: Math.min(current.lifeCapacity, current.lives + lifeRecovery), lifeCapacity: current.lifeCapacity, lifeCapacityPurchases: current.lifeCapacityPurchases, speedCapacityBonus: current.speedCapacityBonus, speedCapacityPurchases: current.speedCapacityPurchases, ramCapacityBonus: current.ramCapacityBonus, ramCapacityPurchases: current.ramCapacityPurchases, chargeCapacityBonus: current.chargeCapacityBonus, chargeCapacityPurchases: current.chargeCapacityPurchases, chargeCharges: current.chargeCharges, overflowProcessingUpgradePurchases: current.overflowProcessingUpgradePurchases, overflowJobs: current.overflowJobs, overflowSuccessChance: current.overflowSuccessChance, overflowUpgradePurchases: current.overflowUpgradePurchases, speedCharges: current.speedCharges, ramCharges: current.ramCharges, merchantTokens: current.merchantTokens, credits: current.credits + creditReward, powerBars: current.powerBars, powerBarsPurchased: current.powerBarsPurchased, merchantUpgrades: current.merchantUpgrades, petEggs: current.petEggs + podReward, petEggVisitProgress: current.petEggVisitProgress, petIncubations: current.petIncubations, pets: current.pets.map(pet => ({ ...pet, deployed: false, vx: 0, vy: 0, repairedThisLevel: false, ...(pet.species === 'waldo' ? { paintings: [], nextPaintingAtMs: next.elapsedMs + next.mechanics.waldoPetPaintingIntervalMs } : {}) })), totalTerritoryClaimed: current.totalTerritoryClaimed, ballsDestroyed: current.ballsDestroyed, ballsContained: current.ballsContained, pickupsCaptured: current.pickupsCaptured, containedBallIds: [], isotypesContained: false, isotypesNoticeUntilMs: 0, treasureHunt: pendingTreasure ? { x: randomBetween(40, current.boardWidth - 40), y: randomBetween(40, current.boardHeight - 40), remainingMs: current.mechanics.treasureHuntDurationMs, revealed: false } : null, territoryGainEvents: [], creditGainEvents: current.creditGainEvents, pickupTransits: current.pickupTransits ?? [], mountAssemblies: current.mountAssemblies ?? 0, deployedTurrets: current.deployedTurrets ?? [], turret: current.turret, turretShotEvents: [], levelClearPending: false, levelClearAnimationRemainingMs: 0, levelClearBubbleTimerMs: 0, levelClearBubbleAccumulatorMs: 0 }, skinProgressionRef.current);
       commit(continued);
-      void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(continued));
+      void progressionStorage.saveActive(continued).catch(() => setNotice('Run save failed. Autosave will retry.'));
       setMenuPage(null); setActiveTab('game'); setBridgeSimView('fullscreen'); setLevelClearAnimation(null); setMerchantOpenedAtClear(false); setPaused(false); queuedWalls.current = []; setQueuedWallPreview([]); setRunning(true); setNotice([`Jump complete · Stage ${String(continued.level).padStart(2, '0')} underway`, podReward ? `ENGI POD SECURED +${podReward}` : '', creditReward ? `+${creditReward} CREDITS` : ''].filter(Boolean).join(' · ')); if (creditReward || podReward) showGainToast([creditReward ? `+${creditReward} CREDITS` : '', podReward ? `+${podReward} ENGI POD` : ''].filter(Boolean).join(' · '), 'credit'); setJumpTransitionActive(false);
       } catch (error) {
         console.error('Jump transition failed', error);
@@ -759,7 +848,7 @@ export default function App() {
         setNotice('Jump drive fault · select a reachable beacon and retry');
       }
     }, 1450);
-  }, [bridgeVistaLibrary, commit, setActiveTab, setBridgeSimView, setJumpTransitionActive, setLevelClearAnimation, setMenuPage, setMerchantOpenedAtClear, setNotice, setPaused, setQueuedWallPreview, setRunning, showGainToast]);
+  }, [bridgeVistaLibrary, cargoShapes, commit, setActiveTab, setBridgeSimView, setJumpTransitionActive, setLevelClearAnimation, setMenuPage, setMerchantOpenedAtClear, setNotice, setPaused, setQueuedWallPreview, setRunning, showGainToast]);
 
   useEffect(() => {
     if (!running) return;
@@ -774,8 +863,9 @@ export default function App() {
         const cleared = result.run;
         runRef.current = cleared;
         setRun({ ...cleared, balls: [...cleared.balls], walls: [...cleared.walls], powerups: [...cleared.powerups] });
-        void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(cleared));
-        setCaptureEffects(old => [...old, ...attachCaptureSkins(next.captureEvents, visualSkinSelectionsRef.current, next.skinDiscovery)].slice(-8));
+        void progressionStorage.saveActive(cleared).catch(() => setNotice('Run save failed. Autosave will retry.'));
+        const visible = visibleCaptureEvents(next, next.captureEvents);
+        if (visible.length) setCaptureEffects(old => [...old, ...attachCaptureSkins(visible, visualSkinSelectionsRef.current, next.skinDiscovery)].slice(-8));
         setNotice(['Jump drive ready · open the Starmap Jump console when you are ready', ...result.summary].join(' · '));
         if (result.summary.length) showGainToast(result.summary.join(' · '), result.summary.some(item => item.includes('SLOT') || item.includes('SMELTER')) ? 'module' : 'pickup');
         return;
@@ -784,12 +874,14 @@ export default function App() {
       if (!current.levelClearPending && next.levelClearPending) setNotice('Sector clear · capture the route beacon to prepare a jump');
       runRef.current = next;
       setRun({ ...next, balls: [...next.balls], walls: [...next.walls], powerups: [...next.powerups] });
-      const pickupCounts = next.captureEvents.reduce<Record<string, number>>((counts, event) => { if (['life', 'speed', 'ram', 'charge', 'treasure', 'merchant', 'bubble', 'waldo', 'engi-egg'].includes(event.kind)) counts[event.kind] = (counts[event.kind] ?? 0) + 1; return counts; }, {});
+      const pickupCounts = next.captureEvents.reduce<Record<string, number>>((counts, event) => { if (event.mountAssembly) counts['mount assembly'] = (counts['mount assembly'] ?? 0) + 1; else if (['life', 'speed', 'ram', 'charge', 'treasure', 'merchant', 'bubble', 'waldo', 'engi-egg'].includes(event.kind)) counts[event.kind] = (counts[event.kind] ?? 0) + 1; return counts; }, {});
+      if (next.captureEvents.some(event => event.kind === 'turretHit')) setNotice('PHASE IMPACT · CLAIMED SENTRY DISABLED · REPAIR FOR 25 CR');
       const pickupCallout = Object.entries(pickupCounts).map(([kind, amount]) => `+${amount} ${kind.toUpperCase()}`);
       const creditCallout = next.creditGainEvents.length ? `+${next.creditGainEvents.reduce((sum, event) => sum + event.amount, 0)} CREDITS` : '';
       if (pickupCallout.length || creditCallout) showGainToast([...pickupCallout, creditCallout].filter(Boolean).join(' · '), creditCallout ? 'credit' : 'pickup');
       if (next.creditGainEvents.length) setCreditGainEffects(old => [...old, ...next.creditGainEvents].slice(-6));
-      if (next.captureEvents.length) setCaptureEffects(old => [...old, ...attachCaptureSkins(next.captureEvents, visualSkinSelectionsRef.current, next.skinDiscovery)].slice(-8));
+      const visible = visibleCaptureEvents(next, next.captureEvents);
+      if (visible.length) setCaptureEffects(old => [...old, ...attachCaptureSkins(visible, visualSkinSelectionsRef.current, next.skinDiscovery)].slice(-8));
       if (next.wallBreakEvents.length) setWallBreakEffects(old => [...old, ...next.wallBreakEvents].slice(-6));
       if (next.territoryGainEvents.length) setTerritoryEffects(old => [...old, ...next.territoryGainEvents].slice(-4));
       if (next.ended) {
@@ -801,28 +893,47 @@ export default function App() {
   }, [running, grantLevelClearRewards, showGainToast]);
 
   useEffect(() => {
-    if (!loaded || run.ended) return;
-    const timer = setInterval(() => { AsyncStorage.setItem(SAVE_KEY, JSON.stringify(runRef.current)).catch(() => {}); }, 2500);
+    if (!loaded || !hasSave || run.ended) return;
+    const timer = setInterval(() => {
+      if (!runRef.current.ended && progressionReady) void progressionStorage.saveActive(runRef.current).catch(() => setNotice('Autosave failed. It will retry shortly.'));
+    }, 2500);
     return () => clearInterval(timer);
-  }, [loaded, run.ended]);
+  }, [loaded, hasSave, run.ended, progressionReady]);
+
+  const finishCurrentRun = useCallback((): Promise<void> => {
+    if (closeoutPromiseRef.current) return closeoutPromiseRef.current;
+    if (savedRef.current || !runRef.current.ended) return Promise.resolve();
+    setCloseoutStatus('saving');
+    const pending = progressionStorage.finishRun(runRef.current).then(archive => {
+      applyArchive(archive);
+      savedRef.current = true;
+      setHasSave(false);
+      setCloseoutStatus('saved');
+    }).catch((error: unknown) => {
+      setCloseoutStatus('error');
+      setNotice('Run closeout could not be saved. Your run is held for retry; open Flight Records to retry now.');
+      throw error;
+    }).finally(() => { closeoutPromiseRef.current = null; });
+    closeoutPromiseRef.current = pending;
+    return pending;
+  }, [applyArchive]);
 
   useEffect(() => {
-    if (!run.ended || savedRef.current) return;
-    savedRef.current = true;
-    (async () => {
-      const entry: ScoreEntry = { score: run.level + (run.beaconBonusScore ?? 0), level: run.level, claimed: run.claimed, totalTerritoryClaimed: run.totalTerritoryClaimed, ballsDestroyed: run.ballsDestroyed, ballsContained: run.ballsContained, pickupsCaptured: run.pickupsCaptured, timestamp: Date.now() };
-      const previous = await AsyncStorage.getItem(`${SAVE_KEY}-scores`);
-      const next = [...(previous ? (JSON.parse(previous) as Partial<ScoreEntry>[]).map(normalizeScoreEntry) : []), entry]
-        .sort((a, b) => b.score - a.score || b.ballsContained - a.ballsContained || a.timestamp - b.timestamp)
-        .slice(0, 5);
-      setScores(next);
-      await AsyncStorage.setItem(`${SAVE_KEY}-scores`, JSON.stringify(next));
-      await AsyncStorage.removeItem(SAVE_KEY);
-      setHasSave(false);
-    })().catch(() => {});
-  }, [run]);
+    if (!loaded || !progressionReady || !run.ended || savedRef.current) return;
+    void finishCurrentRun().catch(() => undefined);
+  }, [loaded, progressionReady, run.ended, saveRetry, finishCurrentRun]);
 
-  const startFresh = () => {
+  useEffect(() => {
+    if (closeoutStatus !== 'error') return;
+    const retry = setTimeout(() => setSaveRetry(value => value + 1), 5000);
+    return () => clearTimeout(retry);
+  }, [closeoutStatus, saveRetry]);
+
+  const startFresh = async () => {
+    if (!loaded || !progressionReady) { setNotice('Save data is not ready. Reload to retry before starting a run.'); return; }
+    if (runRef.current.ended) {
+      try { await finishCurrentRun(); } catch { return; }
+    }
     const backgroundIndex = BACKGROUND_SKINS.findIndex(skin => skin.id === skinSelections.background);
     const runTuning = { ...tuning, backgroundColorIndex: backgroundIndex >= 0 ? backgroundIndex : 0, backgroundColors: BACKGROUND_SKINS.map(skin => skin.color) };
     setMechanicsSettings(runTuning);
@@ -830,8 +941,15 @@ export default function App() {
     const sector = createSector(0, 'Civilian', BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => ({ id: scene.id, name: scene.name })));
     const scenePool = [...BUILT_IN_BRIDGE_VISTAS.filter(scene => !scene.pictureEventUnlock), ...bridgeVistaLibrary];
     const currentVistaId = scenePool[Math.floor(Math.random() * scenePool.length)]?.id;
-    const fresh = attachSkinDiscovery({ ...newRun(1, layout.worldWidth, layout.worldHeight, false, { suppressRandomEvents: true }), sector, baseMechanics: getMechanicsSettings(), currentVistaId, routeAtlas: [], jumpReady: false }, skinProgressionRef.current);
-    runRef.current = fresh; setRun(fresh); setHasSave(true); savedRef.current = false; void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(fresh)); queuedWalls.current = []; setQueuedWallPreview([]); setPaused(false); setLevelClearAnimation(null); setMenuPage(null); setActiveTab('game'); setBridgeSimView('fullscreen'); setRunning(true);
+    const profile = persistentProfileRef.current;
+    const seeded = newRun(1, layout.worldWidth, layout.worldHeight, false, { suppressRandomEvents: true });
+    const rosterPets = profile.pets.slice(0, petCapacity(profile.capacityUpgradeLevels.pets)).filter(member => member.species === 'engi' || member.species === 'waldo');
+    const pets: CompanionPet[] = rosterPets.map((member, index) => ({ id: seeded.nextId + index, rosterId: member.id, dutyProficiency: { ...member.proficiency }, species: member.species as 'engi' | 'waldo', name: member.name,
+      skinId: member.skinId ?? (member.species === 'waldo' ? 'classic-waldo' : skinSelections.engiPet), health: 1, maxHealth: 1, level: 1, deployed: false,
+      x: layout.worldWidth * (0.2 + index * 0.055), y: layout.worldHeight * 0.12, vx: 0, vy: 0, task: member.species === 'waldo' ? 'wander' : 'inspect',
+      taskUntilMs: seeded.elapsedMs + 1800, repairedThisLevel: false, ...(member.species === 'waldo' ? { paintings: [], nextPaintingAtMs: seeded.elapsedMs + seeded.mechanics.waldoPetPaintingIntervalMs } : {}) }));
+    const fresh = attachSkinDiscovery({ ...seeded, nextId: seeded.nextId + pets.length, pets, sector, progression: createRunProgression(profile), baseMechanics: getMechanicsSettings(), currentVistaId, routeAtlas: [], jumpReady: false, cargoShapes }, skinProgressionRef.current);
+    runRef.current = fresh; setRun(fresh); setHasSave(true); savedRef.current = false; setCloseoutStatus('idle'); void progressionStorage.saveActive(fresh).catch(() => setNotice('New run save failed. Autosave will retry.')); queuedWalls.current = []; setQueuedWallPreview([]); setPaused(false); setLevelClearAnimation(null); setMenuPage(null); setActiveTab('game'); setBridgeSimView('fullscreen'); setRunning(true);
     setNotice('Complete walls to claim regions without balls');
   };
   const scanMapFrontier = () => {
@@ -840,7 +958,7 @@ export default function App() {
     const result = scanNextFrontier(current.sector);
     if (!result.revealed) return;
     const next = { ...current, scanCharges: current.scanCharges - 1, sector: result.sector };
-    runRef.current = next; setRun(next); void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(next));
+    runRef.current = next; setRun(next); void progressionStorage.saveActive(next).catch(() => setNotice('Run save failed. Autosave will retry.'));
     setNotice(`Deep scan complete · ${result.revealed.event.markerLabel ?? 'signal'} detected at beacon ${result.revealed.depth}`);
   };
   const openJumpConsole = () => {
@@ -850,41 +968,34 @@ export default function App() {
       const options = current.pendingSectorChoices ?? generateSectorChoices(current.sector.type, current.sector.depth + 1, undefined, current.sector.typeHistory);
       setSectorChoiceOptions(options);
       const next = { ...current, pendingSectorChoices: options };
-      runRef.current = next; setRun(next); void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(next)); setMenuPage('sector-select');
+      runRef.current = next; setRun(next); void progressionStorage.saveActive(next).catch(() => setNotice('Run save failed. Autosave will retry.')); setMenuPage('sector-select');
       return;
     }
     const pictureVistas = BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => ({ id: scene.id, name: scene.name }));
     const next = { ...current, sector: openSectorMap(current.sector, pictureVistas) };
-    runRef.current = next; setRun(next); void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(next)); setMenuPage('sector-map');
+    runRef.current = next; setRun(next); void progressionStorage.saveActive(next).catch(() => setNotice('Run save failed. Autosave will retry.')); setMenuPage('sector-map');
   };
   const chooseNextSector = (type: SectorType) => {
     const current = runRef.current;
     if (!current.sector || !current.jumpReady || !current.pendingSectorChoices?.includes(type)) return;
     const sector = createSector(current.sector.depth + 1, type, BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => ({ id: scene.id, name: scene.name })), undefined, current.sector.typeHistory);
     const next = { ...current, sector: openSectorMap(sector, BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => ({ id: scene.id, name: scene.name }))), routeAtlas: [...(current.routeAtlas ?? []), archiveSectorRoute(current.sector)], pendingSectorChoices: undefined };
-    runRef.current = next; setRun(next); void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(next)); setMenuPage('sector-map');
+    runRef.current = next; setRun(next); void progressionStorage.saveActive(next).catch(() => setNotice('Run save failed. Autosave will retry.')); setMenuPage('sector-map');
   };
   const saveActiveRunToSlot = async () => {
     const snapshot = JSON.parse(JSON.stringify(runRef.current)) as Run;
     await AsyncStorage.setItem(MANUAL_SAVE_KEY, JSON.stringify(snapshot));
     setManualSave(snapshot); setConfirmOverwriteSave(false); setNotice('Active run saved to the manual slot');
   };
-  const loadManualRun = () => {
-    if (!manualSave) return;
-    const restored = { ...manualSave, routeAtlas: manualSave.routeAtlas ?? [], scanCharges: manualSave.scanCharges ?? 1, beaconStreak: manualSave.beaconStreak ?? 0, beaconStreakBest: manualSave.beaconStreakBest ?? 0, sector: manualSave.sector ?? createSector(0, 'Civilian', BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => ({ id: scene.id, name: scene.name }))), jumpReady: manualSave.jumpReady ?? false, baseMechanics: normalizeMechanicsSettings(manualSave.baseMechanics ?? manualSave.mechanics), currentVistaId: manualSave.currentVistaId ?? BUILT_IN_BRIDGE_VISTAS.find(scene => !scene.pictureEventUnlock)?.id, mechanics: normalizeMechanicsSettings(manualSave.mechanics), skinDiscovery: manualSave.skinDiscovery ?? null, totalTerritoryClaimed: manualSave.totalTerritoryClaimed ?? 0, ballsDestroyed: manualSave.ballsDestroyed ?? 0, ballsContained: manualSave.ballsContained ?? 0, pickupsCaptured: manualSave.pickupsCaptured ?? 0, containedBallIds: manualSave.containedBallIds ?? [], containedCountedThisLevel: manualSave.containedCountedThisLevel ?? false };
-    restored.sector.scanCount ??= 0; setMechanicsSettings(restored.mechanics); runRef.current = restored; setRun(restored); setHasSave(true); savedRef.current = false; void AsyncStorage.setItem(SAVE_KEY, JSON.stringify(restored)); setMenuPage(null); setActiveTab('game'); setBridgeSimView('fullscreen'); setPaused(false); setRunning(!restored.ended); setNotice('Manual run save loaded');
+  const loadManualRun = async () => {
+    if (!manualSave || !progressionReady) return;
+    if (runRef.current.ended) { try { await finishCurrentRun(); } catch { return; } }
+    const restored = migrateFoundryRunDefaults({ ...ensureRunProgression(manualSave), cargoLayout: manualSave.cargoLayout ?? { version: 1, placements: [] }, cargoShapes: manualSave.cargoShapes ?? cargoShapes, cargoMinimumKeep: manualSave.cargoMinimumKeep ?? {}, cargoStackBonuses: manualSave.cargoStackBonuses ?? {}, cargoRefiningMode: manualSave.cargoRefiningMode ?? 'overflow', manualRefinedItems: manualSave.manualRefinedItems ?? {}, foundryProcessedItems: manualSave.foundryProcessedItems ?? {}, routeAtlas: manualSave.routeAtlas ?? [], scanCharges: manualSave.scanCharges ?? 1, beaconStreak: manualSave.beaconStreak ?? 0, beaconStreakBest: manualSave.beaconStreakBest ?? 0, sector: manualSave.sector ?? createSector(0, 'Civilian', BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => ({ id: scene.id, name: scene.name }))), jumpReady: manualSave.jumpReady ?? false, baseMechanics: normalizeMechanicsSettings(manualSave.baseMechanics ?? manualSave.mechanics), currentVistaId: manualSave.currentVistaId ?? BUILT_IN_BRIDGE_VISTAS.find(scene => !scene.pictureEventUnlock)?.id, mechanics: normalizeMechanicsSettings(manualSave.mechanics), skinDiscovery: manualSave.skinDiscovery ?? null, totalTerritoryClaimed: manualSave.totalTerritoryClaimed ?? 0, ballsDestroyed: manualSave.ballsDestroyed ?? 0, ballsContained: manualSave.ballsContained ?? 0, pickupsCaptured: manualSave.pickupsCaptured ?? 0, containedBallIds: manualSave.containedBallIds ?? [], containedCountedThisLevel: manualSave.containedCountedThisLevel ?? false });
+    restored.pets = hydrateRosterPetProficiency(restored.pets ?? [], persistentProfileRef.current);
+    restored.sector ??= createSector(0, 'Civilian', BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => ({ id: scene.id, name: scene.name }))); restored.sector.scanCount ??= 0; setMechanicsSettings(restored.mechanics); runRef.current = restored; setRun(restored); setHasSave(true); savedRef.current = false; if (!restored.ended) void progressionStorage.saveActive(restored).catch(() => setNotice('Run save failed. Autosave will retry.')); setMenuPage(null); setActiveTab('game'); setBridgeSimView('fullscreen'); setPaused(false); setRunning(!restored.ended); setCloseoutStatus('idle'); if (restored.ended) void finishCurrentRun().catch(() => undefined); setNotice(captainLogReports.some(report => report.id === restored.runId) ? 'Replay loaded · original report sealed · permanent rewards already settled' : 'Manual run save loaded');
   };
   const openMainMenu = (page: 'home' | 'themes' | 'scores' | 'settings' = 'home') => { setMerchantOpen(false); setMenuPage(page); setBridgeSimView('mini'); setConfirmOverwriteSave(false); };
   const resume = () => { setMenuPage(null); setActiveTab('game'); setBridgeSimView('fullscreen'); setPaused(false); setRunning(!runRef.current.ended); setNotice(runRef.current.ended ? 'Run ended · start a new run to continue' : 'Run resumed'); };
-  const openSimulationWindow = () => {
-    if (!hasSave || runRef.current.ended) {
-      startFresh();
-      setMenuPage('home');
-      setBridgeSimView('window');
-      return;
-    }
-    setMenuPage('home'); setActiveTab('game'); setBridgeSimView('window'); setPaused(false); setRunning(true); setNotice('Live sector displayed on the bridge');
-  };
   const minimizeSimulation = () => { setMenuPage('home'); setActiveTab('game'); setBridgeSimView('mini'); };
   const fullscreenSimulation = () => { setMenuPage(null); setActiveTab('game'); setBridgeSimView('fullscreen'); };
   const showSimulationInWindow = () => { setMenuPage('home'); setActiveTab('game'); setBridgeSimView('window'); };
@@ -966,7 +1077,6 @@ export default function App() {
   const renameEngiPet = (id: number, name: string) => commit({ ...runRef.current, pets: runRef.current.pets.map(pet => pet.id === id ? { ...pet, name } : pet) });
   const buyPowerBar = () => { const current = runRef.current; const cost = getMerchantPowerBarCost(current); if (current.credits < cost) return; commit({ ...current, credits: current.credits - cost, powerBars: current.powerBars + 1, powerBarsPurchased: current.powerBarsPurchased + 1 }); };
   const expandLifeVault = () => { const current = runRef.current; const cost = lifeStorageUpgradeCost(current); if (current.credits < cost) return; commit({ ...current, credits: current.credits - cost, lifeCapacity: current.lifeCapacity + 1, lifeCapacityPurchases: current.lifeCapacityPurchases + 1 }); };
-  const expandChargeCapacity = (kind: 'speed' | 'ram' | 'charge') => { const current = runRef.current; const cost = chargeStorageUpgradeCost(current, kind); if (current.credits < cost) return; const update = kind === 'speed' ? { speedCapacityBonus: current.speedCapacityBonus + 1, speedCapacityPurchases: current.speedCapacityPurchases + 1 } : kind === 'ram' ? { ramCapacityBonus: current.ramCapacityBonus + 1, ramCapacityPurchases: current.ramCapacityPurchases + 1 } : { chargeCapacityBonus: current.chargeCapacityBonus + 1, chargeCapacityPurchases: current.chargeCapacityPurchases + 1 }; commit({ ...current, ...update, credits: current.credits - cost }); };
   const upgradeSmelterSpeed = () => { const current = runRef.current; const cost = overflowProcessingUpgradeCost(current); if (current.credits < cost || current.mechanics.overflowProcessingMs <= current.mechanics.overflowProcessingMinimumMs) return; const nextMs = Math.max(current.mechanics.overflowProcessingMinimumMs, Math.ceil(current.mechanics.overflowProcessingMs * (1 - current.mechanics.overflowProcessingReductionPercent / 100))); const mechanics = { ...current.mechanics, overflowProcessingMs: nextMs }; setMechanicsSettings(mechanics); setTuning(mechanics); commit({ ...current, credits: current.credits - cost, mechanics, overflowProcessingUpgradePurchases: current.overflowProcessingUpgradePurchases + 1 }); };
   const installPowerBar = (kind: UpgradeKind) => {
     const current = runRef.current;
@@ -1124,7 +1234,61 @@ export default function App() {
     const layout = boardLayoutFor(width, height), current = runRef.current;
     if (Math.abs((current.boardWidth || BOARD_W) - layout.worldWidth) > 0.1 || Math.abs((current.boardHeight || BOARD_H) - layout.worldHeight) > 0.1) commit(resizeRunBoard(current, layout.worldWidth, layout.worldHeight));
   };
+  const unlockClaimedMountBlueprint = async () => {
+    if (persistentProfileRef.current.blueprintIds.includes(CLAIMED_MOUNT_BLUEPRINT_ID)) return;
+    try {
+      const result = await progressionStorage.purchaseBlueprint(CLAIMED_MOUNT_BLUEPRINT_ID, CLAIMED_MOUNT_BLUEPRINT_COST);
+      applyArchive(result.archive);
+      if (!result.unlocked) { setNotice(`CLAIMED MOUNTS NEED ${CLAIMED_MOUNT_BLUEPRINT_COST} RESEARCH`); return; }
+      const current = runRef.current;
+      const ids = [...new Set([...(current.progression?.blueprintIdsAtStart ?? []), CLAIMED_MOUNT_BLUEPRINT_ID])];
+      commit({ ...current, progression: { ...ensureRunProgression(current).progression, blueprintIdsAtStart: ids } });
+      setNotice('CLAIMED-MOUNT BLUEPRINT INSTALLED · ASSEMBLY REQUIRED');
+    } catch {
+      setNotice('BLUEPRINT COULD NOT BE SAVED · TRY AGAIN');
+    }
+  };
+  const acceptCrewInvite = async () => {
+    try {
+      const result = await progressionStorage.acceptCrewInvite();
+      applyArchive(result.archive);
+      if (result.recruited) setNotice('GENERIC CREW SLOT ADDED · ASSIGN A DUTY FROM THE BRIDGE MARKER');
+      else setNotice('NO OPEN CREW INVITATION OR CAPACITY');
+    } catch { setNotice('CREW RECORD COULD NOT BE SAVED · TRY AGAIN'); }
+  };
+  const declineCrewInvite = async () => {
+    try { applyArchive(await progressionStorage.declineCrewInvite()); }
+    catch { setNotice('CREW INVITATION COULD NOT BE UPDATED · TRY AGAIN'); }
+  };
+  const adoptPetOffer = async (offerId: string) => {
+    try {
+      const result = await progressionStorage.adoptPetOffer(offerId);
+      applyArchive(result.archive);
+      setNotice(result.adopted ? 'COMPANION ADDED TO PERMANENT ROSTER' : 'PET ROSTER FULL OR OFFER NO LONGER AVAILABLE');
+    } catch { setNotice('COMPANION RECORD COULD NOT BE SAVED · TRY AGAIN'); }
+  };
+  const releasePetOffer = async (offerId: string) => {
+    try { applyArchive(await progressionStorage.releasePetOffer(offerId)); }
+    catch { setNotice('COMPANION OFFER COULD NOT BE UPDATED · TRY AGAIN'); }
+  };
+  const assignCrewDuty = (memberId: string, roleId: string) => {
+    const current = ensureRunProgression(runRef.current);
+    commit({ ...current, progression: { ...current.progression, crewAssignments: { ...current.progression.crewAssignments, [memberId]: roleId } } });
+  };
+  const assignPetPlan = (petId: number, plan: PetAssignmentPlan) => {
+    const current = ensureRunProgression(runRef.current);
+    commit({ ...current, progression: { ...current.progression, petAssignments: { ...current.progression.petAssignments, [String(petId)]: plan } } });
+  };
   const handleTapAt = (x: number, y: number) => {
+    if (claimedMountPlacementMode) {
+      const current = runRef.current;
+      const deployed = deployClaimedTurretAt(current, x, y);
+      if (deployed === current) { setNotice('SELECT AN EMPTY CELL INSIDE CLAIMED TERRITORY'); return; }
+      commit(deployed, true);
+      setClaimedMountPlacementMode(false);
+      setNotice('SENTRY MOUNT DEPLOYED · PHASE IMPACTS CAN DISABLE IT');
+      return;
+    }
     if (running) {
       const current = runRef.current;
       const tappedPickup = tapPickupAt(current, x, y);
@@ -1190,6 +1354,94 @@ export default function App() {
   const worldLayout = boardLayoutFor(stageSize.width, stageSize.height);
   const sx = board.width / run.boardWidth;
   const sy = board.height / run.boardHeight;
+  const turretGeometry = starterTurretGeometry(run.boardWidth, run.boardHeight, run.turret?.fireControlLevel ?? 0, run.turret?.railPosition ?? 0.5, run.turret?.mount ?? 'lower');
+  const turretState = run.turret ?? { cooldownMs: 0, firePowerLevel: 0, fireControlLevel: 0, mobilityLevel: 0, deploymentLevel: 0, mount: 'lower' as const, railPosition: 0.5, targetPriority: 'alternate' as const };
+  const turretSmallContacts = run.balls.filter(ball => ball.r < run.mechanics.ballRadius && Math.hypot(ball.x - turretGeometry.x, ball.y - turretGeometry.y) <= turretGeometry.range).length;
+  const turretShotInFlight = (run.turretShotEvents ?? []).some(event => event.untilMs > run.elapsedMs);
+  const starterShotInFlight = (run.turretShotEvents ?? []).find(event => event.untilMs > run.elapsedMs && Math.hypot(event.fromX - turretGeometry.x, event.fromY - turretGeometry.y) < 1);
+  const turretTargets: { kind: TurretTargetKind; id: number; x: number; y: number }[] = [
+    ...run.powerups.filter(power => power.kind === 'bubble' && Math.hypot(power.x - turretGeometry.x, power.y - turretGeometry.y) <= turretGeometry.range).map(power => ({ kind: 'bubble' as const, id: power.id, x: power.x, y: power.y })),
+    ...run.balls.filter(ball => (ballHasModifier(ball, 'splitter') || ball.r < run.mechanics.ballRadius) && Math.hypot(ball.x - turretGeometry.x, ball.y - turretGeometry.y) <= turretGeometry.range).map(ball => ({ kind: 'splitter' as const, id: ball.id, x: ball.x, y: ball.y })),
+    ...(turretState.firePowerLevel >= 3 ? run.balls.filter(ball => ballHasModifier(ball, 'anchor') && Math.hypot(ball.x - turretGeometry.x, ball.y - turretGeometry.y) <= turretGeometry.range).map(ball => ({ kind: 'anchor' as const, id: ball.id, x: ball.x, y: ball.y })) : []),
+  ];
+  const targetKinds = (['bubble', 'splitter', 'anchor'] as TurretTargetKind[]).filter(kind => turretTargets.some(target => target.kind === kind));
+  const forcedTargetKind = turretState.fireControlLevel >= 2 && turretState.targetPriority !== 'alternate' && targetKinds.includes(turretState.targetPriority) ? turretState.targetPriority : null;
+  const targetOrder = ['bubble', 'splitter', 'anchor'] as TurretTargetKind[];
+  const lastTargetIndex = targetOrder.indexOf(turretState.lastTargetKind ?? 'anchor');
+  const autoTargetKind = turretState.lastTargetKind && targetKinds.length > 1
+    ? [...Array(3)].map((_, offset) => targetOrder[(lastTargetIndex + offset + 1) % 3]).find(kind => targetKinds.includes(kind)) ?? targetKinds[0]
+    : targetKinds[0];
+  const trackingKind = forcedTargetKind ?? autoTargetKind;
+  const trackedTarget = turretTargets.filter(target => target.kind === trackingKind).reduce((best, target) => !best || Math.hypot(target.x - turretGeometry.x, target.y - turretGeometry.y) < Math.hypot(best.x - turretGeometry.x, best.y - turretGeometry.y) ? target : best, undefined as (typeof turretTargets)[number] | undefined);
+  const turretAimOriginX = turretState.mount === 'lower' && turretRailRect.width > 0 ? turretRailRect.x + turretRailRect.width * turretState.railPosition : boardScreenBounds.x + turretGeometry.x / Math.max(1, run.boardWidth) * boardScreenBounds.width;
+  const turretAimOriginY = turretState.mount === 'lower' && turretRailRect.height > 0 ? turretRailRect.y + turretRailRect.height / 2 - 24 : boardScreenBounds.y + turretGeometry.y / Math.max(1, run.boardHeight) * boardScreenBounds.height;
+  const aimedWorldX = trackedTarget?.x ?? turretGeometry.x;
+  const aimedWorldY = trackedTarget?.y ?? turretGeometry.y - 1;
+  const turretAimTargetX = starterShotInFlight ? boardScreenBounds.x + starterShotInFlight.toX / Math.max(1, run.boardWidth) * boardScreenBounds.width : boardScreenBounds.x + aimedWorldX / Math.max(1, run.boardWidth) * boardScreenBounds.width;
+  const turretAimTargetY = starterShotInFlight ? boardScreenBounds.y + starterShotInFlight.toY / Math.max(1, run.boardHeight) * boardScreenBounds.height : boardScreenBounds.y + aimedWorldY / Math.max(1, run.boardHeight) * boardScreenBounds.height;
+  const turretAimOrientation = trackedTarget || starterShotInFlight ? Math.atan2(turretAimTargetY - turretAimOriginY, turretAimTargetX - turretAimOriginX) * 180 / Math.PI + 90 : turretState.mount === 'left' ? 90 : turretState.mount === 'right' ? -90 : turretState.mount === 'ceiling' ? 180 : 0;
+  const turretCooldownDuration = Math.max(650, STARTER_TURRET_BASE_COOLDOWN_MS - turretState.fireControlLevel * 140) + (turretState.lastShotOutcome === 'miss' ? STARTER_TURRET_MISS_COOLDOWN_MS : 0);
+  const turretCooldownProgress = Math.max(0, Math.min(1, 1 - turretState.cooldownMs / turretCooldownDuration));
+  const turretPanelWidth = Math.max(280, Math.min(354, board.width * 0.38));
+  const turretPanelHeight = Math.min(360, Math.max(250, board.height - 16));
+  const turretPanelLeft = Math.max(8, Math.min(board.width - turretPanelWidth - 8, turretGeometry.x * sx + 28));
+  const turretPanelTop = Math.max(8, Math.min(board.height - turretPanelHeight - 8, turretGeometry.y * sy - turretPanelHeight - 8));
+  const turretMaxRange = starterTurretGeometry(run.boardWidth, run.boardHeight, 3).range;
+  const turretCurrentAccuracy = Math.min(0.96, STARTER_TURRET_BASE_ACCURACY + turretState.fireControlLevel * 0.06);
+  const turretMaxAccuracy = Math.min(0.96, STARTER_TURRET_BASE_ACCURACY + 3 * 0.06);
+  const turretCooldownForLevel = (level: number) => Math.max(650, STARTER_TURRET_BASE_COOLDOWN_MS - level * 140);
+  const turretCadenceForLevel = (level: number) => 60000 / turretCooldownForLevel(level);
+  const turretTrackModesForLevel = (level: number) => level <= 0 ? 1 : level === 1 ? 3 : 4;
+  const showFireControlGain = turretUpgradeFlash === 'fireControl' && turretState.fireControlLevel > 0;
+  const showFirePowerGain = turretUpgradeFlash === 'firePower' && turretState.firePowerLevel > 0;
+  const showMobilityGain = turretUpgradeFlash === 'mobility' && turretState.mobilityLevel > 0;
+  const previousFireControlLevel = Math.max(0, turretState.fireControlLevel - (showFireControlGain ? 1 : 0));
+  const previousMobilityLevel = Math.max(0, turretState.mobilityLevel - (showMobilityGain ? 1 : 0));
+  const previousRange = starterTurretGeometry(run.boardWidth, run.boardHeight, previousFireControlLevel).range;
+  const previousAccuracy = Math.min(0.96, STARTER_TURRET_BASE_ACCURACY + previousFireControlLevel * 0.06);
+  const previousCadence = turretCadenceForLevel(previousFireControlLevel);
+  const previousTrackModes = turretTrackModesForLevel(previousMobilityLevel);
+  const turretPowerHits = Math.max(1, 2 - turretState.firePowerLevel);
+  const previousPowerLevel = Math.max(0, turretState.firePowerLevel - (showFirePowerGain ? 1 : 0));
+  const previousPowerHits = Math.max(1, 2 - previousPowerLevel);
+  const turretIsHorizontal = turretState.mount === 'lower' || turretState.mount === 'ceiling';
+  const turretAxisStart = turretIsHorizontal ? turretRailRect.x : turretRailRect.y;
+  const turretAxisSize = turretIsHorizontal ? turretRailRect.width : turretRailRect.height;
+  const moveTurretFromPagePosition = (pageX: number, pageY: number) => {
+    if (!turretDragging.current || turretAxisSize <= 0) return;
+    const axis = turretIsHorizontal ? pageX : pageY;
+    const startAxis = turretIsHorizontal ? turretDragStart.current.x : turretDragStart.current.y;
+    if (Math.abs(axis - startAxis) < 4) return;
+    turretDidMove.current = true;
+    const railPosition = Math.max(0, Math.min(1, Math.round(((axis - turretDragGrabOffset.current - turretAxisStart) / turretAxisSize) * 100) / 100));
+    const current = runRef.current;
+    if (Math.abs((current.turret?.railPosition ?? 0.5) - railPosition) < 0.01) return;
+    commit({ ...current, turret: { ...(current.turret ?? turretState), railPosition } });
+  };
+  const startTurretDrag = (pageX: number, pageY: number) => {
+    const axis = turretIsHorizontal ? pageX : pageY;
+    turretDidMove.current = false;
+    turretDragStart.current = { x: pageX, y: pageY };
+    turretDragGrabOffset.current = axis - (turretAxisStart + turretAxisSize * turretState.railPosition);
+    turretDragging.current = true;
+  };
+  const unlockedTurretMounts: TurretState['mount'][] = ['lower'];
+  if (turretState.mobilityLevel >= 1) unlockedTurretMounts.push('left', 'right');
+  if (turretState.mobilityLevel >= 2) unlockedTurretMounts.push('ceiling');
+  const measureTurretRail = () => requestAnimationFrame(() => turretRailRef.current?.measureInWindow((x, y, width, height) => setTurretRailRect(current => Math.abs(current.x - x) < 1 && Math.abs(current.y - y) < 1 && Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { x, y, width, height })));
+  const upgradeTurret = (branch: 'mobility' | 'fireControl' | 'firePower') => {
+    const current = runRef.current;
+    const turret = current.turret ?? turretState;
+    const level = branch === 'mobility' ? turret.mobilityLevel : branch === 'fireControl' ? turret.fireControlLevel : turret.firePowerLevel;
+    const maxLevel = branch === 'mobility' ? 2 : 3;
+    const cost = turretUpgradeCost(branch, level);
+    if (level >= maxLevel) return;
+    if (current.credits < cost) { setNotice(`TURRET UPGRADE NEEDS ${cost} CREDITS`); return; }
+    const levelField = branch === 'mobility' ? 'mobilityLevel' : branch === 'fireControl' ? 'fireControlLevel' : 'firePowerLevel';
+    commit({ ...current, credits: current.credits - cost, turret: { ...turret, [levelField]: level + 1 } });
+    setTurretUpgradeFlash(branch);
+    setNotice(`${branch === 'mobility' ? (level === 0 ? 'SIDE RAILS' : 'CEILING RAIL') : branch === 'fireControl' ? 'FIRE CONTROL' : 'FIRE POWER'} UNLOCKED · TIER ${level + 1}`);
+  };
   // Desktop classification follows the live browser viewport; board geometry
   // itself is allocated by the flex layout from the remaining content height.
   const webViewportHeight = viewport.height;
@@ -1232,6 +1484,7 @@ export default function App() {
   const portraitBridge = uiHeight > uiWidth;
   const bridgeArtWidth = bridgeCanvasSize.width > 0 && bridgeCanvasSize.height > 0 ? Math.min(bridgeCanvasSize.width, bridgeCanvasSize.height * BRIDGE_ART_ASPECT) : 0;
   const bridgeArtHeight = bridgeArtWidth / BRIDGE_ART_ASPECT;
+  const bridgeLivePanel = BRIDGE_CONSOLE_PANELS[bridgeInteriorVariant].live;
   const bridgeWindowBounds = bridgeArtWidth > 0 ? {
     left: (bridgeCanvasSize.width - bridgeArtWidth) / 2 + bridgeArtWidth * BRIDGE_BOARD_VIEW.left,
     top: (bridgeCanvasSize.height - bridgeArtHeight) / 2 + bridgeArtHeight * BRIDGE_BOARD_VIEW.top,
@@ -1331,17 +1584,17 @@ export default function App() {
   const abilityRail = <View style={[styles.abilityRail, isPhoneLandscape && styles.phoneAbilityRail, Platform.OS === 'web' && !phoneViewport && desktopHudStyles.abilityRail]}>
     <View style={[styles.railAbility, isPhoneLandscape && styles.phoneRailAbility]}>
       <Text style={styles.abilityLabel}>SPEED</Text><Pressable accessibilityRole="button" accessibilityLabel="Queue one no-capture wall, W on keyboard" onTouchStart={(e: any) => e.stopPropagation()} onPointerDown={(e: any) => e.stopPropagation()} disabled={!running || run.speedCharges < 1 || run.speedReadyUntil !== null} onPress={() => commit(activateSpeed(runRef.current))} style={[styles.abilityButton, isPhoneLandscape && styles.phoneAbilityButton, run.speedReadyUntil !== null && (run.speedReadyUntil - run.elapsedMs < 2000 ? styles.speedExpiring : styles.speedReady), run.speedCharges < 1 && styles.abilityDisabled]}><Text pointerEvents="none" style={styles.abilityKeyHint}>W</Text><HudPickupIcon kind="speed" skinId={visualSkins.pickups.speed} size={17} /><HudChargeIcons kind="speed" skinId={visualSkins.pickups.speed} count={run.speedCharges} /></Pressable>
-      <Text style={styles.storageReadout}>{run.speedCharges} / {chargeCapacity(run, 'speed')} STORED</Text><Pressable accessibilityRole="button" accessibilityLabel={`Expand Speed storage for ${chargeStorageUpgradeCost(run, 'speed')} Credits`} disabled={run.credits < chargeStorageUpgradeCost(run, 'speed')} onPress={() => expandChargeCapacity('speed')} style={[styles.storageUpgrade, run.credits < chargeStorageUpgradeCost(run, 'speed') && styles.storageUpgradeDisabled]}><Text style={styles.storageUpgradeText}>+ SLOT · {chargeStorageUpgradeCost(run, 'speed')} C</Text></Pressable>
+      <Text style={styles.storageReadout}>{run.speedCharges} STORED</Text>
       {run.speedReadyUntil !== null && <Text style={styles.readyTimer}>NO CLAIM · {Math.max(0, (run.speedReadyUntil - run.elapsedMs) / 1000).toFixed(1)}s</Text>}
     </View>
     <View style={[styles.railAbility, isPhoneLandscape && styles.phoneRailAbility]}>
       <Text style={styles.abilityLabel}>RAM</Text><Pressable accessibilityRole="button" accessibilityLabel="Activate RAM, Shift on keyboard" onTouchStart={(e: any) => e.stopPropagation()} onPointerDown={(e: any) => e.stopPropagation()} disabled={!running || run.ramCharges < 1} onPress={() => setRamArmed(value => !value)} style={[styles.abilityButton, isPhoneLandscape && styles.phoneAbilityButton, styles.ramButton, ramArmed && styles.ramArmed, run.ramCharges < 1 && styles.abilityDisabled]}><Text pointerEvents="none" style={styles.abilityKeyHint}>SHIFT</Text><HudPickupIcon kind="ram" skinId={visualSkins.pickups.ram} size={17} /><HudChargeIcons kind="ram" skinId={visualSkins.pickups.ram} count={run.ramCharges} /></Pressable>
-      <Text style={styles.storageReadout}>{run.ramCharges} / {chargeCapacity(run, 'ram')} STORED</Text><Pressable accessibilityRole="button" accessibilityLabel={`Expand RAM storage for ${chargeStorageUpgradeCost(run, 'ram')} Credits`} disabled={run.credits < chargeStorageUpgradeCost(run, 'ram')} onPress={() => expandChargeCapacity('ram')} style={[styles.storageUpgrade, run.credits < chargeStorageUpgradeCost(run, 'ram') && styles.storageUpgradeDisabled]}><Text style={styles.storageUpgradeText}>+ SLOT · {chargeStorageUpgradeCost(run, 'ram')} C</Text></Pressable>
+      <Text style={styles.storageReadout}>{run.ramCharges} STORED</Text>
       {ramArmed && <Text style={styles.readyTimer}>{run.pictureEvent?.isWaldo && !run.pictureEvent.waldoFound ? 'TAP WALDO IN THE CROWD' : run.treasureHunt?.revealed && run.ramCharges < 3 ? '3 RAM TO OPEN · MISS COSTS 1' : 'TAP A BALL OR JACKPOT'}</Text>}
     </View>
     <View style={[styles.railAbility, isPhoneLandscape && styles.phoneRailAbility]}>
       <Text style={styles.abilityLabel}>CHARGE</Text><Pressable accessibilityRole="button" accessibilityLabel="Arm a charge wall or cancel the active wall" onTouchStart={(e: any) => e.stopPropagation()} onPointerDown={(e: any) => e.stopPropagation()} disabled={!running || run.chargeCharges < 1 || (run.chargeReadyUntil !== null && run.chargeReadyUntil > run.elapsedMs)} onPress={() => commit(activateCharge(runRef.current, visualSkinSelectionsRef.current.pickups.charge), true)} style={[styles.abilityButton, isPhoneLandscape && styles.phoneAbilityButton, styles.chargeButton, run.chargeCharges < 1 && styles.abilityDisabled]}><HudPickupIcon kind="charge" skinId={visualSkins.pickups.charge} size={17} /><HudChargeIcons kind="charge" skinId={visualSkins.pickups.charge} count={run.chargeCharges} /></Pressable>
-      <Text style={styles.storageReadout}>{run.chargeCharges} / {chargeCapacity(run, 'charge')} STORED</Text><Pressable accessibilityRole="button" accessibilityLabel={`Expand Charge storage for ${chargeStorageUpgradeCost(run, 'charge')} Credits`} disabled={run.credits < chargeStorageUpgradeCost(run, 'charge')} onPress={() => expandChargeCapacity('charge')} style={[styles.storageUpgrade, run.credits < chargeStorageUpgradeCost(run, 'charge') && styles.storageUpgradeDisabled]}><Text style={styles.storageUpgradeText}>+ SLOT · {chargeStorageUpgradeCost(run, 'charge')} C</Text></Pressable>
+      <Text style={styles.storageReadout}>{run.chargeCharges} STORED</Text>
       {run.chargeReadyUntil !== null && <Text style={styles.readyTimer}>CHARGED · {Math.max(0, (run.chargeReadyUntil - run.elapsedMs) / 1000).toFixed(1)}s</Text>}
     </View>
   </View>;
@@ -1357,7 +1610,7 @@ export default function App() {
   };
 
   return (
-    <View style={[styles.screen, Platform.OS === 'web' && styles.screenWeb, Platform.OS === 'web' && { cursor: 'none' as any }]}>
+    <View ref={screenRef} onLayout={() => requestAnimationFrame(() => screenRef.current?.measureInWindow((x, y, width, height) => setScreenRect(current => Math.abs(current.x - x) < 1 && Math.abs(current.y - y) < 1 && Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { x, y, width, height })))} style={[styles.screen, Platform.OS === 'web' && styles.screenWeb, Platform.OS === 'web' && { cursor: 'none' as any, position: 'relative' as const }]}>
       <StatusBar style="light" />
       {Platform.OS === 'web' && <MouseCursorOverlay cursor={mouseCursor} skin={cursorSkin} />}
       <View style={[styles.header, Platform.OS === 'web' && styles.headerWeb, isPhoneLandscape && styles.phoneHeader]}>
@@ -1408,7 +1661,7 @@ export default function App() {
       } : undefined} style={[styles.stageRow, Platform.OS === 'web' && styles.stageRowWeb, isPhoneLandscape && styles.phoneStageRow, Platform.OS === 'web' && !phoneViewport && desktopHudStyles.stageRow]}>
         {isPhoneLandscape && <ScrollView style={styles.phoneResourceRail} contentContainerStyle={styles.phoneResourceRailContent} showsVerticalScrollIndicator><LifeVaultDisplay lives={run.lives} capacity={lifeCapacity} skinId={visualSkins.pickups.life} pickupSkins={visualSkins.pickups} creditSkin={visualSkins.credit} overflowJobs={run.overflowJobs} overflowResult={run.overflowResult} elapsedMs={run.elapsedMs} processingMs={run.mechanics.overflowProcessingMs} overflowChance={run.overflowSuccessChance} overflowIncrease={run.mechanics.overflowUpgradeChanceIncrease} overflowUpgradeCost={overflowRefineryUpgradeCost(run)} credits={run.credits} onUpgrade={upgradeOverflowRefinery} compact phoneLayout />{smelterSpeedUpgrade}{abilityRail}</ScrollView>}
         <View style={[styles.boardWrap, isPhoneLandscape ? styles.phoneBoardWrap : Platform.OS === 'web' ? [desktopHudStyles.board, { height: desktopBoardHeight }] : { width: arenaWidth, height: arenaHeight, flexGrow: 1, flexShrink: 1, minHeight: 0 }]} onLayout={e => handleStageLayout(e.nativeEvent.layout.width, e.nativeEvent.layout.height)}>
-          <View ref={boardRef} style={[styles.board, { backgroundColor: tint }, { touchAction: 'none', ...(Platform.OS === 'web' && !phoneViewport ? { cursor: 'none' } : {}) } as any]} onLayout={e => { setBoard({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height }); requestAnimationFrame(() => boardRef.current?.measureInWindow((x, y, width, height) => { boardScreenRect.current = { x, y, width, height }; })); }}
+          <View ref={boardRef} style={[styles.board, { backgroundColor: tint }, { touchAction: 'none', ...(Platform.OS === 'web' && !phoneViewport ? { cursor: 'none' } : {}) } as any]} onLayout={e => { setBoard({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height }); requestAnimationFrame(() => boardRef.current?.measureInWindow((x, y, width, height) => { const rect = { x, y, width, height }; boardScreenRect.current = rect; setBoardScreenBounds(rect); })); }}
           onTouchStart={e => collectTouches(e, 'start')} onTouchEnd={e => collectTouches(e, 'end')} onTouchCancel={e => collectTouches(e, 'cancel')}
           {...(Platform.OS === 'web' ? { onPointerDown: (e: any) => pointerGesture(e, 'start'), onPointerUp: (e: any) => pointerGesture(e, 'end'), onPointerCancel: (e: any) => pointerGesture(e, 'cancel') } : {}) as any}>
           {run.pictureEvent?.isWaldo ? <WaldoArtwork seed={run.pictureEvent.seed} width={board.width} height={board.height} waldoX={run.pictureEvent.waldoX ?? 0.5} waldoY={run.pictureEvent.waldoY ?? 0.5} found={!!run.pictureEvent.waldoFound} /> : run.pictureEvent && (pictureEntry?.uri ? <View pointerEvents="none" style={[FULL_BOARD_ART_STYLE, { backgroundColor: tint }]}><Image source={{ uri: pictureEntry.uri }} resizeMode="stretch" style={FULL_STAGE_IMAGE_STYLE} /></View> : pictureVistaScene && !(typeof pictureVistaScene.source === 'object' && 'type' in pictureVistaScene.source) ? <View pointerEvents="none" style={[FULL_BOARD_ART_STYLE, { backgroundColor: tint }]}><Image source={pictureVistaScene.source as ImageSourcePropType} resizeMode="stretch" style={FULL_STAGE_IMAGE_STYLE} /></View> : (pictureEntry?.generatedBackdropId ?? run.pictureEvent.generatedBackdropId) !== undefined ? <View pointerEvents="none" style={[FULL_BOARD_ART_STYLE, { backgroundColor: tint }]}><Image source={GENERATED_PICTURE_BACKDROPS[(pictureEntry?.generatedBackdropId ?? run.pictureEvent.generatedBackdropId ?? 0) % GENERATED_PICTURE_BACKDROPS.length]} resizeMode="stretch" style={[FULL_STAGE_IMAGE_STYLE, { opacity: 0.92 }]} /></View> : <PictureArtwork seed={run.pictureEvent.seed} width={board.width} height={board.height} />)}
@@ -1441,21 +1694,77 @@ export default function App() {
           }))}
           {run.pets.map(pet => <View key={`pet-${pet.id}`} {...petDragHandlers(pet)} style={[styles.deployedEngi, !pet.deployed && styles.roamingPet, { left: pet.x * sx - 20, top: pet.y * sy - 22 }]}>{pet.species === 'waldo' ? <WaldoPetArtwork pet={pet} size={40} /> : <EngiPetArtwork skinId={visualSkins.engiPet} task={pet.task as any} size={40} moving={Math.hypot(pet.vx, pet.vy) > 12} direction={pet.vx < 0 ? -1 : 1} />}</View>)}
           {run.powerups.map((p: PowerUp) => <PowerOrb key={p.id} power={p} sx={sx} sy={sy} skinId={run.skinDiscovery?.category === `pickup:${p.kind}` ? visualSkins.pickups[p.kind] : p.skinId ?? visualSkins.pickups[p.kind]} creditBaseAmount={run.mechanics.creditPickupBaseAmount} />)}
+          {(run.pickupTransits ?? []).map(transit => <PickupTransitFlight key={`pickup-transit-${transit.id}`} transit={transit} sx={sx} sy={sy} stageWidth={board.width} stageHeight={board.height} renderPickup={(kind, size) => <HudPickupIcon kind={kind} skinId={transit.skinId ?? visualSkins.pickups[kind]} size={size} />} renderCredit={size => <CreditSymbol skinId={visualSkins.credit} size={size} />} />)}
+          {turretRangeVisible && <View pointerEvents="none" style={{ position: 'absolute', zIndex: 18, left: turretGeometry.x * sx - turretGeometry.range * sx, top: turretGeometry.y * sy - turretGeometry.range * sy, width: turretGeometry.range * sx * 2, height: turretGeometry.range * sy * 2, borderRadius: 999, borderWidth: 1, borderStyle: 'dashed', borderColor: 'rgba(112,236,219,0.72)', backgroundColor: 'rgba(49,190,165,0.055)' }} />}
+          {Platform.OS !== 'web' && (run.turretShotEvents ?? []).map(event => <TurretShotBeam key={`turret-shot-${event.id}`} event={event} sx={sx} sy={sy} />)}
+          {turretPanelOpen && Platform.OS === 'web' && !phoneViewport && board.width > 0 && board.height > 0 && <View pointerEvents="auto" onTouchStart={event => event.stopPropagation()} onTouchEnd={event => event.stopPropagation()} onPointerDown={(event: any) => event.stopPropagation()} onPointerUp={(event: any) => event.stopPropagation()} style={{ position: 'absolute', zIndex: 40, left: turretPanelLeft, top: turretPanelTop, width: turretPanelWidth, maxHeight: turretPanelHeight, borderWidth: 1, borderColor: '#72d7dc', borderRadius: 10, backgroundColor: 'rgba(5,14,24,0.97)', shadowColor: '#36d8cf', shadowOpacity: 0.28, shadowRadius: 12, elevation: 12, overflow: 'hidden' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 10, paddingVertical: 8, backgroundColor: '#101e2a', borderBottomWidth: 1, borderColor: '#315468' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}><View style={{ width: 25, height: 25, borderRadius: 13, borderWidth: 1, borderColor: '#83e3dd', alignItems: 'center', justifyContent: 'center', backgroundColor: '#122b37' }}><TurretGlyph orientation={0} active /></View><View><Text style={{ color: '#a8fff0', fontSize: 10, fontWeight: '900', letterSpacing: 1 }}>SENTRY LINK</Text><Text style={{ color: '#aabcca', fontSize: 7, fontWeight: '800', marginTop: 2 }}>{turretState.mount.toUpperCase()} RAIL · TIER {Math.max(turretState.mobilityLevel, turretState.fireControlLevel, turretState.firePowerLevel)}</Text></View></View>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close sentry panel" onPress={() => { setTurretPanelOpen(false); setTurretRangeVisible(false); setTurretUpgradeFlash(null); }} style={{ paddingHorizontal: 8, paddingVertical: 5, borderWidth: 1, borderColor: '#40586a', borderRadius: 5 }}><Text style={{ color: '#c5d5df', fontSize: 8, fontWeight: '900' }}>CLOSE ×</Text></Pressable>
+            </View>
+            <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ padding: 9, gap: 7 }} showsVerticalScrollIndicator={false}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingVertical: 6, borderWidth: 1, borderColor: turretSmallContacts ? '#3e9f91' : '#334451', borderRadius: 6, backgroundColor: turretSmallContacts ? 'rgba(19,83,73,0.34)' : '#0c1722' }}>
+                <View><Text style={{ color: turretSmallContacts ? '#a7ffea' : '#aabcca', fontSize: 8, fontWeight: '900', letterSpacing: 0.5 }}>{turretSmallContacts ? `${turretSmallContacts} SMALL LOCK${turretSmallContacts === 1 ? '' : 'S'} IN ARC` : 'NO SMALL CONTACT IN ARC'}</Text><Text style={{ color: '#8199a9', fontSize: 7, marginTop: 3 }}>{turretShotInFlight ? 'PROJECTILE IN FLIGHT' : turretState.cooldownMs > 0 ? `RECHARGING · ${(turretState.cooldownMs / 1000).toFixed(1)}s` : 'SCANNING FOR TARGETS'}</Text><Text style={{ color: '#c79e62', fontSize: 6, marginTop: 3 }}>MISS RECOVERY · +{(STARTER_TURRET_MISS_COOLDOWN_MS / 1000).toFixed(2)}s</Text></View>
+                <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: turretSmallContacts ? '#75f0d3' : '#f0b25e', shadowColor: turretSmallContacts ? '#75f0d3' : '#f0b25e', shadowOpacity: 0.9, shadowRadius: 6 }} />
+              </View>
+              <View style={{ gap: 5, padding: 7, borderWidth: 1, borderColor: '#263e50', borderRadius: 6, backgroundColor: '#09131f' }}>
+                <Text style={{ color: '#819caf', fontSize: 7, fontWeight: '900', letterSpacing: 1 }}>COMBAT READOUT · CURRENT / POTENTIAL</Text>
+                <SentryStatBar label="RAIL MOBILITY" value={`${turretTrackModesForLevel(turretState.mobilityLevel)} / 4 TRACKS`} progress={turretTrackModesForLevel(turretState.mobilityLevel) / 4} previousProgress={showMobilityGain ? previousTrackModes / 4 : undefined} gain={showMobilityGain ? `+${turretTrackModesForLevel(turretState.mobilityLevel) - previousTrackModes} TRACKS` : undefined} accent="#65d8ef" />
+                <SentryStatBar label="ENGAGEMENT RANGE" value={`${Math.round(turretGeometry.range)} / ${Math.round(turretMaxRange)}`} progress={turretGeometry.range / Math.max(1, turretMaxRange)} previousProgress={showFireControlGain ? previousRange / Math.max(1, turretMaxRange) : undefined} gain={showFireControlGain ? '+12%' : undefined} accent="#65d8ef" />
+                <SentryStatBar label="HIT PROBABILITY" value={`${Math.round(turretCurrentAccuracy * 100)} / ${Math.round(turretMaxAccuracy * 100)}%`} progress={turretCurrentAccuracy / Math.max(0.01, turretMaxAccuracy)} previousProgress={showFireControlGain ? previousAccuracy / Math.max(0.01, turretMaxAccuracy) : undefined} gain={showFireControlGain ? '+6 pp' : undefined} accent="#8be4be" />
+                <SentryStatBar label="FIRING CADENCE" value={`${turretCadenceForLevel(turretState.fireControlLevel).toFixed(1)} / ${turretCadenceForLevel(3).toFixed(1)} rpm`} progress={turretCadenceForLevel(turretState.fireControlLevel) / turretCadenceForLevel(3)} previousProgress={showFireControlGain ? previousCadence / turretCadenceForLevel(3) : undefined} gain={showFireControlGain ? `+${(turretCadenceForLevel(turretState.fireControlLevel) - previousCadence).toFixed(1)} rpm` : undefined} accent="#f0bd68" />
+                <SentryStatBar label="BREACH TIER" value={`${turretState.firePowerLevel} / 3 · ${turretPowerHits} HIT${turretPowerHits === 1 ? '' : 'S'}`} progress={turretState.firePowerLevel / 3} previousProgress={showFirePowerGain ? previousPowerLevel / 3 : undefined} gain={showFirePowerGain ? previousPowerHits > turretPowerHits ? `−${previousPowerHits - turretPowerHits} HIT` : '+1 TIER' : undefined} accent="#ff917d" />
+              </View>
+              <View style={{ padding: 7, borderWidth: 1, borderColor: '#263e50', borderRadius: 6, backgroundColor: '#0c1722' }}>
+                <Text style={{ color: '#819caf', fontSize: 7, fontWeight: '900', letterSpacing: 1, marginBottom: 5 }}>TARGET PROTOCOL</Text>
+                <View style={{ flexDirection: 'row', gap: 4 }}>{(['alternate', ...(turretState.fireControlLevel >= 2 ? ['bubble', 'splitter', ...(turretState.firePowerLevel >= 3 ? ['anchor'] : [])] : [])] as (TurretTargetKind | 'alternate')[]).map(priority => <Pressable key={priority} accessibilityRole="button" accessibilityState={{ selected: turretState.targetPriority === priority }} onPress={() => commit({ ...runRef.current, turret: { ...(runRef.current.turret ?? turretState), targetPriority: priority } })} style={{ flex: 1, alignItems: 'center', paddingVertical: 5, borderWidth: 1, borderColor: turretState.targetPriority === priority ? '#73e6d3' : '#33495a', borderRadius: 4, backgroundColor: turretState.targetPriority === priority ? '#123c3b' : '#101b26' }}><Text style={{ color: turretState.targetPriority === priority ? '#b5fff0' : '#9db0be', fontSize: 7, fontWeight: '900' }}>{priority === 'alternate' ? 'AUTO' : priority.toUpperCase()}</Text></Pressable>)}</View>
+              </View>
+              <View style={{ gap: 4 }}><Text style={{ color: '#819caf', fontSize: 7, fontWeight: '900', letterSpacing: 1 }}>UPGRADE PATHS</Text>
+                <View style={{ flexDirection: 'row', gap: 5 }}>{(['mobility', 'fireControl', 'firePower'] as const).map(branch => { const level = branch === 'mobility' ? turretState.mobilityLevel : branch === 'fireControl' ? turretState.fireControlLevel : turretState.firePowerLevel; const maxLevel = branch === 'mobility' ? 2 : 3; const cost = turretUpgradeCost(branch, level); const title = branch === 'mobility' ? 'MOBILITY' : branch === 'fireControl' ? 'FIRE CONTROL' : 'FIRE POWER'; const accent = branch === 'mobility' ? '#6dd5ec' : branch === 'fireControl' ? '#8be4be' : '#f0bd68'; return <Pressable key={branch} accessibilityRole="button" disabled={level >= maxLevel} onPress={() => upgradeTurret(branch)} style={{ flex: 1, minHeight: 44, paddingHorizontal: 6, paddingVertical: 5, borderWidth: 1, borderColor: level >= maxLevel ? '#43515b' : accent, borderRadius: 5, backgroundColor: '#14212c', opacity: level >= maxLevel ? 0.55 : 1 }}><Text numberOfLines={1} style={{ color: accent, fontSize: 7, fontWeight: '900' }}>{title} · {level}/{maxLevel}</Text><View style={{ height: 3, marginTop: 5, marginBottom: 4, borderRadius: 3, backgroundColor: '#263744', overflow: 'hidden' }}><View style={{ width: `${Math.min(100, level / maxLevel * 100)}%`, height: '100%', backgroundColor: accent }} /></View><Text style={{ color: '#b4c3cd', fontSize: 7 }}>{level >= maxLevel ? 'MAX TIER' : `NEXT · ${cost} CR`}</Text></Pressable>; })}</View>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 4 }}>{unlockedTurretMounts.map(mount => <Pressable key={mount} accessibilityRole="button" accessibilityState={{ selected: turretState.mount === mount }} onPress={() => { commit({ ...runRef.current, turret: { ...(runRef.current.turret ?? turretState), mount } }); setTurretRangeVisible(true); }} style={{ flex: 1, alignItems: 'center', paddingVertical: 5, borderWidth: 1, borderColor: turretState.mount === mount ? '#8ce9d3' : '#33495a', borderRadius: 4, backgroundColor: turretState.mount === mount ? '#143a36' : '#0c1722' }}><Text style={{ color: turretState.mount === mount ? '#b5fff0' : '#9db0be', fontSize: 7, fontWeight: '900' }}>{mount === 'left' ? 'PORT' : mount === 'right' ? 'STARBOARD' : mount.toUpperCase()}</Text></Pressable>)}</View>
+              <View style={{ paddingTop: 6, borderTopWidth: 1, borderColor: '#263e50' }}>
+                {!persistentProfile.blueprintIds.includes(CLAIMED_MOUNT_BLUEPRINT_ID) ? <Pressable accessibilityRole="button" disabled={persistentProfile.engineeringResearch < CLAIMED_MOUNT_BLUEPRINT_COST} onPress={() => { void unlockClaimedMountBlueprint(); }} style={{ paddingHorizontal: 7, paddingVertical: 6, borderWidth: 1, borderColor: persistentProfile.engineeringResearch >= CLAIMED_MOUNT_BLUEPRINT_COST ? '#e6bd70' : '#53616a', borderRadius: 5, backgroundColor: '#211d17', opacity: persistentProfile.engineeringResearch >= CLAIMED_MOUNT_BLUEPRINT_COST ? 1 : 0.55 }}><Text style={{ color: '#f4d89a', fontSize: 7, fontWeight: '900' }}>UNLOCK CLAIMED MOUNTS · {CLAIMED_MOUNT_BLUEPRINT_COST} RESEARCH ({persistentProfile.engineeringResearch})</Text></Pressable> : <>
+                  <Text style={{ color: '#9fb4c1', fontSize: 7 }}>ASSEMBLIES {run.mountAssemblies ?? 0} · DEPLOYED {(run.deployedTurrets ?? []).length}</Text>
+                  <Pressable accessibilityRole="button" disabled={(run.mountAssemblies ?? 0) < 1} onPress={() => { setClaimedMountPlacementMode(value => !value); setNotice(claimedMountPlacementMode ? 'MOUNT PLACEMENT CANCELLED' : 'SELECT AN EMPTY CELL IN CLAIMED TERRITORY'); }} style={{ marginTop: 4, paddingHorizontal: 7, paddingVertical: 6, borderWidth: 1, borderColor: (run.mountAssemblies ?? 0) ? '#e6bd70' : '#53616a', borderRadius: 5, backgroundColor: claimedMountPlacementMode ? '#49381c' : '#211d17', opacity: (run.mountAssemblies ?? 0) ? 1 : 0.55 }}><Text style={{ color: '#f4d89a', fontSize: 7, fontWeight: '900' }}>{claimedMountPlacementMode ? 'CANCEL PLACEMENT' : 'PLACE MOUNT ASSEMBLY'}</Text></Pressable>
+                  {(run.deployedTurrets ?? []).map(mount => <View key={`mount-status-${mount.id}`} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, opacity: selectedDeployedTurretId === mount.id ? 1 : 0.72 }}><Text style={{ color: mount.health ? '#a7e6d6' : '#ff9a9f', fontSize: 7, fontWeight: '900' }}>{selectedDeployedTurretId === mount.id ? 'SELECTED · ' : ''}SENTRY {mount.health ? 'ACTIVE' : 'DISABLED'}</Text>{!mount.health && <Pressable accessibilityRole="button" onPress={() => { const current = runRef.current; const repaired = repairClaimedTurret(current, mount.id); if (repaired === current) { setNotice(`REPAIR NEEDS ${CLAIMED_MOUNT_REPAIR_COST} RUN CREDITS`); return; } commit(repaired); setNotice('SENTRY REPAIRED · TRACK POWER RESTORED'); }} style={{ paddingHorizontal: 6, paddingVertical: 4, borderWidth: 1, borderColor: '#87d8ca', borderRadius: 4 }}><Text style={{ color: '#baf7e9', fontSize: 6, fontWeight: '900' }}>REPAIR · {CLAIMED_MOUNT_REPAIR_COST} CR</Text></Pressable>}</View>)}
+                </>}
+              </View>
+            </ScrollView>
+          </View>}
+          {(run.deployedTurrets ?? []).map(mount => <Pressable key={`claimed-turret-${mount.id}`} accessibilityRole="button" accessibilityLabel={mount.health ? 'Claimed sentry, active' : 'Claimed sentry, disabled. Open to repair.'} onPress={() => { setSelectedDeployedTurretId(mount.id); setTurretPanelOpen(true); setTurretRangeVisible(true); }} style={{ position: 'absolute', zIndex: 24, left: mount.x * sx - 20, top: mount.y * sy - 20, width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 20, borderWidth: 1, borderColor: mount.health ? '#f2c275' : '#ef7080', backgroundColor: 'rgba(8,17,27,0.82)' }}><TurretGlyph orientation={0} active={!!mount.health} />{!mount.health && <Text style={{ position: 'absolute', color: '#ff8792', fontSize: 14, fontWeight: '900' }}>×</Text>}</Pressable>)}
           {run.treasureHunt?.revealed && <PowerOrb key="revealed-jackpot" power={{ id: -2, kind: 'treasure', x: run.treasureHunt.x, y: run.treasureHunt.y, vx: 0, vy: 0 }} sx={sx} sy={sy} skinId={visualSkins.pickups.treasure} />}
           {captureEffects.map((effect, index) => <CaptureBurst key={`${effect.id}-${index}`} event={effect} sx={sx} sy={sy} creditSkin={skinSelections.credit} stageWidth={board.width} stageHeight={board.height} onDone={() => setCaptureEffects(old => old.filter(e => e !== effect))} />)}
           {wallBreakEffects.map((effect, index) => <WallBreakBurst key={`${effect.id}-${index}`} event={effect} sx={sx} sy={sy} onDone={() => setWallBreakEffects(old => old.filter(e => e !== effect))} />)}
           {territoryEffects.map((effect, index) => <TerritoryGainPopup key={`${effect.id}-${index}`} event={effect} sx={sx} sy={sy} placement={runSettings.territoryPopupPlacement} onDone={() => setTerritoryEffects(old => old.filter(e => e !== effect))} />)}
           {creditGainEffects.map((effect, index) => <CreditGainPopup key={`${effect.id}-${index}`} event={effect} sx={sx} sy={sy} stageWidth={run.boardWidth * sx} stageHeight={run.boardHeight * sy} creditSkin={visualSkins.credit} style={run.mechanics.creditGainStyle} onDone={() => setCreditGainEffects(old => old.filter(item => item !== effect))} />)}
-          {gainToast && <GainCallout key={gainToast.id} entry={gainToast} onDone={() => setGainToast(current => current?.id === gainToast.id ? null : current)} />}
+          {gainToast && gainToastCompletion && <GainCallout key={gainToast.id} entry={gainToast} onDone={gainToastCompletion} />}
           {!running && !paused && !run.levelClearPending && <View pointerEvents="none" style={styles.pauseBadge}><Text style={styles.pauseText}>{run.ended ? 'RUN ENDED' : 'READY'}</Text></View>}
           {run.isotypesContained && run.isotypesNoticeUntilMs > run.elapsedMs && <View pointerEvents="none" style={styles.isotypesBanner}><Text style={styles.isotypesBannerText}>Isotypes Contained</Text></View>}
+          {turretState.mount !== 'lower' && <View pointerEvents="box-none" style={{ position: 'absolute', zIndex: 24, left: 0, top: 0, right: 0, bottom: 0 }}>
+            <View ref={turretRailRef} onLayout={measureTurretRail} onTouchMove={event => moveTurretFromPagePosition(event.nativeEvent.pageX, event.nativeEvent.pageY)} onTouchEnd={() => { turretDragging.current = false; }} onTouchCancel={() => { turretDragging.current = false; }} onPointerMove={(event: any) => moveTurretFromPagePosition(event.clientX, event.clientY)} onPointerUp={() => { turretDragging.current = false; }} onPointerCancel={() => { turretDragging.current = false; }} style={turretIsHorizontal ? { position: 'absolute', top: 0, left: '10%', right: '10%', height: 36 } : { position: 'absolute', top: '10%', bottom: '10%', width: 36, ...(turretState.mount === 'left' ? { left: 0 } : { right: 0 }) }}>
+              <View pointerEvents="none" style={turretIsHorizontal ? { position: 'absolute', top: 0, left: 0, right: 0, height: 1, backgroundColor: '#f5fbff', shadowColor: '#d9f1ff', shadowOpacity: 0.9, shadowRadius: 5 } : { position: 'absolute', ...(turretState.mount === 'left' ? { left: 0 } : { right: 0 }), top: 0, bottom: 0, width: 1, backgroundColor: '#f5fbff', shadowColor: '#d9f1ff', shadowOpacity: 0.9, shadowRadius: 5 }} />
+              <Pressable accessibilityRole="button" accessibilityLabel={`Sentry tracking ${trackedTarget ? `${trackedTarget.kind} target` : 'for targets'}; ${(turretState.cooldownMs / 1000).toFixed(1)} seconds until ready. Drag along the ${turretState.mount} rail or tap for stats and upgrades.`} onTouchStart={event => { event.stopPropagation(); startTurretDrag(event.nativeEvent.pageX, event.nativeEvent.pageY); }} onTouchEnd={event => { event.stopPropagation(); turretDragging.current = false; }} onPointerDown={(event: any) => { event.stopPropagation(); startTurretDrag(event.clientX, event.clientY); event.currentTarget.setPointerCapture?.(event.pointerId); }} onPointerUp={(event: any) => { event.stopPropagation(); turretDragging.current = false; }} onPress={() => { if (turretDidMove.current) { turretDidMove.current = false; return; } setTurretPanelOpen(true); setTurretRangeVisible(true); }} style={{ position: 'absolute', ...(turretIsHorizontal ? { left: `${turretState.railPosition * 100}%`, top: 18, marginLeft: -24, marginTop: -24 } : { top: `${turretState.railPosition * 100}%`, left: 18, marginLeft: -24, marginTop: -24 }), width: 48, height: 48, alignItems: 'center', justifyContent: 'center', cursor: 'grab' as any }}>
+                <TurretGlyph orientation={turretAimOrientation} active={turretRangeVisible} />
+                <TurretCooldownBar progress={turretCooldownProgress} />
+              </Pressable>
+            </View>
+          </View>}
           </View>
         </View>
       </View>
       <View style={[styles.stageInfoRow, Platform.OS === 'web' && styles.stageInfoRowWeb, isPhoneLandscape && styles.phoneStageInfoRow]}>{Platform.OS !== 'web' && abilityRail}<View pointerEvents="none" style={styles.boardFooter}><Text style={styles.footerText}>{run.balls.length} METAL BALLS</Text></View></View>
       {Platform.OS === 'web' && !phoneViewport && <View style={desktopHudStyles.bottomResources}>
         <View style={desktopHudStyles.vaultGroup}><LifeVaultDisplay lives={run.lives} capacity={lifeCapacity} skinId={visualSkins.pickups.life} pickupSkins={visualSkins.pickups} creditSkin={visualSkins.credit} overflowJobs={run.overflowJobs} overflowResult={run.overflowResult} elapsedMs={run.elapsedMs} processingMs={run.mechanics.overflowProcessingMs} overflowChance={run.overflowSuccessChance} overflowIncrease={run.mechanics.overflowUpgradeChanceIncrease} overflowUpgradeCost={overflowRefineryUpgradeCost(run)} credits={run.credits} onUpgrade={upgradeOverflowRefinery} compact />{smelterSpeedUpgrade}</View>
-        {abilityRail}
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: '25%', right: '28%', top: 0, bottom: 0, zIndex: 5 }}>
+          {turretState.mount === 'lower' ? <View ref={turretRailRef} onLayout={measureTurretRail} onTouchMove={event => moveTurretFromPagePosition(event.nativeEvent.pageX, event.nativeEvent.pageY)} onTouchEnd={() => { turretDragging.current = false; }} onTouchCancel={() => { turretDragging.current = false; }} onPointerMove={(event: any) => moveTurretFromPagePosition(event.clientX, event.clientY)} onPointerUp={() => { turretDragging.current = false; }} onPointerCancel={() => { turretDragging.current = false; }} style={{ flex: 1, position: 'relative' }}>
+            <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: '50%', height: 1, borderRadius: 1, backgroundColor: '#f5fbff', shadowColor: '#d9f1ff', shadowOpacity: 0.9, shadowRadius: 5, elevation: 3 }} />
+            <Pressable accessibilityRole="button" accessibilityLabel={`Sentry tracking ${trackedTarget ? `${trackedTarget.kind} target` : 'for targets'}; ${(turretState.cooldownMs / 1000).toFixed(1)} seconds until ready. Drag along rail or tap for stats and upgrades.`} onTouchStart={event => startTurretDrag(event.nativeEvent.pageX, event.nativeEvent.pageY)} onPointerDown={(event: any) => { startTurretDrag(event.clientX, event.clientY); event.currentTarget.setPointerCapture?.(event.pointerId); }} onPress={() => { if (turretDidMove.current) { turretDidMove.current = false; return; } setTurretPanelOpen(true); setTurretRangeVisible(true); }} style={{ position: 'absolute', left: `${turretState.railPosition * 100}%`, top: '50%', width: 48, height: 56, marginLeft: -24, marginTop: -28, alignItems: 'center', justifyContent: 'flex-start', cursor: 'grab' as any }}>
+              <TurretGlyph orientation={turretAimOrientation} active={turretRangeVisible} />
+              <TurretCooldownBar progress={turretCooldownProgress} />
+            </Pressable>
+          </View> : null}
+        </View>{abilityRail}
       </View>}
       <View style={[styles.controls, Platform.OS === 'web' && styles.controlsWeb, isPhoneLandscape && styles.phoneControls]}>
         <Text style={styles.notice}>{notice}</Text>
@@ -1482,7 +1791,7 @@ export default function App() {
         {profileSaveOpen && <View style={styles.profileRow}><TextInput autoFocus value={profileName} maxLength={28} onChangeText={setProfileName} onSubmitEditing={saveCurrentSettingsProfile} placeholder="Name this profile" placeholderTextColor="#708199" style={styles.profileInput} /><Pressable style={styles.smallAction} onPress={saveCurrentSettingsProfile}><Text style={styles.smallActionText}>CREATE</Text></Pressable></View>}
         {profiles.length === 0 ? <Text style={styles.profileManagerHint}>Create a profile to save all current tuning and selected skins.</Text> : <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.profileScroller}>{profiles.map(profile => <View key={profile.name} style={[styles.profileCard, selectedProfileName === profile.name && styles.profileCardSelected]}><Pressable onPress={() => equipSettingsProfile(profile)} style={styles.profileCardApply}><Text numberOfLines={1} style={styles.profileCardName}>{profile.name}</Text><Text style={styles.profileCardApplyText}>{selectedProfileName === profile.name ? 'ACTIVE' : 'APPLY'}</Text></Pressable><View style={styles.profileCardActions}><Pressable onPress={() => { const updated: TuningProfile = { name: profile.name, settings: normalizeMechanicsSettings(tuning), skins: normalizeSkinSelections(skinSelections) }; setProfiles(old => old.map(saved => saved.name === profile.name ? updated : saved)); setSelectedProfileName(profile.name); }}><Text style={styles.profileCardActionText}>SAVE OVER</Text></Pressable><Pressable onPress={() => { setProfiles(old => old.filter(item => item.name !== profile.name)); if (selectedProfileName === profile.name) setSelectedProfileName(null); }}><Text style={styles.deleteText}>DELETE</Text></Pressable></View></View>)}</ScrollView>}
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.devSubtabs} contentContainerStyle={styles.devSubtabScroller}>{(['gameplay', 'events', 'pickups', 'metal-balls', 'economy', 'merchant', 'pets'] as const).map(tab => <Pressable key={tab} onPress={() => setDevTab(tab)} style={[styles.devSubtab, devTab === tab && styles.tabSelected]}><Text style={[styles.tabText, devTab === tab && styles.tabTextSelected]}>{tab === 'metal-balls' ? 'METAL BALLS' : tab.toUpperCase()}</Text></Pressable>)}</ScrollView>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.devSubtabs} contentContainerStyle={styles.devSubtabScroller}>{(['gameplay', 'events', 'pickups', 'metal-balls', 'economy', 'merchant', 'pets', 'cargo-shapes'] as const).map(tab => <Pressable key={tab} onPress={() => setDevTab(tab)} style={[styles.devSubtab, devTab === tab && styles.tabSelected]}><Text style={[styles.tabText, devTab === tab && styles.tabTextSelected]}>{tab === 'metal-balls' ? 'METAL BALLS' : tab === 'cargo-shapes' ? 'CARGO SHAPES' : tab.toUpperCase()}</Text></Pressable>)}</ScrollView>
       <ScrollView style={styles.devPanel} contentContainerStyle={styles.devContent} keyboardShouldPersistTaps="handled">
       {devTab === 'gameplay' && <>
         <Text style={styles.devTitle}>DEVELOPER SETTINGS</Text>
@@ -1554,7 +1863,8 @@ export default function App() {
         <Text style={styles.sectionTitle}>LEVEL ANOMALIES</Text>
         <Text style={styles.devHint}>At default settings, Elimination and Drift Swarm each have a 5% direct chance. Picture and Treasure may run alongside these anomalies.</Text>
         <NumberRow label="Elimination event chance per level (%)" value={tuning.eliminationEventChance * 100} step={1} min={0} max={100} onChange={value => setTuning(old => ({ ...old, eliminationEventChance: value / 100 }))} />
-        <NumberRow label="Elimination Charge share of random pickups (%)" value={tuning.eliminationChargeSpawnChance * 100} step={1} min={0} max={100} onChange={value => setTuning(old => ({ ...old, eliminationChargeSpawnChance: value / 100 }))} />
+        <Text style={styles.devHint}>Elimination spawns only Life and Charge pickups, with at least 75% Charge, at the normal beacon-adjusted pickup rate.</Text>
+        <NumberRow label="Elimination Charge share of random pickups (%)" value={tuning.eliminationChargeSpawnChance * 100} step={1} min={75} max={100} onChange={value => setTuning(old => ({ ...old, eliminationChargeSpawnChance: Math.max(75, value) / 100 }))} />
         <NumberRow label="Drift Swarm event chance per level (%)" value={tuning.driftSwarmEventChance * 100} step={1} min={0} max={100} onChange={value => setTuning(old => ({ ...old, driftSwarmEventChance: value / 100 }))} />
         <NumberRow label="Drift Swarm banner duration (seconds)" value={tuning.driftSwarmBannerDurationMs / 1000} step={0.5} min={0} max={30} onChange={value => setTuning(old => ({ ...old, driftSwarmBannerDurationMs: value * 1000 }))} />
         <NumberRow label="Drift Swarm radius / strength variation minimum (×)" value={tuning.driftSwarmVariationMin} step={0.05} min={0.1} max={5} onChange={value => setTuning(old => ({ ...old, driftSwarmVariationMin: Math.min(value, old.driftSwarmVariationMax) }))} />
@@ -1618,7 +1928,7 @@ export default function App() {
           <SkinSelectRow label="Forming-wall break effect" value={tuning.wallBreakStyle} previewKind="wallBreak" options={WALL_BREAK_SKINS} onChange={id => setTuning(old => ({ ...old, wallBreakStyle: id }))} />
           <Text style={styles.sectionTitle}>GAME MODE & BASE RUN POPULATION</Text>
           <SettingChoiceRow label="Mode for the next run" value={tuning.easyMode ? 'easy' : tuning.hardMode ? 'hard' : 'normal'} options={[{ id: 'easy', label: 'Easy' }, { id: 'normal', label: 'Normal' }, { id: 'hard', label: 'Hard' }]} onChange={value => setTuning(old => ({ ...old, easyMode: value === 'easy', hardMode: value === 'hard' }))} />
-          <Text style={styles.devHint}>{tuning.easyMode ? 'Easy never adds bonus balls after territory captures. The usual per-level ball increase still applies.' : 'The per-level population increase is always applied. Normal and Hard can also roll bonus balls after territory captures.'}</Text>
+          <Text style={styles.devHint}>{tuning.easyMode ? 'Stage 1 includes the first level increment: default 3 base + 1 × stage number. Easy never adds bonus balls after territory captures.' : 'Stage 1 includes the first level increment: default 3 base + 1 × stage number. Normal and Hard can also add bonus balls after territory captures.'}</Text>
           <NumberRow label="Starting balls" value={tuning.startingBalls} step={1} min={1} max={30} onChange={value => setTuning(old => ({ ...old, startingBalls: value }))} />
           <NumberRow label="Balls added each level" value={tuning.ballsAddedPerLevel} step={1} min={0} max={10} onChange={value => setTuning(old => ({ ...old, ballsAddedPerLevel: value }))} />
           <NumberRow label="Ball radius" value={tuning.ballRadius} step={0.5} min={4} max={35} onChange={value => setTuning(old => ({ ...old, ballRadius: value, powerupRadius: value * old.powerupSizeMultipliers.life, lifePowerupRadius: value * old.powerupSizeMultipliers.life }))} />
@@ -1742,22 +2052,23 @@ export default function App() {
         <View style={styles.engiSkinChoices}>{ENGI_PET_SKINS.map(skin => <View key={skin.id} style={styles.engiSkinChoice}><EngiPetArtwork skinId={skin.id} task="inspect" size={48} /><Text style={styles.settingLabel}>{skin.name}</Text><Text style={styles.devHint}>{skin.description}</Text></View>)}</View>
         <Text style={styles.sectionTitle}>PET RULES</Text><Text style={styles.devHint}>Multiple Engi can be active at once. Deploy by dragging from the crew rail onto the arena; drag back outside the arena to recall. Arena pets have gravity, jump/climb walls and lose health to ball contact.</Text>
       </>}
+      {devTab === 'cargo-shapes' && <CargoShapeEditor shapes={cargoShapes} onChange={shapes => { setCargoShapes(shapes); commit({ ...runRef.current, cargoShapes: shapes }); }} />}
       </ScrollView>
       </>}
     {activeTab === 'game' && merchantOpen && <MerchantScreen run={run} baseSettings={tuning} skinSelections={skinSelections} openedAtClear={merchantOpenedAtClear} onBuy={buyPowerBar} onExpandLifeVault={expandLifeVault} onInstall={installPowerBar} onClose={closeMerchant} onIncubate={beginEngiIncubation} onHireEngi={purchaseEngi} onUpgradeEngi={upgradeEngiPet} onRenameEngi={renameEngiPet} />}
     {levelClearAnimation && <LevelClearTransition key={levelClearAnimation.id} event={levelClearAnimation} onDone={() => setLevelClearAnimation(current => current?.id === levelClearAnimation.id ? null : current)} />}
-    {menuPage === 'home' && <View style={styles.commandScrim} onLayout={event => {
+    {(menuPage === 'home' || menuPage === 'cargo' || menuPage === 'foundry' || menuPage === 'crew-systems') && <View style={styles.commandScrim} onLayout={event => {
       const { width, height } = event.nativeEvent.layout;
       setBridgeCanvasSize(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height });
     }}>
       {bridgeExteriorScene && <BridgeVistaRenderer source={bridgeExteriorScene.source} sceneId={bridgeExteriorScene.id} sceneName={bridgeExteriorScene.name} ambience={'ambience' in bridgeExteriorScene ? bridgeExteriorScene.ambience : undefined} left={(bridgeCanvasSize.width - bridgeArtWidth) / 2} top={(bridgeCanvasSize.height - bridgeArtHeight) / 2} width={bridgeArtWidth} height={bridgeArtHeight} />}
       {bridgeSimView === 'window' && bridgeWindowBounds && bridgeStageBounds && <BridgeStagePreview run={run} hasActiveRun={hasSave && !run.ended} simulationRunning={running} defaultBackground={activeBackground.asset ?? undefined} simulationBackground={bridgePictureSource} visualSkins={visualSkins} backgroundTint={tint} backgroundId={activeBackground.id} onPress={fullscreenSimulation} presentation="window" containerStyle={bridgeStageBounds}
-        onSurfaceLayout={(width, height, rect) => { handleStageLayout(width, height); setBoard(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height }); if (rect) boardScreenRect.current = rect; }}
+        onSurfaceLayout={(width, height, rect) => { handleStageLayout(width, height); setBoard(current => Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1 ? current : { width, height }); if (rect) { boardScreenRect.current = rect; setBoardScreenBounds(rect); } }}
         onTouchStart={event => collectTouches(event, 'start')} onTouchEnd={event => collectTouches(event, 'end')} onTouchCancel={event => collectTouches(event, 'cancel')}
         onPointerDown={event => pointerGesture(event, 'start')}
         onPointerUp={event => pointerGesture(event, 'end')}
         onPointerCancel={event => pointerGesture(event, 'cancel')} />}
-      <BridgeInterior variant={bridgeInteriorVariant} />
+      <BridgeInterior variant={bridgeInteriorVariant} cargoBayOpen={bridgeCargoBayOpen} />
       <View pointerEvents="none" style={styles.commandImageShade} />
       {bridgeSimView === 'window' && bridgeWindowBounds && bridgeStageBounds && <View pointerEvents="box-none" style={[styles.bridgeWindowControls, { left: bridgeToolbarOnTop ? bridgeWindowBounds.left : bridgeStageBounds.left + bridgeStageBounds.width, top: bridgeToolbarOnTop ? bridgeWindowBounds.top : bridgeWindowBounds.top, width: bridgeToolbarOnTop ? bridgeWindowBounds.width : bridgeToolbarSize, height: bridgeToolbarOnTop ? bridgeToolbarSize : bridgeWindowBounds.height }]}>
         <View style={[styles.bridgeWindowControlBar, { flexDirection: bridgeToolbarOnTop ? 'row' : 'column', justifyContent: bridgeToolbarOnTop ? 'space-between' : 'center', height: '100%', paddingHorizontal: bridgeToolbarOnTop ? 4 : 2, paddingVertical: bridgeToolbarOnTop ? 1 : 4 }]}>
@@ -1771,7 +2082,7 @@ export default function App() {
         </View>
       </View>}
       <View pointerEvents="box-none" style={[styles.commandLayout, { flexDirection: portraitBridge ? 'column' : 'row' }]}>
-        {bridgeRailVisible && <View style={[styles.commandRail, { width: portraitBridge ? '100%' : uiWidth < 620 ? 166 : uiWidth < 920 ? 205 : 258, maxHeight: portraitBridge ? '48%' : undefined, paddingHorizontal: compactBridge ? 11 : 19, paddingVertical: compactBridge ? 10 : 18 }]}>
+        {bridgeRailVisible && <View style={[styles.commandRail, { width: portraitBridge ? '100%' : uiWidth < 620 ? 166 : uiWidth < 920 ? 205 : 258, maxHeight: portraitBridge ? '48%' : undefined, paddingHorizontal: compactBridge ? 11 : 19, paddingVertical: compactBridge ? 10 : 18 }, { position: 'absolute', left: 10, right: 10, top: '67%', bottom: 0, width: undefined, height: undefined, maxHeight: undefined, zIndex: 130, borderTopWidth: 1, borderRightWidth: 0, borderColor: '#80c4e077', borderRadius: 10, overflow: 'hidden', paddingHorizontal: compactBridge ? 10 : 18, paddingVertical: compactBridge ? 8 : 12, backgroundColor: 'rgba(3,12,20,0.95)' }]}>
           <ScrollView style={styles.commandRailScroll} contentContainerStyle={styles.commandRailContent} showsVerticalScrollIndicator={false}>
             <View style={styles.bridgeBrandBlock}><View style={styles.bridgeBrandGlyph}><Text style={styles.bridgeBrandGlyphText}>✧</Text></View><View><Text style={styles.menuEyebrow}>TRAP / SURVIVAL</Text><Text style={[styles.commandBrand, compactBridge && styles.commandBrandCompact]}>Containment</Text><Text style={styles.commandSubBrand}>STARSHIP COMMAND</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Close Bay Navigation Console" onPress={() => setBridgeRailVisible(false)} style={{ marginLeft: 'auto', width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#456070', borderRadius: 14, backgroundColor: '#0b1b27' }}><Text style={{ color: '#a6c0ce', fontSize: 17, fontWeight: '700', lineHeight: 20 }}>×</Text></Pressable></View>
             <Text style={[styles.commandSectionLabel, styles.bridgeSectionLabel]}>RUN CONTROL</Text>
@@ -1779,6 +2090,7 @@ export default function App() {
             {hasSave && !run.ended && <Pressable disabled={!run.jumpReady} style={[styles.bridgeRailAction, run.jumpReady && styles.bridgeRailResume, !run.jumpReady && styles.bridgeRailDisabled]} onPress={openJumpConsole}><Text style={styles.bridgeRailGlyph}>⇢</Text><View style={styles.bridgeRailCopy}><Text style={styles.bridgeRailTitle}>STARMAP JUMP</Text><Text style={styles.bridgeRailDetail}>{run.jumpReady ? `Exit captured · ${run.scanCharges} scans stored` : `Scan reserve ${run.scanCharges} · capture exit to unlock`}</Text></View>{run.jumpReady && <BridgePulse />}</Pressable>}
             {!!manualSave && <Pressable style={styles.bridgeRailAction} onPress={loadManualRun}><Text style={styles.bridgeRailGlyph}>◫</Text><View style={styles.bridgeRailCopy}><Text style={styles.bridgeRailTitle}>LOAD SAVED RUN</Text><Text style={styles.bridgeRailDetail}>Checkpoint · stage {String(manualSave.level).padStart(2, '0')}</Text></View></Pressable>}
             {!!hasSave && !run.ended && <Pressable style={styles.bridgeRailAction} onPress={() => manualSave ? confirmOverwriteSave ? void saveActiveRunToSlot() : setConfirmOverwriteSave(true) : void saveActiveRunToSlot()}><Text style={styles.bridgeRailGlyph}>▣</Text><View style={styles.bridgeRailCopy}><Text style={styles.bridgeRailTitle}>{confirmOverwriteSave ? 'CONFIRM SAVE OVERWRITE' : manualSave ? 'SAVE ACTIVE RUN OVER SLOT' : 'SAVE ACTIVE RUN'}</Text><Text style={styles.bridgeRailDetail}>{confirmOverwriteSave ? 'Replace the manual checkpoint' : 'Copy the live sector to your save slot'}</Text></View></Pressable>}
+            <Pressable style={styles.bridgeRailAction} onPress={() => setMenuPage('cargo')}><Text style={styles.bridgeRailGlyph}>▤</Text><View style={styles.bridgeRailCopy}><Text style={styles.bridgeRailTitle}>CARGO HOLD</Text><Text style={styles.bridgeRailDetail}>Shared stores · {cargoBalancesFromRun(run).credit.toLocaleString()} credits aboard</Text></View></Pressable>
             {confirmOverwriteSave && <Text style={styles.bridgeRailWarning}>This replaces the saved checkpoint.</Text>}
             <Pressable style={[styles.bridgeRailAction, styles.bridgeRailNew, confirmNewRun && styles.commandActionWarn]} onPress={() => { if (hasSave && !run.ended && !confirmNewRun) setConfirmNewRun(true); else { setConfirmNewRun(false); startFresh(); } }}><Text style={styles.bridgeRailGlyph}>✧</Text><View style={styles.bridgeRailCopy}><Text style={styles.bridgeRailTitle}>{confirmNewRun ? 'CONFIRM NEW RUN' : 'START NEW RUN'}</Text><Text style={styles.bridgeRailDetail}>{confirmNewRun ? 'The active run will be replaced' : 'Deploy into a fresh sector'}</Text></View></Pressable>
             <Pressable disabled={!hasSave || run.ended || (!running && !paused)} style={[styles.bridgePauseLink, (!running && !paused) && styles.bridgeRailDisabled]} onPress={togglePause}><Text style={styles.bridgePauseGlyph}>{running ? 'Ⅱ' : '▶'}</Text><Text style={styles.bridgePauseText}>{running ? 'PAUSE LIVE SIMULATION' : paused ? 'RESUME LIVE SIMULATION' : 'SIMULATION STANDBY'}</Text></Pressable>
@@ -1793,36 +2105,89 @@ export default function App() {
           <View style={styles.commandFooterRow}><BridgePulse delay={450} color="#ffc879" /><Text style={styles.commandFooter}>FLIGHT SYSTEMS ONLINE</Text></View>
         </View>}
         <View pointerEvents="box-none" style={[styles.commandMain, compactBridge && styles.commandMainCompact]}>
-          <View style={styles.bridgeWelcome}><View><Text style={styles.menuEyebrow}>COMMAND BRIDGE · DEEP SPACE</Text><Text style={[styles.bridgeWelcomeTitle, compactBridge && styles.bridgeWelcomeTitleCompact]}>Welcome aboard</Text></View><View style={styles.bridgeWelcomeActions}><Pressable style={styles.bridgeVistaTrigger} onPress={() => setBridgeVistaOpen(true)}><Text style={styles.bridgeVistaTriggerText}>VISTA · {developerVistaId ? 'DEV PINNED' : pinnedBridgeVista ? 'PINNED' : 'AUTO'}</Text></Pressable><View style={styles.bridgeReady}><BridgePulse delay={240} /><Text style={styles.bridgeReadyText}>{running ? 'SECTOR LIVE' : paused ? 'SECTOR PAUSED' : 'SYSTEMS READY'}</Text></View></View></View>
-          {bridgeSimView === 'mini' && <BridgeStagePreview run={run} hasActiveRun={hasSave && !run.ended} simulationRunning={running} defaultBackground={activeBackground.asset ?? undefined} onPress={openSimulationWindow} />}
-          <View style={[styles.bridgeArtifactDock, styles.bridgeArtifactDockConsole, compactBridge && styles.bridgeArtifactDockConsoleCompact]}>
-            <Text style={styles.bridgeDockHeading}>SHIP SYSTEMS · SELECT A CONSOLE</Text>
-            <View style={[styles.bridgeArtifactRow, { justifyContent: 'center' }]}>
-              <View style={{ width: compactBridge ? '44%' : '26%', maxWidth: 170 }}>
-                <BridgeArtifact title="DEVELOPER" detail="SYSTEMS ACCESS" glyph="⌘" color="#c9a5ff" onPress={() => { setMenuPage(null); setActiveTab('developer'); }} />
-              </View>
-            </View>
-          </View>
+          <View style={styles.bridgeWelcome}><View><Text style={styles.menuEyebrow}>COMMAND BRIDGE · DEEP SPACE</Text><Text style={[styles.bridgeWelcomeTitle, compactBridge && styles.bridgeWelcomeTitleCompact]}>Welcome aboard</Text></View><View style={styles.bridgeWelcomeActions}><Pressable style={styles.bridgeVistaTrigger} onPress={() => setBridgeVistaOpen(true)}><Text style={styles.bridgeVistaTriggerText}>VISTA · {developerVistaId ? 'DEV PINNED' : pinnedBridgeVista ? 'PINNED' : 'AUTO'}</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Open Developer Systems Access" onPress={() => { setMenuPage(null); setActiveTab('developer'); }} style={styles.bridgeReady}><BridgePulse delay={240} /><Text style={styles.bridgeReadyText}>{running ? 'SECTOR LIVE' : paused ? 'SECTOR PAUSED' : 'SYSTEMS READY'}</Text></Pressable></View></View>
         </View>
       </View>
       {bridgeArtWidth > 0 && bridgeArtHeight > 0 && <View pointerEvents="box-none" style={{ position: 'absolute', zIndex: 80, left: (bridgeCanvasSize.width - bridgeArtWidth) / 2, top: (bridgeCanvasSize.height - bridgeArtHeight) / 2, width: bridgeArtWidth, height: bridgeArtHeight }}>
         <BridgeInteriorAmbience
           width={bridgeArtWidth}
           height={bridgeArtHeight}
+          bridgeVariant={bridgeInteriorVariant}
+          cargoBalances={cargoBalancesFromRun(run)}
+          sector={run.sector}
+          cargoShapes={run.cargoShapes ?? cargoShapes}
+          foundryJobs={run.overflowJobs}
+          foundryPayouts={run.foundryPayouts ?? []}
+          currentCredits={run.credits}
+          foundryProcessingMs={run.mechanics.overflowProcessingMs}
+          foundrySelectedMaterial={selectedFoundryItemId}
+          foundryCanSmelt={(run.cargoRefiningMode ?? 'overflow') === 'manual' && run.overflowJobs.length < 20 && cargoBalancesFromRun(run)[selectedFoundryItemId] > Math.max(0, Math.floor(run.cargoMinimumKeep?.[selectedFoundryItemId] ?? CARGO_CATALOG[selectedFoundryItemId].minKeep)) + run.overflowJobs.filter(job => job.source === 'manual' && job.holdsCargo && job.kind === selectedFoundryItemId).length && (run.mechanics.overflowCreditValues[selectedFoundryItemId] ?? CARGO_CATALOG[selectedFoundryItemId].refinerCreditsPerItem ?? 0) > 0}
+          renderFoundryPickup={(kind, size) => <HudPickupIcon kind={kind} skinId={visualSkins.pickups[kind]} size={size} />}
+          renderCreditIcon={size => <CreditSymbol skinId={visualSkins.credit} size={size} />}
+          onFoundryCollect={payoutIds => { const next = collectFoundryOutput(runRef.current, payoutIds); if (next !== runRef.current) commit(next); }}
+          stageFeed={bridgeSimView === 'mini' ? <BridgeStagePreview run={run} hasActiveRun={hasSave && !run.ended} simulationRunning={running} defaultBackground={activeBackground.asset ?? undefined} simulationBackground={bridgePictureSource} visualSkins={visualSkins} backgroundTint={tint} backgroundId={activeBackground.id} onPress={showSimulationInWindow} presentation="console" containerStyle={{ left: bridgeArtWidth * bridgeLivePanel.x, right: undefined, top: bridgeArtHeight * bridgeLivePanel.y, bottom: undefined, width: bridgeArtWidth * bridgeLivePanel.w, height: bridgeArtHeight * bridgeLivePanel.h, transform: [{ rotate: bridgeLivePanel.angle }] }} /> : null}
+          onCargo={() => setMenuPage('cargo')}
+          onFoundry={() => setMenuPage('foundry')}
+          onFoundrySmelt={() => { const next = enqueueManualRefining(runRef.current, selectedFoundryItemId, 1); if (next !== runRef.current) commit(next); }}
+          onCargoBayStateChange={setBridgeCargoBayOpen}
+          cargoOpen={menuPage === 'cargo'}
+          cargoDoorHeldOpen={bridgeCargoDoorHeldOpen}
+          onCargoDoorHoldChange={setBridgeCargoDoorHeldOpen}
           onThemes={() => setMenuPage('themes')}
-          onScores={() => setMenuPage('scores')}
+          onScores={() => setMenuPage('crew-systems')}
           onJump={openJumpConsole}
           jumpReady={run.jumpReady === true}
+          canResume={hasSave && !run.ended}
+          canStartRun={!hasSave || run.ended === true}
+          onResume={resume}
+          onStartRun={() => { void startFresh(); }}
           onNavConsole={() => setBridgeRailVisible(visible => !visible)}
+          onDeveloper={() => { setMenuPage(null); setActiveTab('developer'); }}
           themeValue={Object.entries(themeSelectionMap).filter(([category, id]) => id !== SKIN_DEFAULTS[category]).length ? 'CUSTOM LOADOUT' : 'STANDARD'}
           scoreValue={scores[0] ? `STAGE ${String(scores[0].level).padStart(2, '0')}` : 'NO RECORD'}
           navConsoleOpen={bridgeRailVisible}
         />
+        {persistentProfile.crew.map(member => <BridgeCrewMember key={member.id} width={bridgeArtWidth} height={bridgeArtHeight} bridgeVariant={bridgeInteriorVariant} member={member} duty={run.progression?.crewAssignments?.[member.id]} onAssign={roleId => assignCrewDuty(member.id, roleId)} />)}
+        {menuPage === 'crew-systems' && <CrewSystemsTerminal
+          crew={persistentProfile.crew}
+          crewCapacity={crewCapacity(persistentProfile.capacityUpgradeLevels.crew)}
+          crewAssignments={run.progression?.crewAssignments ?? {}}
+          crewInvitePending={persistentProfile.crewInvite !== null}
+          pets={run.pets}
+          permanentPets={persistentProfile.pets}
+          permanentPetCount={persistentProfile.pets.length}
+          petCapacity={petCapacity(persistentProfile.capacityUpgradeLevels.pets)}
+          petAssignments={run.progression?.petAssignments ?? {}}
+          petDutyWork={run.progression?.petDutyWork ?? {}}
+          elapsedMs={run.elapsedMs}
+          crewCompanionRecoveryUsed={run.progression?.crewCompanionRecoveryUsed ?? false}
+          onAssignCrew={assignCrewDuty}
+          onAssignPet={assignPetPlan}
+          onFlightRecords={() => setMenuPage('scores')}
+          onClose={() => setMenuPage('home')}
+        />}
       </View>}
     </View>}
-    {menuPage === 'sector-map' && run.sector && <SectorMapScreen sector={run.sector} routeAtlas={run.routeAtlas ?? []} scanCharges={run.scanCharges} beaconStreak={run.beaconStreak} pictureVistas={BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock && !(typeof scene.source === 'object' && scene.source !== null && 'type' in scene.source)).map(scene => ({ id: scene.id, name: scene.name, source: scene.source as ImageSourcePropType }))} onBack={() => setMenuPage('home')} onJump={jumpToBeacon} onScan={scanMapFrontier} />}
+    {menuPage === 'sector-map' && run.sector && <SectorMapScreen sector={run.sector} routeAtlas={run.routeAtlas ?? []} scanCharges={run.scanCharges} beaconStreak={run.beaconStreak} pictureVistas={BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock && !(typeof scene.source === 'object' && scene.source !== null && 'type' in scene.source)).map(scene => ({ id: scene.id, name: scene.name, source: scene.source as ImageSourcePropType }))} renderPickup={(kind, size) => <HudPickupIcon kind={kind} skinId={visualSkins.pickups[kind]} size={size} />} renderCredit={size => <CreditSymbol skinId={visualSkins.credit} size={size} />} onBack={() => setMenuPage('home')} onJump={jumpToBeacon} onScan={scanMapFrontier} />}
     {menuPage === 'route-atlas' && run.sector && <RouteAtlasScreen routeAtlas={run.routeAtlas ?? []} activeSector={run.sector} onBack={() => setMenuPage('home')} />}
     {menuPage === 'sector-select' && run.sector && <SectorSelectScreen options={sectorChoiceOptions} currentType={run.sector.type} depth={run.sector.depth} onChoose={chooseNextSector} onCancel={() => setMenuPage('home')} />}
+    {menuPage === 'cargo' && <CargoHoldScreen balances={cargoBalancesFromRun(run)} layout={run.cargoLayout} stackBonuses={run.cargoStackBonuses} shapes={run.cargoShapes ?? cargoShapes} minimumKeep={run.cargoMinimumKeep} onMinimumKeepChange={(itemId, quantity) => commit({ ...runRef.current, cargoMinimumKeep: { ...(runRef.current.cargoMinimumKeep ?? {}), [itemId]: quantity } })} onLayoutChange={layout => commit({ ...runRef.current, cargoLayout: layout })} refiningMode={run.cargoRefiningMode ?? 'overflow'} recipeValues={run.mechanics.overflowCreditValues} onRefiningModeChange={(mode: CargoRefiningMode) => commit({ ...runRef.current, cargoRefiningMode: mode })} onManualRefine={(itemId, quantity) => { const refined = enqueueManualRefining(runRef.current, itemId, quantity); if (refined !== runRef.current) commit(refined); }} onCancelJob={jobId => commit(cancelFoundryJob(runRef.current, jobId))} overflowJobs={run.overflowJobs} processingMs={run.mechanics.overflowProcessingMs} overflowChance={run.overflowSuccessChance} onBack={() => setMenuPage('home')} renderIcon={(itemId: CargoItemId, size) => {
+      const item = CARGO_CATALOG[itemId];
+       if (itemId === 'credit') return <CreditSymbol skinId={skinSelections.credit} size={size} />;
+       if (itemId === 'mount-assembly') return <Text style={{ color: item.tint, fontSize: size * 0.76, fontWeight: '900' }}>⚙</Text>;
+      if (itemId === 'power-bar') return <Text style={{ color: '#9feadf', fontSize: size * 0.76, fontWeight: '900' }}>▥</Text>;
+      if (itemId === 'merchant-token') return <HudPickupIcon kind="merchant" skinId={skinSelections.pickups.merchant} size={size} />;
+      if (itemId === 'engi-pod') return <HudPickupIcon kind="engi-egg" skinId={skinSelections.pickups['engi-egg']} size={size} />;
+      return <HudPickupIcon kind={item.powerKind!} skinId={skinSelections.pickups[item.powerKind!]} size={size} />;
+    }} />}
+    {menuPage === 'foundry' && <FoundryScreen balances={cargoBalancesFromRun(run)} jobs={run.overflowJobs} payouts={run.foundryPayouts ?? []} credits={run.credits} minimumKeep={run.cargoMinimumKeep} processingMs={run.mechanics.overflowProcessingMs} successChance={run.overflowSuccessChance} refiningMode={run.cargoRefiningMode ?? 'overflow'} recipes={run.mechanics.overflowCreditValues} selectedItemId={selectedFoundryItemId} onSelectItem={setSelectedFoundryItemId} onQueue={(itemId, count) => { const next = enqueueManualRefining(runRef.current, itemId, count); if (next !== runRef.current) commit(next); }} onCancel={jobId => commit(cancelFoundryJob(runRef.current, jobId))} onModeChange={mode => commit({ ...runRef.current, cargoRefiningMode: mode })} onOpenCargo={() => setMenuPage('cargo')} onCollectOutput={() => { const next = collectFoundryOutput(runRef.current); if (next !== runRef.current) commit(next); }} onClose={() => setMenuPage('home')} renderIcon={(itemId, size) => {
+      const item = CARGO_CATALOG[itemId];
+      if (itemId === 'credit') return <CreditSymbol skinId={skinSelections.credit} size={size} />;
+      if (itemId === 'power-bar') return <Text style={{ color: '#9feadf', fontSize: size * 0.76, fontWeight: '900' }}>▥</Text>;
+      if (itemId === 'merchant-token') return <HudPickupIcon kind="merchant" skinId={skinSelections.pickups.merchant} size={size} />;
+      if (itemId === 'engi-pod') return <HudPickupIcon kind="engi-egg" skinId={skinSelections.pickups['engi-egg']} size={size} />;
+      return <HudPickupIcon kind={item.powerKind!} skinId={skinSelections.pickups[item.powerKind!]} size={size} />;
+    }} />}
     {jumpTransitionActive && <JumpTransitionBoundary destination={jumpDestinationName} sector={run.sector?.type ?? 'Civilian'} />}
     {bridgeVistaOpen && <View style={styles.bridgeVistaScrim}><View style={styles.bridgeVistaPanel}>
       <View style={styles.menuPanelHeader}><View><Text style={styles.menuEyebrow}>COMMAND BRIDGE · EXTERIOR</Text><Text style={styles.bridgeVistaTitle}>Vista archive</Text></View><Pressable style={styles.menuBack} onPress={() => setBridgeVistaOpen(false)}><Text style={styles.menuBackText}>CLOSE</Text></Pressable></View>
@@ -1834,11 +2199,12 @@ export default function App() {
         {!bridgeVistaLibrary.length && <Text style={styles.menuEmpty}>No uploaded photos yet. Import an image to add a personal exterior view.</Text>}
       </ScrollView>
     </View></View>}
-    {menuPage === 'scores' && <View style={styles.mainMenuScrim}><View style={styles.scorePanel}><View style={styles.menuPanelHeader}><View><Text style={styles.menuEyebrow}>RUN ARCHIVE · TOP FIVE</Text><Text style={styles.menuTitle}>Scores</Text></View><Pressable style={styles.menuBack} onPress={() => setMenuPage('home')}><Text style={styles.menuBackText}>HOME</Text></Pressable></View><Text style={styles.menuSubhead}>Ranked by Score (currently the level reached), then by total balls contained.</Text>{scores.length ? scores.map((entry, index) => <View key={`${entry.timestamp}-${index}`} style={styles.menuScoreCard}><View style={styles.menuScoreRank}><Text style={styles.menuScoreRankText}>{String(index + 1).padStart(2, '0')}</Text></View><View style={styles.scoreMain}><Text style={styles.scoreLevel}>SCORE {entry.score} · STAGE {String(entry.level).padStart(2, '0')}</Text><Text style={styles.scoreDetails}>{entry.totalTerritoryClaimed.toFixed(1)}% total claimed · {entry.ballsContained} balls contained · {entry.ballsDestroyed} destroyed · {entry.pickupsCaptured} pickups</Text></View><Text style={styles.scoreClaim}>{entry.claimed.toFixed(1)}%</Text></View>) : <Text style={styles.menuEmpty}>No completed runs yet. Scores are recorded when a run ends.</Text>}</View></View>}
+    {menuPage === 'scores' && <CaptainLogScreen scores={scores} reports={captainLogReports} profile={persistentProfile} saveStatus={closeoutStatus} onRetry={() => setSaveRetry(value => value + 1)} onAcceptCrewInvite={() => { void acceptCrewInvite(); }} onDeclineCrewInvite={() => { void declineCrewInvite(); }} onAdoptPet={offerId => { void adoptPetOffer(offerId); }} onReleasePet={offerId => { void releasePetOffer(offerId); }} onClose={() => setMenuPage('home')} />}
     {menuPage === 'settings' && <View style={styles.mainMenuScrim}><View style={styles.scorePanel}><View style={styles.menuPanelHeader}><View><Text style={styles.menuEyebrow}>PLAYER SETTINGS</Text><Text style={styles.menuTitle}>Play mode</Text></View><Pressable style={styles.menuBack} onPress={() => setMenuPage('home')}><Text style={styles.menuBackText}>HOME</Text></Pressable></View><Text style={styles.menuSubhead}>Choose the baseline rules for your next run. Active runs keep their saved settings.</Text><View style={styles.modeRow}>{(['easy', 'normal', 'hard'] as const).map(mode => { const active = mode === 'easy' ? tuning.easyMode : mode === 'hard' ? tuning.hardMode : !tuning.easyMode && !tuning.hardMode; return <Pressable key={mode} style={[styles.modeCard, active && styles.modeCardActive]} onPress={() => setTuning(old => ({ ...old, easyMode: mode === 'easy', hardMode: mode === 'hard' }))}><Text style={[styles.modeTitle, active && styles.modeTitleActive]}>{mode.toUpperCase()}</Text><Text style={styles.menuButtonCopy}>{mode === 'easy' ? 'Balls added between levels only.' : mode === 'normal' ? 'A chance to add a ball after capture.' : 'Additional ball on every completed wall.'}</Text></Pressable>; })}</View></View></View>}
     {menuPage === 'themes' && <ThemeTreeScreen unlocks={skinProgression} selections={themeSelectionMap} onEquip={equipArchiveSkin} onClose={() => setMenuPage('home')} renderPreview={renderThemePreview} vistaScenes={BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock)} unlockedVistaIds={unlockedVistaIds} equippedVistaId={selectedBridgeVistaId ?? run.currentVistaId ?? null} onSelectVista={scene => { setSelectedBridgeVistaId(scene.id); setMenuPage('home'); }} />}
     {skinAchievement && <Pressable style={styles.skinAchievementScrim} onPress={() => setSkinAchievement(null)}><View style={styles.skinAchievementCard}><Text style={styles.menuEyebrow}>CONSTELLATION DISCOVERED</Text><Text style={styles.achievementGlyph}>✦</Text><Text style={styles.menuTitle}>{skinAchievement.name}</Text><Text style={styles.menuSubhead}>{skinAchievement.categoryName} · TIER {skinAchievement.tier}</Text><Text style={styles.menuButtonCopy}>This skin is permanently available in THEMES.</Text><Text style={styles.menuConfirmText}>TAP TO CONTINUE</Text></View></Pressable>}
     {vistaAchievement && !skinAchievement && <Pressable style={styles.skinAchievementScrim} onPress={() => setVistaAchievement(null)}><View style={styles.skinAchievementCard}><Text style={styles.menuEyebrow}>PICTURE EVENT · LEVEL CLEARED</Text><Text style={styles.achievementGlyph}>✧</Text><Text style={styles.menuTitle}>{BUILT_IN_BRIDGE_VISTAS.find(scene => scene.id === vistaAchievement)?.name ?? 'NEW WINDOW VISTA'}</Text><Text style={styles.menuSubhead}>VISTA UNLOCKED</Text><Text style={styles.menuButtonCopy}>This scene is permanently available in THEMES and your bridge window rotation.</Text><Text style={styles.menuConfirmText}>TAP TO CONTINUE</Text></View></Pressable>}
+    {Platform.OS === 'web' && menuPage === null && activeTab === 'game' && screenRect.width > 0 && <View pointerEvents="none" style={[StyleSheet.absoluteFill, { zIndex: 200, overflow: 'visible' }]}>{(run.turretShotEvents ?? []).map(event => <TurretShotBeamScreen key={`turret-shot-screen-${event.id}`} event={event} screenRect={screenRect} boardRect={boardScreenBounds} railRect={turretRailRect} railPosition={turretState.railPosition} boardWidth={run.boardWidth} boardHeight={run.boardHeight} externalRail={turretState.mount === 'lower'} />)}</View>}
     </View>
   );
 }
@@ -1935,11 +2301,18 @@ function MerchantScreen({ run, baseSettings, skinSelections, onBuy, onExpandLife
       <View style={styles.futureModule}><Text style={styles.futureModuleGlyph}>＋</Text><View style={styles.futureModuleCopy}><Text style={styles.moduleTitle}>OPEN MODULE BAY</Text><Text style={styles.moduleEffect}>Reserved for future pickup types and new upgrade branches.</Text></View><Text style={styles.comingSoon}>STANDBY</Text></View>
       <View style={styles.skinResearchSection}>
         <View style={styles.areaHeading}><View><Text style={styles.areaEyebrow}>CREW BAY · RUN-LOCAL</Text><Text style={styles.areaTitle}>Companions</Text></View><Text style={styles.permanentTag}>{run.pets.length} ACTIVE</Text></View>
-        <Text style={styles.marketHint}>Engi cocoons need {run.mechanics.petEggIncubationVisits} Merchant visits × {run.mechanics.petEggIncubationInstallment} Credits, then {Math.round(run.mechanics.petEggIncubationDurationMs / 1000)} seconds of active play. Each Engi repairs a wall break once per level. Waldo stays in open territory when deployed and earns credits from gallery paintings.</Text>
+        <Text style={styles.marketHint}>Engi cocoons need {run.mechanics.petEggIncubationVisits} Merchant visits × {run.mechanics.petEggIncubationInstallment} Credits, then {Math.round(run.mechanics.petEggIncubationDurationMs / 1000)} seconds of active play. Wall repairs require an assigned Systems Helper and use a proficiency-scaled cooldown. Waldo stays in open territory when deployed and earns credits from gallery paintings.</Text>
         {run.petEggs > 0 && <Pressable disabled={contributedThisVisit || run.credits < run.mechanics.petEggIncubationInstallment} style={[styles.engiAction, (contributedThisVisit || run.credits < run.mechanics.petEggIncubationInstallment) && styles.abilityDisabled]} onPress={() => { onIncubate(); setContributedThisVisit(true); }}><Text style={styles.engiActionText}>{contributedThisVisit ? 'CONTRIBUTION RECORDED · RETURN NEXT VISIT' : `CONTRIBUTE ${run.mechanics.petEggIncubationInstallment} CREDITS · VISIT ${run.petEggVisitProgress + 1}/${run.mechanics.petEggIncubationVisits}`}</Text><Text style={styles.marketHint}>{run.petEggs} cocoon{run.petEggs === 1 ? '' : 's'} in storage</Text></Pressable>}
         {run.petIncubations.map(egg => <View key={egg.id} style={styles.engiRosterCard}><EngiPetArtwork skinId={egg.skinId} task="tinker" size={46} /><View style={styles.moduleHeading}><Text style={styles.moduleTitle}>ENGI COCOON</Text><Text style={styles.moduleEffect}>INCUBATING · {Math.min(100, egg.progressMs / egg.durationMs * 100).toFixed(0)}%</Text><View style={styles.engiProgressTrack}><View style={[styles.engiProgressFill, { width: `${Math.min(100, egg.progressMs / egg.durationMs * 100)}%` }]} /></View></View></View>)}
         {run.pets.filter(pet => pet.species === 'waldo').map(pet => <View key={pet.id} style={styles.engiRosterCard}><WaldoPetArtwork pet={pet} size={46} /><View style={styles.moduleHeading}><Text style={styles.moduleTitle}>WALDO · GALLERY KEEPER</Text><Text style={styles.moduleEffect}>HEALTH {pet.health}/{pet.maxHealth} · {pet.deployed ? 'DEPLOYED IN OPEN SPACE' : 'TENDING THE LIFE HUD'}</Text><Text style={styles.moduleEffect}>{pet.paintings?.length ?? 0} PAINTINGS · {run.mechanics.waldoPetPaintingCredits} CREDITS EACH</Text></View></View>)}
-        {run.pets.filter(pet => pet.species === 'engi').map(pet => { const cost = engiUpgradeCost(pet.level, run.mechanics); return <View key={pet.id} style={styles.engiRosterCard}><EngiPetArtwork skinId={pet.skinId} task={pet.task} size={52} /><View style={styles.moduleHeading}><Text style={styles.moduleTitle}>ENGI · LV {pet.level}</Text><TextInput value={pet.name} onChangeText={name => onRenameEngi(pet.id, name)} placeholder="Name your Engi" placeholderTextColor="#708199" style={styles.engiNameInput} /><Text style={styles.moduleEffect}>HEALTH {pet.health}/{pet.maxHealth} · REPAIR READY {pet.repairedThisLevel ? 'NO' : 'YES'}</Text></View><Pressable disabled={run.credits < cost} style={[styles.engiUpgrade, run.credits < cost && styles.abilityDisabled]} onPress={() => onUpgradeEngi(pet.id)}><Text style={styles.engiActionText}>UPGRADE</Text><Text style={styles.engiCost}>{cost} C</Text></Pressable></View>; })}
+        {run.pets.filter(pet => pet.species === 'engi').map(pet => {
+          const cost = engiUpgradeCost(pet.level, run.mechanics);
+          const plan = run.progression?.petAssignments[String(pet.id)];
+          const helperAssigned = pet.health > 0 && (plan?.primary === 'systems-helper' || plan?.backup === 'systems-helper');
+          const helperWaitMs = Math.max(0, (pet.systemsHelperReadyAtMs ?? 0) - run.elapsedMs);
+          const helperState = !helperAssigned ? 'OFF DUTY' : helperWaitMs ? `COOLDOWN ${Math.ceil(helperWaitMs / 1000)}s` : 'READY';
+          return <View key={pet.id} style={styles.engiRosterCard}><EngiPetArtwork skinId={pet.skinId} task={pet.task} size={52} /><View style={styles.moduleHeading}><Text style={styles.moduleTitle}>ENGI · LV {pet.level}</Text><TextInput value={pet.name} onChangeText={name => onRenameEngi(pet.id, name)} placeholder="Name your Engi" placeholderTextColor="#708199" style={styles.engiNameInput} /><Text style={styles.moduleEffect}>HEALTH {pet.health}/{pet.maxHealth} · SYSTEMS {helperState}</Text></View><Pressable disabled={run.credits < cost} style={[styles.engiUpgrade, run.credits < cost && styles.abilityDisabled]} onPress={() => onUpgradeEngi(pet.id)}><Text style={styles.engiActionText}>UPGRADE</Text><Text style={styles.engiCost}>{cost} C</Text></Pressable></View>;
+        })}
         <Pressable disabled={run.credits < run.mechanics.engiHireCost} style={[styles.engiAction, run.credits < run.mechanics.engiHireCost && styles.abilityDisabled]} onPress={onHireEngi}><Text style={styles.engiActionText}>HIRE AN ENGI · {run.mechanics.engiHireCost} CREDITS</Text></Pressable>
       </View>
     </ScrollView>
@@ -2643,12 +3016,12 @@ function WaldoPaintingView({ left, top, styleId }: { left: number; top: number; 
   return <View pointerEvents="none" style={{ position: 'absolute', left, top, zIndex: 8, width: 22, height: 17, borderWidth: 1.5, borderColor: '#dec995', borderRadius: 2, backgroundColor: '#171a24', alignItems: 'center', justifyContent: 'center', transform: [{ rotate: styleId % 2 ? '90deg' : '0deg' }] }}><View style={{ width: 14, height: 10, backgroundColor: ground, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}><View style={{ position: 'absolute', left: -2, bottom: -5, width: 12, height: 12, borderRadius: 12, backgroundColor: accent }} /><Text style={{ color: light, fontSize: 7, fontWeight: '900' }}>{styleId % 2 ? '✦' : '☼'}</Text></View></View>;
 }
 
-function LifeVaultDisplay({ lives, capacity, skinId, pickupSkins = DEFAULT_SKIN_SELECTIONS.pickups, creditSkin = 'mint-ledger', overflowJobs = [], overflowResult, elapsedMs = 0, processingMs = 6000, overflowChance = 50, overflowIncrease = 5, overflowUpgradeCost = 25, credits = 0, onUpgrade, compact = false, phoneLayout = false }: { lives: number; capacity: number; skinId: string; pickupSkins?: Record<PowerKind, string>; creditSkin?: string; overflowJobs?: OverflowJob[]; overflowResult?: OverflowResult; elapsedMs?: number; processingMs?: number; overflowChance?: number; overflowIncrease?: number; overflowUpgradeCost?: number; credits?: number; onUpgrade?: () => void; compact?: boolean; phoneLayout?: boolean }) {
+function LifeVaultDisplay({ lives, capacity, skinId, pickupSkins = DEFAULT_SKIN_SELECTIONS.pickups, creditSkin = 'mint-ledger', overflowJobs = [], overflowResult, elapsedMs = 0, processingMs = 10_000, overflowChance = 50, overflowIncrease = 5, overflowUpgradeCost = 25, credits = 0, onUpgrade, compact = false, phoneLayout = false }: { lives: number; capacity: number; skinId: string; pickupSkins?: Record<PowerKind, string>; creditSkin?: string; overflowJobs?: OverflowJob[]; overflowResult?: OverflowResult; elapsedMs?: number; processingMs?: number; overflowChance?: number; overflowIncrease?: number; overflowUpgradeCost?: number; credits?: number; onUpgrade?: () => void; compact?: boolean; phoneLayout?: boolean }) {
   const [flameMotion] = useState(() => new Animated.Value(0));
   useEffect(() => { const loop = Animated.loop(Animated.sequence([Animated.timing(flameMotion, { toValue: 1, duration: 520, useNativeDriver: true }), Animated.timing(flameMotion, { toValue: 0, duration: 430, useNativeDriver: true })])); loop.start(); return () => loop.stop(); }, [flameMotion]);
   const activeJob = overflowJobs[0];
   const result = overflowResult && overflowResult.untilMs > elapsedMs ? overflowResult : undefined;
-  const progress = activeJob ? Math.max(0, Math.min(1, 1 - activeJob.remainingMs / Math.max(1, processingMs))) : 0;
+  const progress = activeJob ? Math.max(0, Math.min(1, 1 - activeJob.remainingMs / Math.max(1, activeJob.durationMs ?? processingMs))) : 0;
   const fire = <Animated.Text style={[lifeVaultUiStyles.smelterFire, { opacity: flameMotion.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }), transform: [{ translateY: flameMotion.interpolate({ inputRange: [0, 1], outputRange: [1, -2] }) }, { scale: flameMotion.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.14] }) as any }] }]}>♨</Animated.Text>;
   return <View style={[lifeVaultUiStyles.lifeVaultCase, compact && lifeVaultUiStyles.lifeVaultCompact, phoneLayout && lifeVaultUiStyles.lifeVaultPhone]}>
     {compact ? <View style={lifeVaultUiStyles.compactVaultHeader}><Text style={lifeVaultUiStyles.lifeVaultTitle}>LIFE VAULT</Text><Text style={lifeVaultUiStyles.lifeVaultCount}>{lives}<Text style={lifeVaultUiStyles.lifeVaultCountDim}> / {capacity}</Text></Text></View> : <View style={lifeVaultUiStyles.lifeVaultHeader}><View style={lifeVaultUiStyles.lifeVaultSeal}><Text style={lifeVaultUiStyles.lifeVaultSealText}>✚</Text></View><View style={lifeVaultUiStyles.lifeVaultHeading}><Text style={lifeVaultUiStyles.lifeVaultTitle}>LIFE VAULT</Text><Text style={lifeVaultUiStyles.lifeVaultSubtitle}>VITALITY CONTAINMENT</Text></View><Text style={lifeVaultUiStyles.lifeVaultCount}>{lives}<Text style={lifeVaultUiStyles.lifeVaultCountDim}> / {capacity}</Text></Text></View>}
@@ -2760,17 +3133,15 @@ function LevelClearTransition({ event, onDone }: { event: { id: number; level: n
 }
 
 function GainCallout({ entry, onDone }: { entry: { id: number; text: string; tone: 'credit' | 'pickup' | 'module' }; onDone: () => void }) {
-  const animation = useRef(new Animated.Value(0)).current;
-  const onDoneRef = useRef(onDone);
-  onDoneRef.current = onDone;
+  const [animation] = useState(() => new Animated.Value(0));
   useEffect(() => {
     animation.setValue(0);
     Animated.sequence([
       Animated.timing(animation, { toValue: 1, duration: 180, useNativeDriver: true }),
       Animated.delay(1000),
       Animated.timing(animation, { toValue: 0, duration: 260, useNativeDriver: true }),
-    ]).start(({ finished }) => { if (finished) onDoneRef.current(); });
-  }, [animation, entry.id]);
+    ]).start(({ finished }) => { if (finished) onDone(); });
+  }, [animation, entry.id, onDone]);
   const opacity = animation.interpolate({ inputRange: [0, 0.08, 0.88, 1], outputRange: [0, 1, 1, 0] });
   const translateY = animation.interpolate({ inputRange: [0, 1], outputRange: [-11, 0] });
   const toneStyle = entry.tone === 'credit' ? styles.gainCredit : entry.tone === 'module' ? styles.gainModule : styles.gainPickup;
@@ -2979,12 +3350,137 @@ function SkinSelectRow({ label, value, options, onChange, previewKind }: { label
   </View>;
 }
 
+function TurretShotBeam({ event, sx, sy }: { event: TurretShotEvent; sx: number; sy: number }) {
+  const [progress] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    const animation = Animated.timing(progress, { toValue: 1, duration: event.durationMs, easing: Easing.linear, useNativeDriver: true, isInteraction: false });
+    animation.start();
+    return () => animation.stop();
+  }, [event.durationMs, progress]);
+  const dx = (event.toX - event.fromX) * sx, dy = (event.toY - event.fromY) * sy;
+  const angle = Math.atan2(dy, dx);
+  const color = event.outcome === 'hit' ? '#c8fff3' : '#ffe0a2';
+  return <Animated.View pointerEvents="none" style={{ position: 'absolute', zIndex: 19, left: event.fromX * sx - 3, top: event.fromY * sy - 3, width: 7, height: 7, borderRadius: 7, backgroundColor: color, shadowColor: color, shadowOpacity: 1, shadowRadius: 7, elevation: 5, transform: [{ translateX: Animated.multiply(progress, dx) }, { translateY: Animated.multiply(progress, dy) }] }}>
+    <View style={{ position: 'absolute', width: 14, height: 2, left: -11, top: 2.5, borderRadius: 2, backgroundColor: event.outcome === 'hit' ? '#76efd9' : '#f4b45f', transform: [{ rotate: `${angle}rad` }] }} />
+  </Animated.View>;
+}
+
+function TurretShotBeamScreen({ event, screenRect, boardRect, railRect, railPosition, boardWidth, boardHeight, externalRail }: {
+  event: TurretShotEvent;
+  screenRect: { x: number; y: number; width: number; height: number };
+  boardRect: { x: number; y: number; width: number; height: number };
+  railRect: { x: number; y: number; width: number; height: number };
+  railPosition: number;
+  boardWidth: number;
+  boardHeight: number;
+  externalRail: boolean;
+}) {
+  const [progress] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    const animation = Animated.timing(progress, { toValue: 1, duration: event.durationMs, easing: Easing.linear, useNativeDriver: true, isInteraction: false });
+    animation.start();
+    return () => animation.stop();
+  }, [event.durationMs, progress]);
+  const railMeasured = externalRail && railRect.width > 0 && railRect.height > 0;
+  const fromScreenX = railMeasured
+    ? railRect.x + railRect.width * railPosition
+    : boardRect.x + event.fromX / Math.max(1, boardWidth) * boardRect.width;
+  const fromScreenY = railMeasured
+    ? railRect.y + railRect.height / 2 - 24
+    : boardRect.y + event.fromY / Math.max(1, boardHeight) * boardRect.height;
+  const toScreenX = boardRect.x + event.toX / Math.max(1, boardWidth) * boardRect.width;
+  const toScreenY = boardRect.y + event.toY / Math.max(1, boardHeight) * boardRect.height;
+  const fromX = fromScreenX - screenRect.x;
+  const fromY = fromScreenY - screenRect.y;
+  const dx = toScreenX - fromScreenX;
+  const dy = toScreenY - fromScreenY;
+  const angle = Math.atan2(dy, dx);
+  const color = event.outcome === 'hit' ? '#c8fff3' : '#ffe0a2';
+  return <Animated.View pointerEvents="none" style={{ position: 'absolute', zIndex: 201, left: fromX - 3, top: fromY - 3, width: 7, height: 7, borderRadius: 7, backgroundColor: color, shadowColor: color, shadowOpacity: 1, shadowRadius: 8, elevation: 8, transform: [{ translateX: Animated.multiply(progress, dx) }, { translateY: Animated.multiply(progress, dy) }] }}>
+    <View style={{ position: 'absolute', width: 20, height: 2.5, left: -17, top: 2.2, borderRadius: 3, backgroundColor: event.outcome === 'hit' ? '#76efd9' : '#f4b45f', transform: [{ rotate: `${angle}rad` }] }} />
+  </Animated.View>;
+}
+
+function SentryStatBar({ label, value, progress, accent, previousProgress, gain }: { label: string; value: string; progress: number; accent: string; previousProgress?: number; gain?: string }) {
+  const clampedProgress = Math.max(0, Math.min(1, progress));
+  const clampedPrevious = previousProgress === undefined ? clampedProgress : Math.max(0, Math.min(clampedProgress, previousProgress));
+  const previousWidth = `${clampedPrevious * 100}%` as `${number}%`;
+  const gainWidth = `${Math.max(0, clampedProgress - clampedPrevious) * 100}%` as `${number}%`;
+  const gainLeft = `${clampedPrevious * 100}%` as `${number}%`;
+  return <View>
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}><Text style={{ color: '#aebfcb', fontSize: 7, fontWeight: '800', letterSpacing: 0.35 }}>{label}</Text><View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}><Text style={{ color: '#e5f4f7', fontSize: 7, fontWeight: '900' }}>{value}</Text>{gain && <Text style={{ color: '#81ff9a', fontSize: 7, fontWeight: '900' }}>{gain}</Text>}</View></View>
+    <View style={{ height: 4, position: 'relative', borderRadius: 4, backgroundColor: '#1d2d3a', overflow: 'hidden' }}><View style={{ width: previousWidth, height: '100%', borderRadius: 4, backgroundColor: accent, shadowColor: accent, shadowOpacity: 0.6, shadowRadius: 4 }} />{gain && <View style={{ position: 'absolute', left: gainLeft, width: gainWidth, height: '100%', borderRadius: 4, backgroundColor: '#72f18c', shadowColor: '#72f18c', shadowOpacity: 0.9, shadowRadius: 5 }} />}</View>
+  </View>;
+}
+
+function TurretCooldownBar({ progress }: { progress: number }) {
+  const percentage = `${Math.max(0, Math.min(1, progress)) * 100}%` as `${number}%`;
+  return <View accessibilityLabel={`Sentry cooldown ${Math.round(Math.max(0, Math.min(1, progress)) * 100)} percent`} style={{ position: 'absolute', left: 7, right: 7, bottom: 3, height: 3, borderRadius: 3, overflow: 'hidden', backgroundColor: 'rgba(7,15,22,0.9)', borderWidth: 0.5, borderColor: 'rgba(176,218,227,0.6)' }}>
+    <View style={{ width: percentage, height: '100%', borderRadius: 3, backgroundColor: progress >= 0.999 ? '#8fffe2' : '#64ddec', shadowColor: '#85f3ef', shadowOpacity: 0.95, shadowRadius: 4 }} />
+  </View>;
+}
+
+function TurretGlyph({ orientation, active }: { orientation: number; active: boolean }) {
+  const [barrelAngle] = useState(() => new Animated.Value(orientation));
+  const previousAngle = useRef(orientation);
+  useEffect(() => {
+    const delta = ((orientation - previousAngle.current + 540) % 360) - 180;
+    const nextAngle = previousAngle.current + delta;
+    previousAngle.current = nextAngle;
+    barrelAngle.stopAnimation();
+    Animated.timing(barrelAngle, { toValue: nextAngle, duration: 90, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
+  }, [barrelAngle, orientation]);
+  const rotation = barrelAngle.interpolate({ inputRange: [-100000, 100000], outputRange: ['-100000deg', '100000deg'] });
+  return <Animated.View pointerEvents="none" style={{ width: 36, height: 34, alignItems: 'center', justifyContent: 'center', transform: [{ rotate: rotation }] }}>
+    <View style={{ position: 'absolute', top: 0, width: 8, height: 15, borderRadius: 2, borderWidth: 1, borderColor: '#b9c8cc', backgroundColor: '#273841', alignItems: 'center', justifyContent: 'center' }}><View style={{ width: 3, height: 9, borderRadius: 2, backgroundColor: '#74ddf2' }} /></View>
+    <View style={{ position: 'absolute', top: 9, left: 1, width: 12, height: 15, borderRadius: 3, borderWidth: 1, borderColor: '#c78d49', backgroundColor: '#394047', transform: [{ rotate: '-18deg' }] }}><View style={{ position: 'absolute', left: 2, top: 3, width: 3, height: 3, borderRadius: 2, backgroundColor: '#f0b35c' }} /></View>
+    <View style={{ position: 'absolute', top: 8, right: 1, width: 13, height: 17, borderRadius: 3, borderWidth: 1, borderColor: '#9cabb0', backgroundColor: '#34424a', transform: [{ rotate: '13deg' }] }}><View style={{ position: 'absolute', right: 2, bottom: 3, width: 3, height: 3, borderRadius: 2, backgroundColor: '#e5a64d' }} /></View>
+    <View style={{ position: 'absolute', top: 13, width: 19, height: 12, borderRadius: 4, borderWidth: 1, borderColor: active ? '#dcfff4' : '#c2d0d5', backgroundColor: '#24333b', alignItems: 'center', justifyContent: 'center', transform: [{ rotate: '-4deg' }] }}><View style={{ width: 8, height: 5, borderRadius: 3, borderWidth: 1, borderColor: '#b4f5f3', backgroundColor: active ? '#58f1d3' : '#58bace', shadowColor: '#74e5f6', shadowOpacity: 0.8, shadowRadius: 4 }} /></View>
+    <View style={{ position: 'absolute', bottom: 1, width: 28, height: 5, borderRadius: 2, borderWidth: 1, borderColor: '#82939a', backgroundColor: '#18252b' }} />
+  </Animated.View>;
+}
+
+function PickupTransitFlight({ transit, sx, sy, stageWidth, stageHeight, renderPickup, renderCredit }: { transit: PickupTransit; sx: number; sy: number; stageWidth: number; stageHeight: number; renderPickup: (kind: PowerKind, size: number) => React.ReactNode; renderCredit: (size: number) => React.ReactNode }) {
+  const [progress] = useState(() => new Animated.Value(0));
+  const target = transit.destination === 'credits'
+    ? { x: stageWidth * 0.94, y: Math.max(10, stageHeight * 0.035), glyph: '¢', color: '#f3d47f' }
+    : transit.destination === 'foundry'
+      ? { x: stageWidth * 0.94, y: stageHeight * 0.94, glyph: '⌘', color: '#ffbe70' }
+      : { x: stageWidth * 0.06, y: stageHeight * 0.94, glyph: '▤', color: '#8cebd0' };
+  const startX = transit.x * sx, startY = transit.y * sy;
+  const dx = target.x - startX, dy = target.y - startY;
+  const arc = Math.min(68, stageHeight * 0.12);
+  const [timing] = useState(() => {
+    const elapsed = Math.max(0, Date.now() - transit.startedAtMs);
+    return { elapsed, initialProgress: Math.min(1, elapsed / Math.max(1, transit.durationMs)) };
+  });
+  useEffect(() => {
+    progress.setValue(timing.initialProgress);
+    if (timing.initialProgress >= 1) return;
+    const animation = Animated.timing(progress, { toValue: 1, duration: Math.max(16, transit.durationMs - timing.elapsed), easing: Easing.inOut(Easing.cubic), useNativeDriver: true, isInteraction: false });
+    animation.start();
+    return () => animation.stop();
+  }, [progress, timing, transit.durationMs]);
+  const translateX = progress.interpolate({ inputRange: [0, 0.34, 0.72, 1], outputRange: [0, dx * 0.3, dx * 0.72, dx] });
+  const translateY = progress.interpolate({ inputRange: [0, 0.34, 0.72, 1], outputRange: [0, dy * 0.34 - arc, dy * 0.72 - arc * 0.55, dy] });
+  const opacity = progress.interpolate({ inputRange: [0, 0.06, 0.78, 1], outputRange: [0, 1, 0.96, 0] });
+  const scale = progress.interpolate({ inputRange: [0, 0.12, 0.82, 1], outputRange: [0.62, 1.18, 0.86, 0.2] });
+  const isCredit = transit.destination === 'credits';
+  return <View pointerEvents="none" style={{ position: 'absolute', zIndex: 24, left: 0, top: 0, width: stageWidth, height: stageHeight, overflow: 'visible' }}>
+    <View style={{ position: 'absolute', left: target.x - 7, top: target.y - 7, width: 14, height: 14, borderWidth: 0.8, borderColor: `${target.color}88`, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#07151dbb' }}><Text style={{ color: target.color, fontSize: 8, fontWeight: '900' }}>{target.glyph}</Text></View>
+    <Animated.View style={{ position: 'absolute', left: startX - 9, top: startY - 9, width: 18, height: 18, alignItems: 'center', justifyContent: 'center', opacity, transform: [{ translateX }, { translateY }, { scale }] }}>
+      <Animated.View style={{ position: 'absolute', width: 17, height: 17, borderRadius: 10, backgroundColor: `${target.color}36`, opacity: progress.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.28, 0.85, 0.08] }) }} />
+      {isCredit ? renderCredit(14) : renderPickup(transit.kind, 14)}
+    </Animated.View>
+  </View>;
+}
+
 function CaptureBurst({ event, sx, sy, creditSkin = DEFAULT_SKIN_SELECTIONS.credit, stageWidth = 900, stageHeight = 1000, onDone }: { event: CaptureEvent; sx: number; sy: number; creditSkin?: string; stageWidth?: number; stageHeight?: number; onDone: () => void }) {
   const [progress] = useState(() => new Animated.Value(0));
   const onDoneRef = useRef(onDone);
   useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
   useEffect(() => { Animated.timing(progress, { toValue: 1, duration: event.skewered ? 2100 : event.kind === 'chargeBallBreak' || event.kind === 'chargeWallBreak' ? event.skinId === 'voltaic-cartridge' ? 1380 : event.skinId === 'singularity-charge' ? 1760 : 1120 : event.skinId === 'phoenix-ember' ? 1550 : event.skinId === 'moth-lantern' ? 1650 : event.skinId === 'thunder-lattice' ? 1280 : event.skinId === 'ion-skiff' ? 1160 : event.skinId === 'mantis-breacher' ? 1360 : event.skinId === 'meteor-maul' ? 1480 : event.skinId === 'star-reliquary' ? 1580 : event.skinId === 'orbital-astrolabe' ? 1720 : event.skinId === 'radiant-coin' ? 1640 : event.skinId === 'star-chart-astrolabe' ? 1480 : event.skinId === 'skyglass-merchant' ? 1560 : event.skinId === 'lantern-gate-token' ? 1420 : event.skinId === 'aurora-crown' ? 1580 : event.skinId === 'tiny-glassworld' ? 1680 : event.skinId === 'inkblot-comet' ? 1460 : event.skinId === 'finder-badge' ? 1620 : event.skinId === 'solar-mint-seal' ? 1420 : event.skinId === 'circuit-ledger-relay' ? 1540 : event.skinId === 'void-prism-scrip' ? 1660 : event.skinId === 'engi-cocoon' ? 1380 : event.skinId === 'engi-seed-pod' ? 1480 : event.skinId === 'engi-scarab-capsule' ? 1600 : event.skinId === 'courier-skiff' ? 1360 : event.skinId === 'folded-transit' ? 1410 : event.kind === 'merchantBreak' ? 1250 : event.kind === 'exit' ? 1450 : event.kind === 'petHatched' ? 1450 : event.kind === 'petRepair' ? 1050 : event.kind === 'engiEggBreak' ? 780 : event.kind === 'phaseChestBreak' ? 1350 : event.kind === 'phaseRupture' ? 1150 : event.kind === 'waldoFound' ? 1450 : event.kind === 'waldo' ? 1250 : event.kind === 'jackpot' ? 1100 : event.kind === 'bubble' ? 1450 : event.kind === 'credit' ? 1050 : event.kind === 'creditLost' ? 620 : event.kind === 'combo' ? 980 : event.kind === 'bubbleLost' ? 460 : 720, useNativeDriver: true }).start(({ finished }) => { if (finished) onDoneRef.current(); }); }, [progress, event.kind, event.skinId, event.skewered]);
-  const pickupKind: PowerKind | undefined = event.kind === 'jackpot' ? 'treasure' : event.kind === 'chargeBallBreak' || event.kind === 'chargeWallBreak' ? 'charge' : event.kind === 'engiEggBreak' || event.kind === 'petHatched' ? 'engi-egg' : event.kind === 'explosion' || event.kind === 'overflowFailed' || event.kind === 'phaseRupture' || event.kind === 'phaseChestBreak' || event.kind === 'anchorBreak' || event.kind === 'combo' || event.kind === 'waldoFound' || event.kind === 'petRepair' || event.kind === 'petLost' ? undefined : event.kind === 'ramBlast' ? 'ram' : event.kind === 'merchantBreak' ? 'merchant' : event.kind === 'bubbleLost' ? 'bubble' : event.kind === 'creditLost' ? 'credit' : event.kind;
+   const pickupKind: PowerKind | undefined = event.kind === 'jackpot' ? 'treasure' : event.kind === 'chargeBallBreak' || event.kind === 'chargeWallBreak' ? 'charge' : event.kind === 'engiEggBreak' || event.kind === 'petHatched' ? 'engi-egg' : event.kind === 'explosion' || event.kind === 'overflowFailed' || event.kind === 'phaseRupture' || event.kind === 'phaseChestBreak' || event.kind === 'anchorBreak' || event.kind === 'combo' || event.kind === 'waldoFound' || event.kind === 'petRepair' || event.kind === 'petLost' || event.kind === 'turretHit' ? undefined : event.kind === 'ramBlast' ? 'ram' : event.kind === 'merchantBreak' ? 'merchant' : event.kind === 'bubbleLost' ? 'bubble' : event.kind === 'creditLost' ? 'credit' : event.kind;
   const option = pickupKind ? PICKUP_SKINS[pickupKind].find(skin => skin.id === event.skinId) ?? PICKUP_SKINS[pickupKind][0] : undefined;
   const isChargeBreak = event.kind === 'chargeBallBreak' || event.kind === 'chargeWallBreak';
   const isBlast = event.kind === 'explosion' || event.kind === 'ramBlast' || isChargeBreak;
@@ -3516,9 +4012,14 @@ const styles = StyleSheet.create({
   commandBrand: { color: '#eef4fb', fontSize: 23, fontWeight: '900', letterSpacing: -0.5, marginTop: 3 }, commandBrandCompact: { fontSize: 18 }, commandSubBrand: { color: '#8bb7c3', fontSize: 7, fontWeight: '900', letterSpacing: 1.7, marginTop: 2 }, commandSectionLabel: { color: '#9ab3c4', fontSize: 7, fontWeight: '900', letterSpacing: 1.4, marginBottom: 1 }, bridgeSectionLabel: { marginTop: 2 },
   bridgeRailAction: { minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 8, paddingVertical: 5, borderWidth: 1, borderColor: '#68cbb459', borderRadius: 6, backgroundColor: 'rgba(8,28,37,0.82)' }, bridgeRailResume: { minHeight: 43, borderColor: '#72efda', backgroundColor: 'rgba(13,52,51,0.88)' }, bridgeRailNew: { borderColor: '#d7a95777', backgroundColor: 'rgba(35,29,18,0.86)' }, bridgeRailDisabled: { opacity: 0.56 }, bridgeRailGlyph: { width: 17, color: '#8af4df', fontSize: 13, textAlign: 'center' }, bridgeRailCopy: { flex: 1, minWidth: 0 }, bridgeRailTitle: { color: '#e7f3f5', fontSize: 7, fontWeight: '900', letterSpacing: 0.55 }, bridgeRailDetail: { color: '#94adba', fontSize: 6, marginTop: 2 }, bridgeRailWarning: { color: '#f4cd79', fontSize: 7, lineHeight: 10 }, bridgePauseLink: { minHeight: 27, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 7, borderWidth: 1, borderColor: '#6885a15c', borderRadius: 5, backgroundColor: '#0b192788' }, bridgePauseGlyph: { color: '#c3d8e8', fontSize: 10, fontWeight: '900' }, bridgePauseText: { color: '#a6c0d1', fontSize: 6, fontWeight: '900', letterSpacing: 0.55 }, bridgeReadoutGroup: { gap: 4, marginTop: 2 }, bridgeReadout: { paddingHorizontal: 8, paddingVertical: 5, borderWidth: 1, borderColor: '#7fa5b534', borderRadius: 5, backgroundColor: 'rgba(5,17,26,0.68)' }, bridgeReadoutHeading: { flexDirection: 'row', alignItems: 'center', gap: 5 }, bridgeReadoutGlyph: { color: '#80e7db', fontSize: 9, width: 11, textAlign: 'center' }, bridgeReadoutLabel: { color: '#809eae', fontSize: 5, fontWeight: '900', letterSpacing: 0.8 }, bridgeReadoutValue: { color: '#d6e7ed', fontSize: 8, fontWeight: '900', letterSpacing: 0.45, marginTop: 2 }, commandFooterRow: { minHeight: 18, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 2 }, commandFooter: { color: '#89aaa9', fontSize: 6, fontWeight: '900', letterSpacing: 0.9 },
   commandMain: { flex: 1, minWidth: 0, paddingHorizontal: 24, paddingVertical: 16, justifyContent: 'space-between' }, commandMainCompact: { paddingHorizontal: 10, paddingVertical: 8 }, bridgeWelcome: { minHeight: 45, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, bridgeWelcomeActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 7, flexWrap: 'wrap' }, bridgeVistaTrigger: { paddingHorizontal: 9, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#84c7f866', backgroundColor: '#071923cc' }, bridgeVistaTriggerText: { color: '#b8e4ff', fontSize: 6, fontWeight: '900', letterSpacing: 0.7 }, bridgeWelcomeTitle: { color: '#eff7ff', fontSize: 23, fontWeight: '300', letterSpacing: 1.7, marginTop: 3, textShadowColor: '#112d43', textShadowRadius: 14 }, bridgeWelcomeTitleCompact: { fontSize: 16, letterSpacing: 1.1 }, bridgeReady: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#8dd9cf61', backgroundColor: '#071923aa' }, bridgeReadyText: { color: '#b3e9df', fontSize: 6, fontWeight: '900', letterSpacing: 0.9 }, bridgePreviewRegion: { flex: 1, minHeight: 120, width: '100%', alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 3, overflow: 'hidden' }, bridgeWindowPreviewRegion: { position: 'absolute', overflow: 'hidden', backgroundColor: '#061322' }, bridgeMiniFrame: { alignSelf: 'center', overflow: 'hidden', borderWidth: 1, borderColor: '#86e8dbbb', borderRadius: 7, backgroundColor: '#061322', shadowColor: '#71e4db', shadowOpacity: 0.38, shadowRadius: 14, elevation: 8 }, bridgeWindowFrame: { alignSelf: 'stretch', borderWidth: 0, borderRadius: 0, shadowOpacity: 0, elevation: 0 }, bridgeWindowMiniBottom: { minHeight: 20, backgroundColor: 'rgba(4,13,22,0.78)' }, bridgeMiniTint: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(3,14,25,0.28)' }, bridgeMiniClaim: { position: 'absolute', backgroundColor: 'rgba(62,215,187,0.2)', borderWidth: 0.5, borderColor: '#65ecd244' }, bridgeMiniWall: { position: 'absolute', backgroundColor: '#72f2d6', shadowColor: '#69eed4', shadowOpacity: 0.9, shadowRadius: 5, elevation: 3 }, bridgeMiniBall: { position: 'absolute', borderWidth: 1, borderColor: '#ecf7ff', backgroundColor: '#90a7be', shadowColor: '#c8eaff', shadowOpacity: 0.95, shadowRadius: 5, elevation: 4 }, bridgeMiniPickup: { position: 'absolute', width: 5, height: 5, borderRadius: 4, marginLeft: -2.5, marginTop: -2.5, shadowColor: '#ffe4a8', shadowOpacity: 0.9, shadowRadius: 4, elevation: 3 }, bridgeMiniScan: { position: 'absolute', top: 0, left: 0, right: 0, height: 1, backgroundColor: '#a9fff1aa', shadowColor: '#5af1dc', shadowOpacity: 1, shadowRadius: 6 }, bridgeMiniTop: { position: 'absolute', top: 0, left: 0, right: 0, minHeight: 30, paddingHorizontal: 8, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(4,13,22,0.67)' }, bridgeMiniEyebrow: { color: '#8cb8c3', fontSize: 5, fontWeight: '900', letterSpacing: 1 }, bridgeMiniStage: { color: '#f0f7fa', fontSize: 9, fontWeight: '900', marginTop: 1 }, bridgeMiniPercent: { color: '#82eddb', fontSize: 10, fontWeight: '900' }, bridgeMiniBottom: { position: 'absolute', left: 0, right: 0, bottom: 0, minHeight: 26, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: 'rgba(4,13,22,0.74)' }, bridgeMiniResume: { color: '#cbfff1', fontSize: 6, fontWeight: '900', letterSpacing: 0.8 }, bridgeMiniReadouts: { color: '#9cb5c5', fontSize: 5, fontWeight: '800', letterSpacing: 0.4 }, bridgeMiniPulse: { position: 'absolute', top: 6, right: 7 }, bridgePulse: { width: 6, height: 6, borderRadius: 99, shadowOpacity: 0.92, shadowRadius: 5, elevation: 4 },
-  bridgePreviewRegionDocked: { position: 'absolute', right: 0, bottom: '10%', width: '27%', height: '28%', minWidth: 145, minHeight: 100, maxWidth: 390, alignItems: 'flex-end', justifyContent: 'flex-end', overflow: 'visible' },
-  bridgeArtifactDockConsole: { width: '68%', alignSelf: 'flex-start', minHeight: 82, paddingHorizontal: 8, paddingTop: 8, paddingBottom: 6, borderTopWidth: 1, borderColor: 'rgba(164,205,218,0.25)', backgroundColor: 'rgba(3,12,21,0.55)' }, bridgeArtifactDockConsoleCompact: { width: '65%', minHeight: 72, paddingHorizontal: 3 }, bridgeArtifactConsole: { flex: 1, minWidth: 50, minHeight: 54, justifyContent: 'center', paddingHorizontal: 7, paddingVertical: 4, borderWidth: 1, borderRadius: 3, borderBottomWidth: 3, backgroundColor: 'rgba(3,13,22,0.83)', shadowColor: '#79dfff', shadowOpacity: 0.12, shadowRadius: 7, elevation: 3 },
-  bridgeArtifactDock: { minHeight: 88, paddingTop: 5, paddingBottom: 2 }, bridgeDockHeading: { color: '#9bb9c7', fontSize: 6, fontWeight: '900', letterSpacing: 1, marginBottom: 5 }, bridgeArtifactRow: { width: '100%', flexDirection: 'row', gap: 7 }, bridgeArtifact: { flex: 1, minWidth: 62, minHeight: 58, justifyContent: 'center', paddingHorizontal: 8, paddingVertical: 5, borderWidth: 1, borderRadius: 5, backgroundColor: 'rgba(4,15,23,0.78)' }, bridgeArtifactHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 1 }, bridgeArtifactGlyph: { fontSize: 15, fontWeight: '900', textShadowRadius: 8 }, bridgeArtifactTitle: { color: '#e8f1f4', fontSize: 7, fontWeight: '900', letterSpacing: 0.8 }, bridgeArtifactDetail: { color: '#93a8b4', fontSize: 5, fontWeight: '700', letterSpacing: 0.4, marginTop: 2 },
+  bridgePreviewRegionDocked: { position: 'absolute', right: 0, bottom: '17%', width: '27%', height: '28%', minWidth: 145, minHeight: 100, maxWidth: 390, alignItems: 'flex-end', justifyContent: 'flex-end', overflow: 'visible' },
+  bridgeBottomDock: { position: 'absolute', zIndex: 84, left: 0, right: 0, bottom: 0, height: 112, paddingHorizontal: 14, paddingTop: 9, borderTopWidth: 1, borderColor: 'rgba(164,205,218,0.22)', backgroundColor: '#050b13', alignItems: 'flex-start' },
+  bridgeDockHeading: { color: '#9bb9c7', fontSize: 7, fontWeight: '900', letterSpacing: 1.2 },
+  bridgeDeveloperConsole: { position: 'absolute', left: '23%', top: 27, width: 210, height: 72, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderBottomWidth: 3, borderColor: '#b895e6aa', borderRadius: 4, backgroundColor: 'rgba(3,13,22,0.93)', shadowColor: '#c9a5ff', shadowOpacity: 0.18, shadowRadius: 8 },
+  bridgeDeveloperConsoleTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 26 },
+  bridgeDeveloperGlyph: { color: '#c9a5ff', fontSize: 21, fontWeight: '900' },
+  bridgeDeveloperTitle: { color: '#e8f1f4', fontSize: 8, fontWeight: '900', letterSpacing: 0.8 },
+  bridgeDeveloperDetail: { color: '#93a8b4', fontSize: 6, fontWeight: '700', letterSpacing: 0.6, marginTop: 2 },
   commandTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 }, commandHeadline: { color: '#f0f5fb', fontSize: 29, fontWeight: '900', letterSpacing: 1.3, marginTop: 8 }, commandStageBadge: { minWidth: 92, padding: 11, borderWidth: 1, borderColor: '#315667', borderRadius: 10, backgroundColor: '#0d202d', alignItems: 'center' }, commandStageLabel: { color: '#7f9aaa', fontSize: 7, fontWeight: '900', letterSpacing: 1 }, commandStageValue: { color: '#6cebd1', fontSize: 24, fontWeight: '900', marginTop: 2 }, commandDescription: { color: '#91a6b5', fontSize: 11, lineHeight: 17, marginTop: 13, marginBottom: 16, maxWidth: 590 }, commandActions: { width: '100%', maxWidth: 700, gap: 8 }, commandResume: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, borderWidth: 1, borderColor: '#57dabb', borderRadius: 11, backgroundColor: '#103a38' }, commandAction: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 13, paddingHorizontal: 14, borderWidth: 1, borderColor: '#263e4e', borderRadius: 10, backgroundColor: '#0b1a27' }, commandNewRun: { borderColor: '#b78c4f', backgroundColor: '#211e17' }, commandActionWarn: { borderColor: '#e4ba63', backgroundColor: '#292315' }, commandActionGlyph: { width: 22, color: '#72e9d1', fontSize: 17, textAlign: 'center' }, commandActionTitle: { color: '#e7eff6', fontSize: 9, fontWeight: '900', letterSpacing: 0.8 }, commandActionDetail: { color: '#8da2b2', fontSize: 8, marginTop: 4 }, commandChevron: { marginLeft: 'auto', color: '#71909f', fontSize: 22 }, commandStatusRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 19, maxWidth: 700 }, commandStatus: { minWidth: 112, paddingHorizontal: 11, paddingVertical: 9, borderWidth: 1, borderColor: '#1f3948', borderRadius: 8, backgroundColor: '#091722' }, commandStatusLabel: { color: '#718b9a', fontSize: 7, fontWeight: '900', letterSpacing: 1 }, commandStatusValue: { color: '#d7e3ec', fontSize: 9, fontWeight: '900', marginTop: 4, letterSpacing: 0.5 },
   bridgeWindowControls: { position: 'absolute', zIndex: 8 }, bridgeWindowControlBar: { flex: 1, alignItems: 'center', gap: 4, borderWidth: 1, borderColor: '#73dfd277', borderRadius: 7, backgroundColor: 'rgba(3,12,21,0.92)' }, bridgeWindowLiveLabel: { color: '#b5fff0', fontSize: 6, fontWeight: '900', letterSpacing: 0.35 }, bridgeWindowStageLabel: { color: '#8baebd', fontSize: 5, fontWeight: '900', letterSpacing: 0.2 }, bridgeWindowControlButtons: { flexDirection: 'row', alignItems: 'center', gap: 3 }, bridgeWindowControl: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: 6, paddingVertical: 5, borderWidth: 1, borderColor: '#527182', borderRadius: 5, backgroundColor: '#102434' }, bridgeWindowZoom: { borderColor: '#58d8bd', backgroundColor: '#10342e' }, bridgeWindowControlGlyph: { color: '#dffbf5', fontSize: 11, fontWeight: '900' }, bridgeWindowControlText: { color: '#dffbf5', fontSize: 6, fontWeight: '900', letterSpacing: 0.4 },
   bridgeVistaScrim: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, zIndex: 120, alignItems: 'center', justifyContent: 'center', padding: 14, backgroundColor: 'rgba(2,8,14,0.78)' }, bridgeVistaPanel: { width: '100%', maxWidth: 680, maxHeight: '92%', padding: 18, borderWidth: 1, borderColor: '#5ca99e', borderRadius: 14, backgroundColor: '#071521f5', shadowColor: '#69eed4', shadowOpacity: 0.25, shadowRadius: 20 }, bridgeVistaTitle: { color: '#eff7ff', fontSize: 24, fontWeight: '900', letterSpacing: 0.6, marginTop: 3 }, bridgeVistaActions: { flexDirection: 'row', gap: 8, marginBottom: 8 }, bridgeVistaAction: { flex: 1, minWidth: 130, padding: 11, borderWidth: 1, borderColor: '#345367', borderRadius: 9, backgroundColor: '#0c202d' }, bridgeVistaActionSelected: { borderColor: '#65e5cd', backgroundColor: '#0e302d' }, bridgeVistaActionTitle: { color: '#b8f3e8', fontSize: 9, fontWeight: '900', letterSpacing: 0.7 }, bridgeVistaActionCopy: { color: '#8fa8b7', fontSize: 8, marginTop: 4 }, bridgeVistaNotice: { color: '#f3cd83', fontSize: 9, lineHeight: 14, marginVertical: 7 }, bridgeVistaGalleryScroll: { flexGrow: 0, minHeight: 80 }, bridgeVistaGallery: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 3 }, bridgeVistaCard: { width: 142, padding: 7, borderWidth: 1, borderColor: '#294354', borderRadius: 8, backgroundColor: '#0b1d2a' }, bridgeVistaCardSelected: { borderColor: '#72ead3', backgroundColor: '#0b2929' }, bridgeVistaChoose: { gap: 4 }, bridgeVistaThumb: { width: '100%', height: 74, borderRadius: 5, backgroundColor: '#102333' }, bridgeVistaName: { color: '#e0eef3', fontSize: 9, fontWeight: '800' }, bridgeVistaStatus: { color: '#6fe4cd', fontSize: 7, fontWeight: '900', letterSpacing: 0.6 }, bridgeVistaRemove: { alignSelf: 'flex-end', paddingTop: 6 },
