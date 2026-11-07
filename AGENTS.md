@@ -58,6 +58,15 @@ Use this short path for new exterior scenes and ambient motion; the existing sce
 - Run lint and typecheck together once after code edits settle. Run a web export only for web-facing changes or a release. Don't repeat successful checks unless code changes afterward.
 - When publishing, inspect the intended release files before staging. Stage the source, assets, and docs deliberately; do not include stale build archives or unrelated artifacts by default. Verify the pushed commit and tag, then wait for the GitHub Pages workflow to succeed for that exact commit. Confirm the deployed URL from the Pages deployment/environment or Pages settings and verify it returns the app before saying it is live. Always include the direct live link in the final response after a successful deployment; if deployment is still running or failed, report that without implying the site updated.
 
+### Production parity gate — required for every game update
+
+- A change is not complete because it works in a native app, Expo dev server, or local source tree. The release target is the exported browser build, and that exact artifact must pass the full Playwright suite before Pages upload.
+- Run lint and TypeScript checks on the release source. Then serve `dist/` with `playwright/static-server.mjs` and run the full desktop and phone browser suite against it; do not substitute the dev server.
+- The Pages workflow must repeat the full browser suite against the published URL after deployment. A successful build/upload alone is not proof that players received a working update.
+- Every fixed browser regression must have an automated test that asserts visible state and user interaction, and must run before publish against `dist/` and after publish against Pages. Keep screenshots/traces on test failure for diagnosis.
+- Report the source commit, artifact test result, deployment run/result, and published-browser result separately. Never call an update complete or hand out the live link as updated until the deployed build itself passes.
+- If any gate fails, identify the failing layer (source, exported artifact, or live site), fix it, and rerun the relevant gates. Do not rely on the user to compare native and browser screenshots to discover release drift.
+
 ## Navigation & Routing
 
 - Use **Expo Router** for all navigation. Routes live in `src/app/` — every file there is a screen, `_layout.tsx` files define navigators. Keep non-route code (components, hooks, utils) outside `src/app/`.

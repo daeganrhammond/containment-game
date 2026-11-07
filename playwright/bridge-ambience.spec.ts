@@ -4,11 +4,11 @@ test('bridge vista renders and exterior motion advances', async ({ page }, testI
   const pageErrors: string[] = [];
   page.on('pageerror', error => pageErrors.push(error.message));
 
-  await page.goto('/');
+  await page.goto('./');
   await expect(page.locator('body')).toBeVisible();
   await page.waitForTimeout(2_000);
 
-  const vista = page.locator('img[src*="cinder-comet-shoals.png"]');
+  const vista = page.locator('img[src*="cinder-comet-shoals."]');
   await expect(vista, 'expected the initial Cinder Comet Shoals bridge vista').toBeAttached();
   await vista.evaluate(image => image.scrollIntoView({ block: 'center', behavior: 'instant' }));
   await page.waitForTimeout(1_500);

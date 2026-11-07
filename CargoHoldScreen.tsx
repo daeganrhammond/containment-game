@@ -60,7 +60,7 @@ export function CargoHoldScreen({ balances, renderIcon, onBack, overflowJobs = [
   }
   const activeKind = overflowJobs[0]?.kind;
   const activeCargoItem: CargoItemId | undefined = activeKind === 'life' || activeKind === 'speed' || activeKind === 'ram' || activeKind === 'charge' ? activeKind : undefined;
-  return <View style={styles.scrim}>
+  return <View testID="cargo-hold-screen" style={styles.scrim}>
     <View style={styles.panel}>
       <View style={styles.header}>
         <View><Text style={styles.kicker}>SHIP SYSTEMS · SHARED STORES</Text><Text style={styles.title}>Cargo Hold</Text><Text style={styles.subtitle}>Run cargo · organized by item footprint and stack limit</Text></View>

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Pressable, Text, View } from 'react-native';
 import { CARGO_CATALOG, packCargo } from './cargo';
 import type { CargoBalances, CargoItemId, CargoShapes } from './cargo';
@@ -16,8 +16,10 @@ export function BridgeCargoAlcove({ width, height, balances, shapes, onOpen, inv
   const [scan] = useState(() => new Animated.Value(0));
   const [statusPulse] = useState(() => new Animated.Value(0.55));
   const [doorMotion] = useState(() => new Animated.Value(0));
-  const [doorOpen, setDoorOpen] = useState(false);
+  const doorOpenRef = useRef(false);
   const doorMoving = useRef(false);
+  const transitionId = useRef(0);
+  const pendingInventoryOpen = useRef(false);
   const wasInventoryOpen = useRef(inventoryOpen);
   const wasHoldDoorOpen = useRef(false);
   const inventoryOpenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -36,19 +38,47 @@ export function BridgeCargoAlcove({ width, height, balances, shapes, onOpen, inv
     return () => { scanLoop.stop(); statusLoop.stop(); };
   }, [scan, statusPulse]);
 
-  useEffect(() => () => { if (inventoryOpenTimer.current) clearTimeout(inventoryOpenTimer.current); }, []);
+  useEffect(() => () => {
+    transitionId.current += 1;
+    doorMotion.stopAnimation();
+    if (inventoryOpenTimer.current) clearTimeout(inventoryOpenTimer.current);
+  }, [doorMotion]);
+
+  const scheduleInventoryOpen = useCallback((delay: number) => {
+    if (inventoryOpenTimer.current) clearTimeout(inventoryOpenTimer.current);
+    pendingInventoryOpen.current = false;
+    inventoryOpenTimer.current = setTimeout(() => {
+      inventoryOpenTimer.current = null;
+      if (doorOpenRef.current || holdDoorOpen) onOpen();
+    }, delay);
+  }, [holdDoorOpen, onOpen]);
+
+  const animateDoors = useCallback((open: boolean, openInventoryAfter = false) => {
+    const id = ++transitionId.current;
+    doorMotion.stopAnimation();
+    doorMoving.current = true;
+    doorOpenRef.current = open;
+    Animated.timing(doorMotion, {
+      toValue: open ? 1 : 0,
+      duration: open ? 560 : 460,
+      easing: open ? Easing.out(Easing.cubic) : Easing.inOut(Easing.cubic),
+      useNativeDriver: true,
+      isInteraction: false,
+    }).start(({ finished }) => {
+      if (id !== transitionId.current) return;
+      doorMoving.current = false;
+      if (!finished) return;
+      onBayStateChange?.(open);
+      if (open && (openInventoryAfter || pendingInventoryOpen.current)) scheduleInventoryOpen(1500);
+    });
+  }, [doorMotion, onBayStateChange, scheduleInventoryOpen]);
 
   useEffect(() => {
     const justClosedInventory = wasInventoryOpen.current && !inventoryOpen;
     wasInventoryOpen.current = inventoryOpen;
-    if (!justClosedInventory || !doorOpen || holdDoorOpen) return;
-    doorMotion.stopAnimation();
-    doorMoving.current = true;
-    Animated.timing(doorMotion, { toValue: 0, duration: 460, easing: Easing.inOut(Easing.cubic), useNativeDriver: true, isInteraction: false }).start(({ finished }) => {
-      if (finished) { setDoorOpen(false); onBayStateChange?.(false); }
-      doorMoving.current = false;
-    });
-  }, [doorMotion, doorOpen, holdDoorOpen, inventoryOpen, onBayStateChange]);
+    if (!justClosedInventory || !doorOpenRef.current || holdDoorOpen) return;
+    animateDoors(false);
+  }, [animateDoors, holdDoorOpen, inventoryOpen]);
 
   useEffect(() => {
     const holdChanged = wasHoldDoorOpen.current !== holdDoorOpen;
@@ -56,24 +86,14 @@ export function BridgeCargoAlcove({ width, height, balances, shapes, onOpen, inv
     if (!holdChanged) return;
 
     if (holdDoorOpen) {
-      if (doorOpen && !doorMoving.current) { onBayStateChange?.(true); return; }
-      doorMotion.stopAnimation();
-      doorMoving.current = true;
-      Animated.timing(doorMotion, { toValue: 1, duration: 560, easing: Easing.out(Easing.cubic), useNativeDriver: true, isInteraction: false }).start(({ finished }) => {
-        doorMoving.current = false;
-        if (finished) { setDoorOpen(true); onBayStateChange?.(true); }
-      });
+      if (doorOpenRef.current && !doorMoving.current) { onBayStateChange?.(true); return; }
+      animateDoors(true);
       return;
     }
 
-    if (inventoryOpen || !doorOpen) return;
-    doorMotion.stopAnimation();
-    doorMoving.current = true;
-    Animated.timing(doorMotion, { toValue: 0, duration: 460, easing: Easing.inOut(Easing.cubic), useNativeDriver: true, isInteraction: false }).start(({ finished }) => {
-      if (finished) { setDoorOpen(false); onBayStateChange?.(false); }
-      doorMoving.current = false;
-    });
-  }, [doorMotion, doorOpen, holdDoorOpen, inventoryOpen, onBayStateChange]);
+    if (inventoryOpen || !doorOpenRef.current) return;
+    animateDoors(false);
+  }, [animateDoors, holdDoorOpen, inventoryOpen, onBayStateChange]);
 
   const screenWidth = display ? width * display.width : 0;
   const bayWidth = width * hitbox.width;
@@ -81,24 +101,20 @@ export function BridgeCargoAlcove({ width, height, balances, shapes, onOpen, inv
   const doorControlWidth = Math.max(34, width * 0.046);
   const doorControlHeight = Math.max(15, height * 0.028);
   const openBay = () => {
-    if (doorMoving.current || inventoryOpen) return;
-    if (doorOpen) {
-      inventoryOpenTimer.current = setTimeout(() => { inventoryOpenTimer.current = null; onOpen(); }, 420);
+    if (inventoryOpen) return;
+    if (inventoryOpenTimer.current) clearTimeout(inventoryOpenTimer.current);
+    if (doorOpenRef.current && !doorMoving.current) {
+      scheduleInventoryOpen(420);
       return;
     }
-    setDoorOpen(true);
-    doorMoving.current = true;
-    Animated.timing(doorMotion, { toValue: 1, duration: 560, easing: Easing.out(Easing.cubic), useNativeDriver: true, isInteraction: false }).start(({ finished }) => {
-      doorMoving.current = false;
-      if (finished) {
-        onBayStateChange?.(true);
-        inventoryOpenTimer.current = setTimeout(() => { inventoryOpenTimer.current = null; onOpen(); }, 1500);
-      }
-    });
+    pendingInventoryOpen.current = true;
+    if (doorMoving.current && doorOpenRef.current) return;
+    animateDoors(true, true);
   };
   return <>
     <Pressable
       accessibilityRole="switch"
+      testID="cargo-door-hold-toggle"
       accessibilityState={{ checked: holdDoorOpen }}
       accessibilityLabel={holdDoorOpen ? 'Cargo bay doors held open; turn off' : 'Hold cargo bay doors open'}
       onPress={() => onHoldDoorOpenChange?.(!holdDoorOpen)}
@@ -112,7 +128,7 @@ export function BridgeCargoAlcove({ width, height, balances, shapes, onOpen, inv
         <Animated.View style={{ width: 3.5, height: 3.5, borderRadius: 4, backgroundColor: holdDoorOpen ? '#a5ffe7' : '#81969a', opacity: holdDoorOpen ? statusPulse : 0.62 }} />
       </View>
     </Pressable>
-    <Pressable accessibilityRole="button" accessibilityLabel={`Open Cargo Hold. ${usedPercent} percent used, ${freePercent} percent free. ${cargo.stacks.length} cargo stacks.`} disabled={inventoryOpen} onPress={openBay} style={{ position: 'absolute', zIndex: 12, left: width * hitbox.left, top: height * hitbox.top, width: bayWidth, height: bayHeight, backgroundColor: 'transparent' }} />
+    <Pressable testID="cargo-bay-hit-target" accessibilityRole="button" accessibilityLabel={`Open Cargo Hold. ${usedPercent} percent used, ${freePercent} percent free. ${cargo.stacks.length} cargo stacks.`} disabled={inventoryOpen} onPress={openBay} style={{ position: 'absolute', zIndex: 12, left: width * hitbox.left, top: height * hitbox.top, width: bayWidth, height: bayHeight, backgroundColor: 'transparent' }} />
     {display && <View pointerEvents="none" style={{ position: 'absolute', zIndex: 13, left: width * display.left, top: height * display.top, width: screenWidth, height: height * display.height, paddingHorizontal: 4, paddingVertical: 1, overflow: 'hidden' }}>
       <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 2 }}>
         <Animated.View style={{ width: 3, height: 3, borderRadius: 2, backgroundColor: '#a5e1c6', opacity: statusPulse }} />

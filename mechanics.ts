@@ -1649,7 +1649,7 @@ function advancePetCrewCompanion(previous: Run, current: Run): Run {
 }
 
 /** A living assigned Systems Helper can intercept one wall-breaking hit, then serves its proficiency-scaled cooldown. */
-function useSystemsHelperRepair(run: Run, x: number, y: number) {
+function interceptSystemsHelperRepair(run: Run, x: number, y: number) {
   if (!run.progression) return false;
   const pet = assignedPetsForDuty(run.pets, run.progression.petAssignments, 'systems-helper')
     .find(candidate => (candidate.systemsHelperReadyAtMs ?? 0) <= run.elapsedMs);
@@ -2273,7 +2273,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
           continue;
         }
         if (!broken.has(w.id) && !repairedWalls.has(w.id)) {
-          if (useSystemsHelperRepair(run, b.x, b.y)) repairedWalls.add(w.id);
+          if (interceptSystemsHelperRepair(run, b.x, b.y)) repairedWalls.add(w.id);
           else { broken.add(w.id); breakPoints.push({ x: b.x, y: b.y, axis: w.axis, at: w.at, low: w.low, high: w.high }); }
         }
       }
@@ -2301,7 +2301,7 @@ export function stepRun(previous: Run, dt: number, width: number, height: number
         anchorUsed.add(b.id);
       }
       else if (w.active && !broken.has(w.id) && !repairedWalls.has(w.id)) {
-        if (useSystemsHelperRepair(run, b.x, b.y)) {
+        if (interceptSystemsHelperRepair(run, b.x, b.y)) {
           repairedWalls.add(w.id);
           if (w.axis === 'vertical') { b.vx = Math.abs(b.vx) * (oldX < w.at ? -1 : 1); b.x = w.at + Math.sign(oldX < w.at ? -1 : 1) * (b.r + 3); }
           else { b.vy = Math.abs(b.vy) * (oldY < w.at ? -1 : 1); b.y = w.at + Math.sign(oldY < w.at ? -1 : 1) * (b.r + 3); }
