@@ -40,3 +40,17 @@ test('bridge vista renders and exterior motion advances', async ({ page }, testI
   console.log(`${testInfo.project.name}: vista transform changed on ${changedTransforms} ancestor(s); page errors=${pageErrors.length}`);
   expect(changedTransforms, 'the bridge vista should drift during the sample').toBeGreaterThan(0);
 });
+
+test('bridge command screen stacks above web-only navigation', async ({ page }) => {
+  await page.goto('./');
+  const bridge = page.getByTestId('command-bridge-screen');
+  const header = page.getByTestId('application-header');
+  await expect(bridge).toBeVisible();
+  await expect(header).toBeAttached();
+  const [bridgeZ, headerZ] = await Promise.all([
+    bridge.evaluate(element => Number(getComputedStyle(element).zIndex)),
+    header.evaluate(element => Number(getComputedStyle(element).zIndex)),
+  ]);
+  expect(bridgeZ, 'ship bridge must layer above the web-only application header').toBeGreaterThan(headerZ);
+  await page.screenshot({ path: 'playwright-output/bridge-home-layering.png' });
+});

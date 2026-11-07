@@ -30,7 +30,9 @@
     "web:local": "expo start --web --host localhost --port 8082",
     "export:web": "expo export --platform web",
     "lint": "expo lint",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "release:guard": "node scripts/release-guard.cjs",
+    "release:install-guard": "git config core.hooksPath .githooks"
   },
   "private": true
 }

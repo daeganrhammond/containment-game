@@ -17,7 +17,6 @@ test('recover completed run report from persistent archive after reload', async 
   }, { key: ACTIVE_RUN_KEY, run: completed });
   await page.goto('./');
   await expect.poll(() => page.evaluate(key => !!localStorage.getItem(key), PROGRESSION_KEY)).toBe(true);
-  await page.getByText('HOME', { exact: true }).click();
   await page.getByRole('button', { name: /Open Scores and Captain/ }).click();
   await expect(page.getByText('SHIP LEGACY · PERMANENT PROFILE', { exact: true })).toBeVisible();
   await page.getByText('RUN ARCHIVE · 1', { exact: true }).click();
@@ -27,7 +26,6 @@ test('recover completed run report from persistent archive after reload', async 
   await expect(page.getByText('PERSISTENCE \u00b7 RUN CLOSEOUT', { exact: true })).toBeAttached();
   await page.screenshot({ path: testInfo.outputPath('closeout.png') });
   await page.reload();
-  await page.getByText('HOME', { exact: true }).click();
   await page.getByRole('button', { name: /Open Scores and Captain/ }).click();
   await page.getByText('RUN ARCHIVE · 1', { exact: true }).click();
   await expect(page.getByText('OPEN SEALED REPORT', { exact: false })).toBeVisible();

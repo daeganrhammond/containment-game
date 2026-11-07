@@ -67,6 +67,9 @@ jobs:
           PLAYWRIGHT_BASE_PATH: ${{ steps.pages-path.outputs.base_url }}
           PLAYWRIGHT_BASE_URL: http://localhost:8182${{ steps.pages-path.outputs.base_url }}
 
+      - name: Guard committed release source and assets
+        run: npm run release:guard -- --ci
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
