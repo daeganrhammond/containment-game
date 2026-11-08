@@ -131,3 +131,13 @@ Docs: https://docs.expo.dev/eas/index.md
 - The only playable interior is the integrated original bridge. Do not add alternate layouts, layout selectors, saved layout preferences, or alternate bridge foreground assets.
 - The sole active art pair is the closed and cargo-open `*-gold-detail.png` foreground pair documented in `ART_ASSET_HANDOFF.md`. Keep runtime visuals and hit targets on its measured screen insets; never substitute duplicate HD2x/WebP or historical art files.
 - Before publishing bridge changes, inspect the actual localhost render and verify the individual console placements and cargo door state, then inspect the exact published build. A matching commit or loaded image is not visual proof.
+
+## Mandatory local-to-live release parity
+
+- The complete working game is the release source of truth. Publish the exact committed source and every required asset from that state; never publish a partial patch, substitute an older/default layout, or omit files needed by the local build.
+- Before commit, inspect `git status` and the full diff. Confirm every required source/config/art file is tracked in the release commit and present in the export. Resolve missing assets, alternate runtime defaults, or browser-persisted settings that can select a different build before publishing. Do not treat unrelated generated previews as release inputs.
+- Build and verify the web export from the same commit intended for `main`. Run the repository release guard and required lint, typecheck, and browser checks; push only that complete commit. Record its full SHA and confirm local `HEAD` equals `origin/main` after the push.
+- Wait for GitHub Actions to finish successfully, including its published-site browser checks. A successful push, commit, local build, or CI export alone does not mean the update is complete.
+- Reload and inspect the actual production URL after deployment. Compare it with localhost at the same viewport: confirm the source bundle and required assets are the expected ones, check important rendered bounds and state, and exercise the affected interactions. For bridge work, inspect screen alignment plus cargo doors open/closed; for other changes, verify the affected gameplay flow.
+- If the live page still shows stale or different behavior/assets, stop and diagnose the exact cause. Do not report success or move on until the production page is verified against the committed local version. Clearly report any verification that is still pending or blocked.
+- Finish with no uncommitted tracked changes. Keep release provenance explicit: deployment URL, full commit SHA, CI result, and what was actually checked in the live browser.
