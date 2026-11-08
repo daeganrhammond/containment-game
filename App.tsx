@@ -41,7 +41,6 @@ const VISTA_UNLOCKS_KEY = 'trap-game-picture-vista-unlocks-v1';
 const MANUAL_SAVE_KEY = 'trap-game-manual-save-v1';
 const CARGO_SHAPES_KEY = 'trap-game-cargo-shapes-v1';
 const progressionStorage = createProgressionStorage(AsyncStorage);
-const BRIDGE_INTERIOR_VARIANT_KEY = 'trap-game-bridge-interior-variant-v1';
 const CREDIT_SYMBOL_ART: Record<string, number> = {
   sunshard: require('./assets/credits/sunshard.png'),
   'circuit-chit': require('./assets/credits/circuit-chit.png'),
@@ -300,32 +299,16 @@ function BridgePulse({ delay = 0, color = '#75f4dc' }: { delay?: number; color?:
 }
 
 // Transparent foreground cutout: the glass is no longer baked to the default vista.
-const BRIDGE_INTERIOR_INTEGRATED_LIVE_ART = require('./assets/bridge-command-foreground-foundry-smelt-refit-gold-hd2x.webp');
-const BRIDGE_INTERIOR_INTEGRATED_LIVE_OPEN_ART = require('./assets/bridge-command-foreground-foundry-smelt-refit-gold-cargo-open-hd2x.webp');
-const BRIDGE_INTERIOR_CATHEDRAL_LIVE_ART = require('./assets/bridge-command-cathedral-foundry-live-hd2x.webp');
-const BRIDGE_INTERIOR_CATHEDRAL_EMISSION = require('./assets/bridge-ambient-emission-cathedral-alt.png');
-
-function BridgeInterior({ variant, cargoBayOpen }: { variant: 'original' | 'cathedral'; cargoBayOpen: boolean }) {
+const BRIDGE_INTERIOR_INTEGRATED_LIVE_ART = require('./assets/bridge-command-foreground-foundry-smelt-refit-gold-detail.png');
+const BRIDGE_INTERIOR_INTEGRATED_LIVE_OPEN_ART = require('./assets/bridge-command-foreground-foundry-smelt-refit-gold-cargo-open-detail.png');
+function BridgeInterior({ cargoBayOpen }: { cargoBayOpen: boolean }) {
   const [frame, setFrame] = useState({ width: 0, height: 0 });
-  const [lightFlicker] = useState(() => new Animated.Value(0.35));
   const [cargoBayMotion] = useState(() => new Animated.Value(cargoBayOpen ? 1 : 0));
-  useEffect(() => {
-    const flicker = Animated.loop(Animated.sequence([
-      Animated.timing(lightFlicker, { toValue: 0.76, duration: 2600, easing: Easing.inOut(Easing.sin), useNativeDriver: true, isInteraction: false }),
-      Animated.timing(lightFlicker, { toValue: 0.55, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true, isInteraction: false }),
-      Animated.timing(lightFlicker, { toValue: 0.7, duration: 380, useNativeDriver: true, isInteraction: false }),
-      Animated.timing(lightFlicker, { toValue: 0.34, duration: 520, useNativeDriver: true, isInteraction: false }),
-      Animated.timing(lightFlicker, { toValue: 0.48, duration: 3200, easing: Easing.inOut(Easing.sin), useNativeDriver: true, isInteraction: false }),
-    ]));
-    flicker.start();
-    return () => flicker.stop();
-  }, [lightFlicker]);
   useEffect(() => {
     Animated.timing(cargoBayMotion, { toValue: cargoBayOpen ? 1 : 0, duration: cargoBayOpen ? 520 : 440, easing: Easing.inOut(Easing.cubic), useNativeDriver: true, isInteraction: false }).start();
   }, [cargoBayMotion, cargoBayOpen]);
-  const interiorArt = variant === 'cathedral' ? BRIDGE_INTERIOR_CATHEDRAL_LIVE_ART : BRIDGE_INTERIOR_INTEGRATED_LIVE_ART;
-  const cargoOpenArt = variant === 'cathedral' ? BRIDGE_INTERIOR_CATHEDRAL_LIVE_ART : BRIDGE_INTERIOR_INTEGRATED_LIVE_OPEN_ART;
-  const interiorEmission = variant === 'cathedral' ? BRIDGE_INTERIOR_CATHEDRAL_EMISSION : null;
+  const interiorArt = BRIDGE_INTERIOR_INTEGRATED_LIVE_ART;
+  const cargoOpenArt = BRIDGE_INTERIOR_INTEGRATED_LIVE_OPEN_ART;
   const imageAspect = BRIDGE_ART_ASPECT;
   const imageWidth = Math.min(frame.width, frame.height * imageAspect);
   const imageHeight = imageWidth / imageAspect;
@@ -337,7 +320,6 @@ function BridgeInterior({ variant, cargoBayOpen }: { variant: 'original' | 'cath
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
         <Animated.Image testID="bridge-cargo-bay-closed-art" source={interiorArt} resizeMode="stretch" style={{ width: imageWidth, height: imageHeight, opacity: cargoBayMotion.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }} />
         <Animated.Image testID="bridge-cargo-bay-open-art" source={cargoOpenArt} resizeMode="stretch" style={{ position: 'absolute', left: 0, top: 0, width: imageWidth, height: imageHeight, opacity: cargoBayMotion }} />
-        {interiorEmission && <Animated.Image source={interiorEmission} resizeMode="stretch" style={{ position: 'absolute', left: 0, top: 0, width: imageWidth, height: imageHeight, opacity: lightFlicker }} />}
       </View>
     </View>}
   </View>;
@@ -658,7 +640,6 @@ export default function App() {
   const [selectedBridgeVistaId, setSelectedBridgeVistaId] = useState<string | null>(null);
   const [bridgeVistaNotice, setBridgeVistaNotice] = useState('Import a photo to pin it outside the bridge windows. Auto restores rotating scenery.');
   const [bridgeVistaOpen, setBridgeVistaOpen] = useState(false);
-  const [bridgeInteriorVariant, setBridgeInteriorVariant] = useState<'original' | 'cathedral'>('original');
   const [waldoLibrary, setWaldoLibraryState] = useState<WaldoLibraryEntry[]>([]);
   const waldoLibraryRef = useRef(waldoLibrary);
   const [waldoLibraryNotice, setWaldoLibraryNotice] = useState('Generated Waldo puzzles saved here can appear only in future Waldo events.');
@@ -672,10 +653,9 @@ export default function App() {
         applyArchive(restoredProgression.archive);
         setProgressionReady(true);
         const save = restoredProgression.active ? JSON.stringify(restoredProgression.active) : null;
-        const [settingsSave, profilesSave, skinsSave, pictureLibrarySave, bridgeVistaSave, waldoLibrarySave, skinUnlocksSave, legacySkinUnlocksSave, manualSaveData, vistaUnlocksSave, bridgeInteriorSave, cargoShapesSave] = await Promise.all([AsyncStorage.getItem(SETTINGS_KEY), AsyncStorage.getItem(PROFILES_KEY), AsyncStorage.getItem(SKINS_KEY), AsyncStorage.getItem(PICTURE_LIBRARY_KEY), AsyncStorage.getItem(BRIDGE_VISTA_LIBRARY_KEY), AsyncStorage.getItem(WALDO_LIBRARY_KEY), AsyncStorage.getItem(SKIN_UNLOCKS_V2_KEY), AsyncStorage.getItem('trap-game-skin-unlocks-v1'), AsyncStorage.getItem(MANUAL_SAVE_KEY), AsyncStorage.getItem(VISTA_UNLOCKS_KEY), AsyncStorage.getItem(BRIDGE_INTERIOR_VARIANT_KEY), AsyncStorage.getItem(CARGO_SHAPES_KEY)]);
+        const [settingsSave, profilesSave, skinsSave, pictureLibrarySave, bridgeVistaSave, waldoLibrarySave, skinUnlocksSave, legacySkinUnlocksSave, manualSaveData, vistaUnlocksSave, cargoShapesSave] = await Promise.all([AsyncStorage.getItem(SETTINGS_KEY), AsyncStorage.getItem(PROFILES_KEY), AsyncStorage.getItem(SKINS_KEY), AsyncStorage.getItem(PICTURE_LIBRARY_KEY), AsyncStorage.getItem(BRIDGE_VISTA_LIBRARY_KEY), AsyncStorage.getItem(WALDO_LIBRARY_KEY), AsyncStorage.getItem(SKIN_UNLOCKS_V2_KEY), AsyncStorage.getItem('trap-game-skin-unlocks-v1'), AsyncStorage.getItem(MANUAL_SAVE_KEY), AsyncStorage.getItem(VISTA_UNLOCKS_KEY), AsyncStorage.getItem(CARGO_SHAPES_KEY)]);
         const restoredCargoShapes: CargoShapes = cargoShapesSave ? JSON.parse(cargoShapesSave) as CargoShapes : {};
         setCargoShapes(restoredCargoShapes);
-        setBridgeInteriorVariant(bridgeInteriorSave === 'cathedral' ? 'cathedral' : 'original');
         const pairedVistaIds = BUILT_IN_BRIDGE_VISTAS.filter(scene => scene.pictureEventUnlock).map(scene => scene.id);
         const restoredVistaIds: string[] = vistaUnlocksSave ? JSON.parse(vistaUnlocksSave) : [];
         const validUnlockedVistaIds = restoredVistaIds.filter(id => pairedVistaIds.includes(id));
@@ -727,7 +707,7 @@ export default function App() {
 
   useEffect(() => { if (loaded) AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(tuning)).catch(() => {}); }, [loaded, tuning]);
   useEffect(() => { if (loaded) AsyncStorage.setItem(CARGO_SHAPES_KEY, JSON.stringify(cargoShapes)).catch(() => {}); }, [loaded, cargoShapes]);
-  useEffect(() => { if (loaded) AsyncStorage.setItem(BRIDGE_INTERIOR_VARIANT_KEY, bridgeInteriorVariant).catch(() => {}); }, [loaded, bridgeInteriorVariant]);
+  useEffect(() => { if (loaded) AsyncStorage.removeItem('trap-game-bridge-interior-variant-v1').catch(() => {}); }, [loaded]);
   useEffect(() => { if (loaded) AsyncStorage.setItem(PROFILES_KEY, JSON.stringify(profiles)).catch(() => {}); }, [loaded, profiles]);
   useEffect(() => {
     const settings = normalizeMechanicsSettings(tuning);
@@ -1484,7 +1464,7 @@ export default function App() {
   const portraitBridge = uiHeight > uiWidth;
   const bridgeArtWidth = bridgeCanvasSize.width > 0 && bridgeCanvasSize.height > 0 ? Math.min(bridgeCanvasSize.width, bridgeCanvasSize.height * BRIDGE_ART_ASPECT) : 0;
   const bridgeArtHeight = bridgeArtWidth / BRIDGE_ART_ASPECT;
-  const bridgeLivePanel = BRIDGE_CONSOLE_PANELS[bridgeInteriorVariant].live;
+  const bridgeLivePanel = BRIDGE_CONSOLE_PANELS.original.live;
   const bridgeWindowBounds = bridgeArtWidth > 0 ? {
     left: (bridgeCanvasSize.width - bridgeArtWidth) / 2 + bridgeArtWidth * BRIDGE_BOARD_VIEW.left,
     top: (bridgeCanvasSize.height - bridgeArtHeight) / 2 + bridgeArtHeight * BRIDGE_BOARD_VIEW.top,
@@ -1801,7 +1781,6 @@ export default function App() {
         <SettingChoiceRow label="Window theme" value={developerVistaId ?? 'auto'} options={[{ id: 'auto', label: 'AUTO ROTATION' }, ...bridgeVistaScenes.map(scene => ({ id: scene.id, label: scene.name }))]} onChange={value => setDeveloperVistaId(value === 'auto' ? null : value)} />
         <Text style={styles.sectionTitle}>BRIDGE INTERIOR</Text>
         <Text style={styles.devHint}>Switch the bridge interior independently of the outside vista. The selected interior is saved on this device.</Text>
-        <SettingChoiceRow label="Interior layout" value={bridgeInteriorVariant} options={[{ id: 'original', label: 'ORIGINAL BRIDGE' }, { id: 'cathedral', label: 'CATHEDRAL ALTERNATIVE' }]} onChange={value => setBridgeInteriorVariant(value === 'cathedral' ? 'cathedral' : 'original')} />
         <Text style={styles.sectionTitle}>SKIN CATALOG</Text>
         <SkinSelectRow label="Arena background" value={skinSelections.background} previewKind="background" options={BACKGROUND_SKINS} onChange={id => {
           const index = BACKGROUND_SKINS.findIndex(skin => skin.id === id);
@@ -2068,7 +2047,7 @@ export default function App() {
         onPointerDown={event => pointerGesture(event, 'start')}
         onPointerUp={event => pointerGesture(event, 'end')}
         onPointerCancel={event => pointerGesture(event, 'cancel')} />}
-      <BridgeInterior variant={bridgeInteriorVariant} cargoBayOpen={bridgeCargoBayOpen} />
+      <BridgeInterior cargoBayOpen={bridgeCargoBayOpen} />
       <View pointerEvents="none" style={styles.commandImageShade} />
       {bridgeSimView === 'window' && bridgeWindowBounds && bridgeStageBounds && <View pointerEvents="box-none" style={[styles.bridgeWindowControls, { left: bridgeToolbarOnTop ? bridgeWindowBounds.left : bridgeStageBounds.left + bridgeStageBounds.width, top: bridgeToolbarOnTop ? bridgeWindowBounds.top : bridgeWindowBounds.top, width: bridgeToolbarOnTop ? bridgeWindowBounds.width : bridgeToolbarSize, height: bridgeToolbarOnTop ? bridgeToolbarSize : bridgeWindowBounds.height }]}>
         <View style={[styles.bridgeWindowControlBar, { flexDirection: bridgeToolbarOnTop ? 'row' : 'column', justifyContent: bridgeToolbarOnTop ? 'space-between' : 'center', height: '100%', paddingHorizontal: bridgeToolbarOnTop ? 4 : 2, paddingVertical: bridgeToolbarOnTop ? 1 : 4 }]}>
@@ -2108,11 +2087,10 @@ export default function App() {
           <View style={styles.bridgeWelcome}><View><Text style={styles.menuEyebrow}>COMMAND BRIDGE · DEEP SPACE</Text><Text style={[styles.bridgeWelcomeTitle, compactBridge && styles.bridgeWelcomeTitleCompact]}>Welcome aboard</Text></View><View style={styles.bridgeWelcomeActions}><Pressable style={styles.bridgeVistaTrigger} onPress={() => setBridgeVistaOpen(true)}><Text style={styles.bridgeVistaTriggerText}>VISTA · {developerVistaId ? 'DEV PINNED' : pinnedBridgeVista ? 'PINNED' : 'AUTO'}</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Open Developer Systems Access" onPress={() => { setMenuPage(null); setActiveTab('developer'); }} style={styles.bridgeReady}><BridgePulse delay={240} /><Text style={styles.bridgeReadyText}>{running ? 'SECTOR LIVE' : paused ? 'SECTOR PAUSED' : 'SYSTEMS READY'}</Text></Pressable></View></View>
         </View>
       </View>
-      {bridgeArtWidth > 0 && bridgeArtHeight > 0 && <View pointerEvents="box-none" style={{ position: 'absolute', zIndex: 80, left: (bridgeCanvasSize.width - bridgeArtWidth) / 2, top: (bridgeCanvasSize.height - bridgeArtHeight) / 2, width: bridgeArtWidth, height: bridgeArtHeight }}>
+      {bridgeArtWidth > 0 && bridgeArtHeight > 0 && <View testID="bridge-art-canvas" pointerEvents="box-none" style={{ position: 'absolute', zIndex: 80, left: (bridgeCanvasSize.width - bridgeArtWidth) / 2, top: (bridgeCanvasSize.height - bridgeArtHeight) / 2, width: bridgeArtWidth, height: bridgeArtHeight }}>
         <BridgeInteriorAmbience
           width={bridgeArtWidth}
           height={bridgeArtHeight}
-          bridgeVariant={bridgeInteriorVariant}
           cargoBalances={cargoBalancesFromRun(run)}
           sector={run.sector}
           cargoShapes={run.cargoShapes ?? cargoShapes}
@@ -2141,13 +2119,13 @@ export default function App() {
           canStartRun={!hasSave || run.ended === true}
           onResume={resume}
           onStartRun={() => { void startFresh(); }}
-          onNavConsole={() => setBridgeRailVisible(visible => !visible)}
+          onNavConsole={() => setMenuPage('route-atlas')}
           onDeveloper={() => { setMenuPage(null); setActiveTab('developer'); }}
           themeValue={Object.entries(themeSelectionMap).filter(([category, id]) => id !== SKIN_DEFAULTS[category]).length ? 'CUSTOM LOADOUT' : 'STANDARD'}
           scoreValue={scores[0] ? `STAGE ${String(scores[0].level).padStart(2, '0')}` : 'NO RECORD'}
           navConsoleOpen={bridgeRailVisible}
         />
-        {persistentProfile.crew.map(member => <BridgeCrewMember key={member.id} width={bridgeArtWidth} height={bridgeArtHeight} bridgeVariant={bridgeInteriorVariant} member={member} duty={run.progression?.crewAssignments?.[member.id]} onAssign={roleId => assignCrewDuty(member.id, roleId)} />)}
+        {persistentProfile.crew.map(member => <BridgeCrewMember key={member.id} width={bridgeArtWidth} height={bridgeArtHeight} member={member} duty={run.progression?.crewAssignments?.[member.id]} onAssign={roleId => assignCrewDuty(member.id, roleId)} />)}
         {menuPage === 'crew-systems' && <CrewSystemsTerminal
           crew={persistentProfile.crew}
           crewCapacity={crewCapacity(persistentProfile.capacityUpgradeLevels.crew)}

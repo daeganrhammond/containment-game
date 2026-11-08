@@ -9,7 +9,6 @@ import type { SectorState } from './sectorMap';
 type Props = {
   width: number;
   height: number;
-  bridgeVariant: 'original' | 'cathedral';
   themeValue: string;
   scoreValue: string;
   navConsoleOpen: boolean;
@@ -45,35 +44,21 @@ type Props = {
   canStartRun: boolean;
 };
 
-// Normalized to the 1672×941 refit. Each bound is inset to the visible glass,
-// following the physical cant of its monitor. The wide starboard display has
-// Jump / Atlas modes; the far-starboard glass is the live sector preview.
+// Normalized to the single canonical 1672×941 bridge art. Each screen and hit
+// target stays inside its own measured glass inset and follows its physical tilt.
 const PANEL = {
   original: {
-    credits: { x: 0.029, y: 0.72, w: 0.061, h: 0.052, angle: '-8deg' },
-    themes: { x: 0.131, y: 0.713, w: 0.082, h: 0.057, angle: '-8deg' },
-    scores: { x: 0.239, y: 0.704, w: 0.083, h: 0.062, angle: '-12deg' },
-    jump: { x: 0.696, y: 0.713, w: 0.176, h: 0.077, angle: '5deg' },
-    live: { x: 0.902, y: 0.727, w: 0.071, h: 0.055, angle: '7deg' },
-    cargoScreen: { x: 0.029, y: 0.72, w: 0.061, h: 0.052, angle: '-8deg' },
+    credits: { x: 0.025, y: 0.744, w: 0.068, h: 0.05 },
+    themes: { x: 0.128, y: 0.727, w: 0.084, h: 0.041, angle: '-3deg' },
+    scores: { x: 0.241, y: 0.72, w: 0.06, h: 0.047, angle: '-7deg' },
+    jump: { x: 0.704, y: 0.718, w: 0.058, h: 0.046, angle: '6deg' },
+    live: { x: 0.785, y: 0.738, w: 0.078, h: 0.039, angle: '4deg' },
+    nav: { x: 0.894, y: 0.75, w: 0.076, h: 0.05, angle: '4deg' },
     cargoHit: { x: 0.119, y: 0.765, w: 0.11, h: 0.115 },
-    cargoReadout: { x: 0.029, y: 0.72, w: 0.061, h: 0.052, angle: '-8deg' },
-    systemAction: { x: 0.435, y: 0.692, w: 0.13, h: 0.028 },
-  },
-  cathedral: {
-    themes: { x: 0.106, y: 0.714, w: 0.105, h: 0.083, angle: '-8deg' },
-    scores: { x: 0.217, y: 0.714, w: 0.105, h: 0.083, angle: '-8deg' },
-    jump: { x: 0.681, y: 0.714, w: 0.105, h: 0.083, angle: '8deg' },
-    live: { x: 0.792, y: 0.714, w: 0.105, h: 0.083, angle: '8deg' },
-    nav: { x: 0.792, y: 0.714, w: 0.105, h: 0.083, angle: '8deg' },
-    cargoScreen: { x: 0.106, y: 0.714, w: 0.105, h: 0.083 },
-    cargoHit: { x: 0.106, y: 0.797, w: 0.13, h: 0.105 },
-    cargoReadout: { x: 0.119, y: 0.779, w: 0.095, h: 0.018 },
-    systemAction: { x: 0.681, y: 0.802, w: 0.105, h: 0.035 },
   },
 } as const;
 
-type MainPanel = 'themes' | 'scores' | 'jump';
+type MainPanel = 'themes' | 'scores' | 'jump' | 'nav';
 function ConsolePanel({ kind, x, y, w, h, angle, color, headline, onPress, onAtlas, accessibilityLabel, sector }: {
   kind: MainPanel; x: number; y: number; w: number; h: number; angle: string; color: string;
   headline: string; onPress: () => void; onAtlas?: () => void; accessibilityLabel: string; sector?: SectorState;
@@ -108,7 +93,7 @@ function ConsolePanel({ kind, x, y, w, h, angle, color, headline, onPress, onAtl
   const scanOpacity = motion.interpolate({ inputRange: [0, 0.035, 0.94, 1], outputRange: [0, 0.64, 0.64, 0] });
   const scoreLabel = headline.match(/\d+/)?.[0] ?? '—';
   const themeGlyph = headline.includes('CUSTOM') ? '✧' : '✦';
-  return <View pointerEvents="box-none" style={{ position: 'absolute', left: x, top: y, width: w, height: h }}>
+  return <View testID={`bridge-console-${kind}`} pointerEvents="box-none" style={{ position: 'absolute', left: x, top: y, width: w, height: h }}>
     <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, overflow: 'hidden', transform: [{ rotate: angle }], paddingHorizontal: contentInsetX, paddingVertical: contentInsetY }}>
       {kind === 'themes' ? <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
         <Animated.View style={{ position: 'absolute', width: '48%', height: '82%', borderWidth: 0.7, borderColor: `${color}75`, borderRadius: 40, transform: [{ rotate }] }} />
@@ -174,6 +159,11 @@ function ConsolePanel({ kind, x, y, w, h, angle, color, headline, onPress, onAtl
             {atlasMode && <View style={{ width: 5, height: 1.5, marginTop: -1, borderRadius: 2, backgroundColor: color }} />}
           </View>
         </View>
+      </View> : kind === 'nav' ? <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-evenly', overflow: 'hidden' }}>
+        <Animated.Text style={{ color, fontSize: Math.max(8, h * 0.48), opacity: motion.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.58, 1, 0.58] }), transform: [{ rotate }] }}>⌖</Animated.Text>
+        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', marginHorizontal: 2 }}>
+          {[0, 1, 2, 3].map((point, i) => <React.Fragment key={point}>{i > 0 && <View style={{ flex: 1, height: 1, backgroundColor: `${color}66` }} />}<Animated.View style={{ width: i === 3 ? 4 : 2.5, height: i === 3 ? 4 : 2.5, backgroundColor: i === 3 ? '#fff0ad' : color, borderRadius: i === 3 ? 0 : 3, opacity: motion.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.5, 1, 0.5] }) }} /></React.Fragment>)}
+        </View>
       </View> : <View style={{ flex: 1, justifyContent: 'center', overflow: 'hidden' }}>
         <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' }}>
           {[0, 1, 2, 3, 4].map((point, i) => <React.Fragment key={point}>{i > 0 && <View style={{ flex: 1, height: 1, backgroundColor: `${color}55` }} />}<Animated.View style={{ width: i === 2 ? 5 : 3, height: i === 2 ? 5 : 3, borderRadius: i === 2 ? 0 : 3, backgroundColor: i === 2 ? '#fff0ad' : color, transform: [{ rotate: '45deg' }], opacity: motion.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.5, 1, 0.5] }) }} /></React.Fragment>)}
@@ -191,19 +181,21 @@ function ConsolePanel({ kind, x, y, w, h, angle, color, headline, onPress, onAtl
 }
 
 /** Interactive controls are rendered flush onto blank glass in the rebuilt console assembly. */
-export function BridgeInteriorAmbience({ width, height, bridgeVariant, themeValue, scoreValue, jumpReady, canResume, canStartRun, navConsoleOpen, cargoOpen, cargoDoorHeldOpen, cargoBalances, cargoShapes, foundryJobs, foundryPayouts, currentCredits, foundryProcessingMs, foundrySelectedMaterial, foundryCanSmelt, renderFoundryPickup, renderCreditIcon, stageFeed, sector, onCargo, onFoundry, onFoundrySmelt, onFoundryCollect, onCargoBayStateChange, onCargoDoorHoldChange, onThemes, onScores, onJump, onResume, onStartRun, onNavConsole, onDeveloper }: Props) {
-  const panel = PANEL[bridgeVariant];
+export function BridgeInteriorAmbience({ width, height, themeValue, scoreValue, jumpReady, canResume, canStartRun, navConsoleOpen, cargoOpen, cargoDoorHeldOpen, cargoBalances, cargoShapes, foundryJobs, foundryPayouts, currentCredits, foundryProcessingMs, foundrySelectedMaterial, foundryCanSmelt, renderFoundryPickup, renderCreditIcon, stageFeed, sector, onCargo, onFoundry, onFoundrySmelt, onFoundryCollect, onCargoBayStateChange, onCargoDoorHoldChange, onThemes, onScores, onJump, onResume, onStartRun, onNavConsole, onDeveloper }: Props) {
+  const panel = PANEL.original;
+  const navPanel = PANEL.original.nav;
   const jumpAction = jumpReady ? onJump : canResume ? onResume : onStartRun;
   const jumpHeadline = jumpReady ? 'BEACON AVAILABLE' : canResume ? 'RUN IN PROGRESS' : canStartRun ? 'SYSTEMS READY' : 'UNAVAILABLE';
   return <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, top: 0, width, height, overflow: 'visible' }}>
     <ConsolePanel kind="themes" x={width * panel.themes.x} y={height * panel.themes.y} w={width * panel.themes.w} h={height * panel.themes.h} angle={panel.themes.angle} color="#75e8db" headline={themeValue} onPress={onThemes} accessibilityLabel="Open Themes" />
     <ConsolePanel kind="scores" x={width * panel.scores.x} y={height * panel.scores.y} w={width * panel.scores.w} h={height * panel.scores.h} angle={panel.scores.angle} color="#94bbff" headline={scoreValue} onPress={onScores} accessibilityLabel="Open Scores and Captain’s Log" />
     <ConsolePanel kind="jump" x={width * panel.jump.x} y={height * panel.jump.y} w={width * panel.jump.w} h={height * panel.jump.h} angle={panel.jump.angle} color="#f6cd7c" headline={jumpHeadline} sector={sector} onPress={jumpAction} onAtlas={onNavConsole} accessibilityLabel={jumpReady ? 'Open Starmap Jump or Route Atlas' : canResume ? 'Resume active run or open Route Atlas' : canStartRun ? 'Start a new run or open Route Atlas' : 'Starmap Jump unavailable; open Route Atlas'} />
+    {navPanel && <ConsolePanel kind="nav" x={width * navPanel.x} y={height * navPanel.y} w={width * navPanel.w} h={height * navPanel.h} angle={navPanel.angle} color="#79d9ea" headline="NAVIGATION" onPress={onNavConsole} accessibilityLabel="Open Bay Navigation" />}
     {stageFeed}
-    {!navConsoleOpen && <BridgeFoundryStation width={width} height={height} jobs={foundryJobs} payouts={foundryPayouts} balances={cargoBalances} processingMs={foundryProcessingMs} selectedMaterial={foundrySelectedMaterial} canSmelt={foundryCanSmelt} onSmelt={onFoundrySmelt} onCollect={onFoundryCollect} onOpen={onFoundry} renderPickup={renderFoundryPickup} renderCredit={renderCreditIcon} variant={bridgeVariant} />}
-    {!navConsoleOpen && bridgeVariant === 'original' && <BridgeCreditReadout width={width} height={height} credits={currentCredits} renderCredit={renderCreditIcon} bounds={PANEL.original.credits} />}
-    {!navConsoleOpen && bridgeVariant === 'original' && <BridgePanelButtons width={width} height={height} />}
-    {!navConsoleOpen && <BridgeCargoAlcove width={width} height={height} balances={cargoBalances} shapes={cargoShapes} onOpen={onCargo} inventoryOpen={cargoOpen} holdDoorOpen={cargoDoorHeldOpen} onHoldDoorOpenChange={onCargoDoorHoldChange} variant={bridgeVariant} onBayStateChange={onCargoBayStateChange} hitbox={{ left: panel.cargoHit.x, top: panel.cargoHit.y, width: panel.cargoHit.w, height: panel.cargoHit.h }} display={null} />}
+    {!navConsoleOpen && <BridgeFoundryStation width={width} height={height} jobs={foundryJobs} payouts={foundryPayouts} balances={cargoBalances} processingMs={foundryProcessingMs} selectedMaterial={foundrySelectedMaterial} canSmelt={foundryCanSmelt} onSmelt={onFoundrySmelt} onCollect={onFoundryCollect} onOpen={onFoundry} renderPickup={renderFoundryPickup} renderCredit={renderCreditIcon} />}
+    {!navConsoleOpen && <BridgeCreditReadout width={width} height={height} credits={currentCredits} renderCredit={renderCreditIcon} bounds={PANEL.original.credits} />}
+    {!navConsoleOpen && <BridgePanelButtons width={width} height={height} />}
+    {!navConsoleOpen && <BridgeCargoAlcove width={width} height={height} balances={cargoBalances} shapes={cargoShapes} onOpen={onCargo} inventoryOpen={cargoOpen} holdDoorOpen={cargoDoorHeldOpen} onHoldDoorOpenChange={onCargoDoorHoldChange} onBayStateChange={onCargoBayStateChange} hitbox={{ left: panel.cargoHit.x, top: panel.cargoHit.y, width: panel.cargoHit.w, height: panel.cargoHit.h }} display={null} />}
   </View>;
 }
 

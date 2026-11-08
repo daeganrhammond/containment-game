@@ -125,3 +125,9 @@ Docs: https://docs.expo.dev/eas/index.md
 ### Crew and pet content scope
 
 - Crew/pet infrastructure and character content are separate approvals. Until the user asks to design a specific crew member or pet, implement only generic roster/data contracts, recruitment, duties, behavior/pathing hooks, and neutral abstract proxies where needed to exercise those systems. Do not invent names, species, portraits, models, personalities, traits, dialogue, or individual bonuses. Define each character or pet one at a time in a separate, user-reviewed content step.
+
+## Canonical bridge interior
+
+- The only playable interior is the integrated original bridge. Do not add alternate layouts, layout selectors, saved layout preferences, or alternate bridge foreground assets.
+- The sole active art pair is the closed and cargo-open `*-gold-detail.png` foreground pair documented in `ART_ASSET_HANDOFF.md`. Keep runtime visuals and hit targets on its measured screen insets; never substitute duplicate HD2x/WebP or historical art files.
+- Before publishing bridge changes, inspect the actual localhost render and verify the individual console placements and cargo door state, then inspect the exact published build. A matching commit or loaded image is not visual proof.

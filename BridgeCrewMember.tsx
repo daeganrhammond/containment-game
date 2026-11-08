@@ -4,22 +4,18 @@ import type { RosterMember } from './progression';
 import { CREW_ROLES } from './crew';
 
 const WALK_LANES = {
-  original: [
+  lanes: [
     [{ x: 0.355, y: 0.862 }, { x: 0.392, y: 0.902 }, { x: 0.364, y: 0.925 }],
     [{ x: 0.646, y: 0.925 }, { x: 0.681, y: 0.89 }, { x: 0.651, y: 0.858 }],
   ],
-  cathedral: [
-    [{ x: 0.347, y: 0.872 }, { x: 0.379, y: 0.915 }, { x: 0.35, y: 0.936 }],
-    [{ x: 0.651, y: 0.936 }, { x: 0.683, y: 0.905 }, { x: 0.654, y: 0.87 }],
-  ],
 } as const;
 
-type Props = { width: number; height: number; bridgeVariant: 'original' | 'cathedral'; member: RosterMember; duty?: string; onAssign: (roleId: string) => void };
+type Props = { width: number; height: number; member: RosterMember; duty?: string; onAssign: (roleId: string) => void };
 
 /** Generic pathing/status proxy. Future crew art plugs into this measured movement layer. */
-export function BridgeCrewMember({ width, height, bridgeVariant, member, duty, onAssign }: Props) {
+export function BridgeCrewMember({ width, height, member, duty, onAssign }: Props) {
   const laneIndex = member.id.charCodeAt(member.id.length - 1) % 2;
-  const anchors = WALK_LANES[bridgeVariant][laneIndex];
+  const anchors = WALK_LANES.lanes[laneIndex];
   const start = anchors[0];
   const [x] = useState(() => new Animated.Value(start.x * width));
   const [y] = useState(() => new Animated.Value(start.y * height));

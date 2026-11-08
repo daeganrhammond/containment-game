@@ -7,10 +7,10 @@ import type { FoundryPayout, OverflowJob, PowerKind } from './mechanics';
 const REFINABLE: CargoItemId[] = ['life', 'speed', 'ram', 'charge'];
 
 /** Live inventory, process, and output interactions fitted to the foundry cut into the bridge deck. */
-export function BridgeFoundryStation({ width, height, jobs, payouts, balances, processingMs, selectedMaterial, canSmelt, onSmelt, onCollect, onOpen, renderPickup, renderCredit, variant = 'original' }: {
+export function BridgeFoundryStation({ width, height, jobs, payouts, balances, processingMs, selectedMaterial, canSmelt, onSmelt, onCollect, onOpen, renderPickup, renderCredit }: {
   width: number; height: number; jobs: OverflowJob[]; payouts: FoundryPayout[]; balances: CargoBalances; processingMs: number;
   selectedMaterial: 'life' | 'speed' | 'ram' | 'charge'; canSmelt: boolean; onSmelt: () => void; onCollect: (payoutIds: readonly number[]) => void; onOpen: () => void;
-  renderPickup: (kind: PowerKind, size: number) => React.ReactNode; renderCredit: (size: number) => React.ReactNode; variant?: 'original' | 'cathedral';
+  renderPickup: (kind: PowerKind, size: number) => React.ReactNode; renderCredit: (size: number) => React.ReactNode;
 }) {
   const [heat] = useState(() => new Animated.Value(0.3));
   const [trayPulse] = useState(() => new Animated.Value(0.4));
@@ -25,9 +25,7 @@ export function BridgeFoundryStation({ width, height, jobs, payouts, balances, p
   const totalPayout = payouts.reduce((sum, payout) => sum + Math.max(0, Math.floor(payout.credits)), 0);
   const payoutCount = payouts.length;
   const totalQueued = jobs.length;
-  const geometry = variant === 'original'
-    ? { machine: { x: 0.286, y: 0.596, w: 0.43, h: 0.21 }, status: { x: 0.426, y: 0.607, w: 0.148, h: 0.035 }, crucible: { x: 0.481, y: 0.681, w: 0.05, h: 0.073 }, conveyor: { x: 0.345, y: 0.696, w: 0.09, h: 0.03 }, smeltButton: { x: 0.613, y: 0.779, w: 0.03, h: 0.022 }, rack: { x: 0.602, y: 0.651, w: 0.056, h: 0.122 }, tray: { x: 0.566, y: 0.738, w: 0.066, h: 0.036 } }
-    : { machine: { x: 0.286, y: 0.665, w: 0.43, h: 0.225 }, status: { x: 0.438, y: 0.676, w: 0.124, h: 0.035 }, crucible: { x: 0.481, y: 0.739, w: 0.05, h: 0.073 }, conveyor: { x: 0.345, y: 0.754, w: 0.09, h: 0.03 }, smeltButton: { x: 0.575, y: 0.837, w: 0.056, h: 0.045 }, rack: { x: 0.602, y: 0.717, w: 0.056, h: 0.122 }, tray: { x: 0.628, y: 0.848, w: 0.047, h: 0.039 } };
+  const geometry = { machine: { x: 0.286, y: 0.596, w: 0.43, h: 0.21 }, status: { x: 0.426, y: 0.607, w: 0.148, h: 0.035 }, crucible: { x: 0.481, y: 0.681, w: 0.05, h: 0.073 }, conveyor: { x: 0.345, y: 0.696, w: 0.09, h: 0.03 }, smeltButton: { x: 0.613, y: 0.779, w: 0.03, h: 0.022 }, rack: { x: 0.602, y: 0.651, w: 0.056, h: 0.122 }, tray: { x: 0.566, y: 0.738, w: 0.066, h: 0.036 } };
 
   useEffect(() => {
     const loop = Animated.loop(Animated.sequence([

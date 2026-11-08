@@ -54,3 +54,30 @@ test('bridge command screen stacks above web-only navigation', async ({ page }) 
   expect(bridgeZ, 'ship bridge must layer above the web-only application header').toBeGreaterThan(headerZ);
   await page.screenshot({ path: 'playwright-output/bridge-home-layering.png' });
 });
+
+test('canonical bridge screens stay on their measured glass bounds', async ({ page }) => {
+  await page.goto('./');
+  const art = page.getByTestId('bridge-art-canvas');
+  const score = page.getByTestId('bridge-console-scores');
+  const jump = page.getByTestId('bridge-console-jump');
+  const nav = page.getByTestId('bridge-console-nav');
+  await expect(art).toBeVisible();
+  await expect(score).toBeVisible();
+  await expect(jump).toBeVisible();
+  await expect(nav).toBeVisible();
+
+  const [canvasBox, scoreBox, jumpBox, navBox] = await Promise.all([
+    art.boundingBox(), score.boundingBox(), jump.boundingBox(), nav.boundingBox(),
+  ]);
+  expect(canvasBox).not.toBeNull();
+  expect(scoreBox).not.toBeNull();
+  expect(jumpBox).not.toBeNull();
+  expect(navBox).not.toBeNull();
+  expect((scoreBox!.x - canvasBox!.x) / canvasBox!.width).toBeCloseTo(0.241, 2);
+  expect(scoreBox!.width / canvasBox!.width).toBeCloseTo(0.06, 2);
+  expect((jumpBox!.x - canvasBox!.x) / canvasBox!.width).toBeCloseTo(0.704, 2);
+  expect(jumpBox!.width / canvasBox!.width).toBeCloseTo(0.058, 2);
+  expect((navBox!.x - canvasBox!.x) / canvasBox!.width).toBeCloseTo(0.894, 2);
+  expect(navBox!.width / canvasBox!.width).toBeCloseTo(0.076, 2);
+
+});
